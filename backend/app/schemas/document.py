@@ -1,0 +1,85 @@
+# =============================================================================
+# 이 파일의 책임: 문서 업로드/분석/목록/상세 API의 요청·응답 Pydantic 스키마를
+#   정의한다 (§7 API 계약 그대로). 필드명은 모두 snake_case이며 camelCase로
+#   변환하지 않는다 — 프론트(React)도 snake_case 그대로 사용하기로 합의됨.
+# 다른 파일과의 관계: models/document.py(Document/ExtractedText/Analysis)의
+#   ORM 인스턴스를 이 스키마로 변환해 라우터가 응답한다 (services/*가 담당,
+#   담당자 A/B/C가 구현). result 필드는 분석기마다 구조가 달라 dict[str, Any]로
+#   열어두어, 분석기가 추가돼도 API 응답 스펙(analyses[].result의 타입)이
+#   바뀌지 않게 한다.
+# Spring 비교: @RestController가 반환하는 Response DTO 클래스들과 동일한 역할.
+#   model_config(from_attributes=True)는 Spring에서 Entity -> DTO를 변환할 때
+#   흔히 쓰는 정적 팩토리(예: DocumentResponse.from(entity))를, Pydantic이
+#   Model.model_validate(orm_instance) 한 줄로 대신해주는 것과 같다.
+# =============================================================================
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class DocumentUploadResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    file_type: str
+    document_type: str
+    status: str
+    page_count: int
+    char_count: int
+    extract_method: str
+    created_at: datetime
+
+
+class AnalyzeRequest(BaseModel):
+    # 생략 시(None) 서비스 레이어가 기본으로 summary/category 둘 다 실행한다.
+    analyzer_types: list[str] | None = None
+
+
+class AnalysisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    analyzer_type: str
+    result: dict[str, Any] = Field(validation_alias="result_json")
+    provider: str
+    model_name: str
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    latency_ms: int | None = None
+    created_at: datetime
+
+
+class AnalyzeResponse(BaseModel):
+    document_id: int
+    analyses: list[AnalysisResponse]
+
+
+class DocumentListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    document_type: str
+    status: str
+    category: str | None = None
+    summary_preview: str | None = None
+    created_at: datetime
+
+
+class DocumentDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    file_type: str
+    document_type: str
+    status: str
+    created_at: datetime
+    extracted_text: str | None = None
+    page_count: int | None = None
+    char_count: int | None = None
+    extract_method: str | None = None
+    analyses: list[AnalysisResponse] = []

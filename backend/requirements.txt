@@ -1,0 +1,28 @@
+# --- Web framework ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+python-multipart==0.0.32
+
+# --- Data validation / config ---
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+PyYAML==6.0.2
+
+# --- Database ---
+sqlalchemy
+psycopg2-binary
+
+# --- Document processing ---
+pymupdf
+python-docx
+
+# --- AI ---
+openai
+
+# --- OCR
+paddlepaddle==3.2.0
+paddleocr==3.2.0
+opencv-python-headless==4.12.0.88
+Pillow==11.3.0
+numpy==2.2.6
