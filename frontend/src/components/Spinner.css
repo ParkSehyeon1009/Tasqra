@@ -1,0 +1,49 @@
+.spinner-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+}
+
+.spinner-wrap--inline {
+  flex-direction: row;
+  gap: 8px;
+  padding: 0;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 2.5px solid var(--c-border);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+
+.spinner-wrap--inline .spinner {
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
+}
+
+.spinner-label {
+  font-size: var(--c-font-sm);
+  color: var(--c-text-muted);
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* 움직임을 줄이도록 설정한 사용자에게는 회전 대신 깜빡임으로 대체 */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: spinner-fade 1.2s ease-in-out infinite;
+  }
+  @keyframes spinner-fade {
+    50% { opacity: 0.35; }
+  }
+}

@@ -1,0 +1,47 @@
+:root {
+  font-family: Inter, Pretendard, "Noto Sans KR", "Segoe UI", sans-serif;
+  color: #475569;
+  background: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: #f5f7fb;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(49, 87, 213, 0.055), transparent 32%),
+    #f5f7fb;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+::selection {
+  background: rgba(49, 87, 213, 0.18);
+}
