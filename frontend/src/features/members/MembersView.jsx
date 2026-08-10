@@ -1,8 +1,12 @@
+import { useState } from 'react'
+import ConfirmDialog from '../../components/common/ConfirmDialog'
 import PageHeading from '../../components/common/PageHeading'
 
 export default function MembersView({ members, role, onInvite, onRole, onRemove }) {
+  const [removeTarget, setRemoveTarget] = useState(null)
   return <><PageHeading eyebrow="PROJECT SETTINGS" title="프로젝트 설정" description="팀원과 접근 권한을 관리합니다."/><section className="panel settings-panel"><div className="panel-head"><h2>팀원</h2><span>{members.length}명</span></div>
-    {role === 'OWNER' && <InviteForm onSubmit={onInvite}/>}<MemberList members={members} role={role} onRole={onRole} onRemove={onRemove}/></section></>
+    {role === 'OWNER' && <InviteForm onSubmit={onInvite}/>}<MemberList members={members} role={role} onRole={onRole} onRemove={setRemoveTarget}/></section>
+    <ConfirmDialog open={Boolean(removeTarget)} title="팀원을 제외할까요?" message={removeTarget ? `${removeTarget.name}님은 더 이상 이 프로젝트에 접근할 수 없습니다.` : ''} confirmLabel="제외" danger onCancel={() => setRemoveTarget(null)} onConfirm={() => { onRemove(removeTarget); setRemoveTarget(null) }}/></>
 }
 
 function InviteForm({ onSubmit }) {
