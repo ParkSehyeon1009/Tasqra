@@ -20,3 +20,8 @@ __all__ = [
     "ExtractMethod",
     "AnalyzerType",
 ]
+from app.models.user import User
+from app.models.project import Project, ProjectMember
+from app.models.document import Analysis, Document, ExtractedText
+
+__all__ = ["User", "Project", "ProjectMember", "Document", "ExtractedText", "Analysis"]

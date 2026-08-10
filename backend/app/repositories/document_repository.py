@@ -27,8 +27,8 @@ class DocumentRepository:
         self._db.flush()
         return document
 
-    def get_by_id(self, document_id: int) -> Document | None:
-        return self._db.get(Document, document_id)
+    def get_by_id(self, project_id: int, document_id: int) -> Document | None:
+        return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).one_or_none()
 
     def delete(self, document: Document) -> None:
         self._db.delete(document)
@@ -36,13 +36,14 @@ class DocumentRepository:
     def search(
         self,
         *,
+        project_id: int,
         q: str | None,
         document_type: str | None,
         category: str | None,
         page: int,
         size: int,
     ) -> tuple[list[Document], int]:
-        query = self._db.query(Document)
+        query = self._db.query(Document).filter(Document.project_id == project_id)
 
         if q:
             # 파일명 또는 본문(extracted_texts.content) 부분검색.

@@ -7,6 +7,12 @@ export const http = axios.create({
   timeout: 120000, // 분석(LLM)이 오래 걸릴 수 있어 넉넉히 둔다
 })
 
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem('tasqra_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 // --- 요청 인터셉터 -----------------------------------------------------------
 // 로그인 기능을 추가하면 이 자리에 토큰.
 // http.interceptors.request.use((config) => {
@@ -39,6 +45,10 @@ http.interceptors.response.use(
     normalized.code = data?.code
     normalized.status = error.response?.status
     normalized.requestId = data?.request_id
+    if (normalized.status === 401) {
+      localStorage.removeItem('tasqra_token')
+      window.dispatchEvent(new Event('tasqra:unauthorized'))
+    }
     return Promise.reject(normalized)
   },
 )

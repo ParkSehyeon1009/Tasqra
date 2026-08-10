@@ -23,9 +23,10 @@ class DocumentUploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    project_id: int
     filename: str
     file_type: str
-    document_type: str
+    document_type: str | None
     status: str
     page_count: int
     char_count: int
@@ -62,7 +63,7 @@ class DocumentListItem(BaseModel):
 
     id: int
     filename: str
-    document_type: str
+    document_type: str | None
     status: str
     category: str | None = None
     summary_preview: str | None = None
@@ -73,9 +74,10 @@ class DocumentDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    project_id: int
     filename: str
     file_type: str
-    document_type: str
+    document_type: str | None
     status: str
     created_at: datetime
     extracted_text: str | None = None

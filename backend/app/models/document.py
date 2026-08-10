@@ -1,84 +1,93 @@
-# =============================================================================
-# 이 파일의 책임: PDF Brief AI의 핵심 엔티티 3종(Document, ExtractedText,
-#   Analysis)을 SQLAlchemy 모델로 정의한다. documents:extracted_texts는 1:1,
-#   documents:analyses는 1:N 관계이며, 재분석/모델 비교 실험을 위해 절대
-#   테이블을 하나로 합치지 않는다 (documents에 summary 컬럼을 두는 식의 단순화 금지).
-# 다른 파일과의 관계: db/base.py의 Base를 상속한다. repositories/*가 이 모델로
-#   쿼리하고, schemas/document.py가 이 모델을 API 응답 스키마로 변환한다.
-#   document_type은 문자열 컬럼일 뿐 AI 모델 선택 값이 아니다 — 단순 분류 라벨.
-# Spring 비교: JPA @Entity + @OneToOne/@OneToMany와 동일한 매핑.
-#   Document.extracted_text = @OneToOne(mappedBy="document"),
-#   Document.analyses = @OneToMany(mappedBy="document")에 대응한다.
-# =============================================================================
-
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.enums import DocumentStatus, ProcessingMode, ReviewStatus
 
 
 class Document(Base):
     __tablename__ = "documents"
-
-    id = Column(Integer, primary_key=True)
-    filename = Column(String(255), nullable=False)
-    stored_path = Column(String(500), nullable=False)
-    file_type = Column(String(20), nullable=False)
-    file_size = Column(Integer, nullable=False)
-    document_type = Column(String(50), nullable=False, default="general")
-    status = Column(String(20), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
-
-    extracted_text = relationship(
-        "ExtractedText",
-        back_populates="document",
-        uselist=False,
-        cascade="all, delete-orphan",
+    __table_args__ = (
+        CheckConstraint("file_size >= 0", name="ck_document_file_size"),
+        CheckConstraint("ocr_revision >= 1", name="ck_document_ocr_revision"),
+        Index("ix_doc_list", "project_id", "created_at"),
+        Index("ix_doc_type", "project_id", "document_type"),
     )
-    analyses = relationship(
-        "Analysis",
-        back_populates="document",
-        cascade="all, delete-orphan",
-    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    uploaded_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    document_type: Mapped[str | None] = mapped_column(String(30))
+    document_type_source: Mapped[str | None] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentStatus.PENDING.value)
+    processing_mode: Mapped[str] = mapped_column(String(20), nullable=False, default=ProcessingMode.NORMAL.value)
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False, default=ReviewStatus.NOT_REQUIRED.value)
+    reviewed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    ocr_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    category_cache: Mapped[str | None] = mapped_column(String(30))
+    summary_preview: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    project = relationship("Project", back_populates="documents")
+    uploader = relationship("User", foreign_keys=[uploaded_by])
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    extracted_text = relationship("ExtractedText", back_populates="document", uselist=False, cascade="all, delete-orphan")
+    analyses = relationship("Analysis", back_populates="document", cascade="all, delete-orphan")
+
+    @property
+    def stored_path(self) -> str:
+        return self.storage_path
 
 
 class ExtractedText(Base):
     __tablename__ = "extracted_texts"
+    __table_args__ = (
+        CheckConstraint("page_count IS NULL OR page_count >= 0", name="ck_extracted_page_count"),
+        CheckConstraint("char_count IS NULL OR char_count >= 0", name="ck_extracted_char_count"),
+        CheckConstraint("text_version >= 1", name="ck_extracted_text_version"),
+    )
 
-    id = Column(Integer, primary_key=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, unique=True)
-    content = Column(Text, nullable=False)
-    page_count = Column(Integer, nullable=False)
-    char_count = Column(Integer, nullable=False)
-    extract_method = Column(String(20), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    char_count: Mapped[int | None] = mapped_column(Integer)
+    extract_method: Mapped[str | None] = mapped_column(String(20))
+    text_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    confirmed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     document = relationship("Document", back_populates="extracted_text")
 
 
 class Analysis(Base):
     __tablename__ = "analyses"
+    __table_args__ = (Index("ix_analysis_doc_type", "document_id", "analyzer_type"),)
 
-    id = Column(Integer, primary_key=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    analyzer_type = Column(String(30), nullable=False)
-    result_json = Column(JSONB, nullable=False)
-    provider = Column(String(30), nullable=False)
-    model_name = Column(String(50), nullable=False)
-    prompt_version = Column(String(20), nullable=False)
-    # 본프로젝트에서 자체 파인튜닝 모델 vs 상용 API 비교 실험에 쓰이므로
-    # 이 세 컬럼(tokens_in/tokens_out/latency_ms)은 생략하지 않는다.
-    tokens_in = Column(Integer, nullable=True)
-    tokens_out = Column(Integer, nullable=True)
-    latency_ms = Column(Integer, nullable=True)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    analyzer_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    result_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    source_text_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     document = relationship("Document", back_populates="analyses")
 
-    # AnalysisResponse 스키마의 필드명은 result 인데 컬럼명은 result_json 이므로,
-    # ORM -> 스키마 변환(model_validate)에서 찾을 수 있도록 별칭을 제공한다.
     @property
     def result(self) -> dict:
         return self.result_json
-

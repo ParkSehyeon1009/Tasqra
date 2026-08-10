@@ -59,6 +59,7 @@ class DocumentService:
     def search_documents(
         self,
         *,
+        project_id: int,
         q: str | None,
         document_type: str | None,
         category: str | None,
@@ -66,6 +67,7 @@ class DocumentService:
         size: int,
     ) -> tuple[list[DocumentListRow], int, int]:
         documents, total = self._document_repository.search(
+            project_id=project_id,
             q=q,
             document_type=document_type,
             category=category,
@@ -103,20 +105,20 @@ class DocumentService:
         )
 
     # ------------------------------------------------------------------ 상세
-    def get_document(self, document_id: int) -> Document:
-        document = self._document_repository.get_by_id(document_id)
+    def get_document(self, project_id: int, document_id: int) -> Document:
+        document = self._document_repository.get_by_id(project_id, document_id)
         if document is None:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return document
 
     # -------------------------------------------------------------- 다운로드
-    def build_summary_text(self, document_id: int) -> tuple[str, str]:
+    def build_summary_text(self, project_id: int, document_id: int) -> tuple[str, str]:
         """(다운로드 파일명, 파일 내용) 을 반환한다.
 
         지시서 ⑧ "요약 내용 .txt 다운로드" 에 해당한다. 원문 전체가 아니라
         요약 · 카테고리 · 분류 근거만 담아 보고서 형태로 만든다.
         """
-        document = self.get_document(document_id)
+        document = self.get_document(project_id, document_id)
 
         latest_summary = self._analysis_repository.get_latest_by_type(
             document.id, AnalyzerType.SUMMARY.value
@@ -165,14 +167,14 @@ class DocumentService:
         return download_filename, content
     
     # ------------------------------------------------------------------ 삭제
-    def delete_document(self, document_id: int) -> None:
+    def delete_document(self, project_id: int, document_id: int) -> None:
         """문서와 연관 데이터, 업로드된 원본 파일을 함께 제거한다.
 
         extracted_texts / analyses 는 모델의 cascade 설정으로 함께 삭제된다.
         파일은 DB 삭제가 커밋된 뒤에 지운다 — 파일을 먼저 지우면 DB 삭제가
         실패했을 때 "기록은 있는데 파일이 없는" 상태가 되어 더 나쁘다.
         """
-        document = self.get_document(document_id)
+        document = self.get_document(project_id, document_id)
         stored_path = document.stored_path
 
         with transactional(self._db):
