@@ -1,0 +1,23 @@
+.document-drop-target {
+  position: relative;
+}
+
+.document-drop-target.is-dragging {
+  outline: 3px solid #6b63e8;
+  outline-offset: 3px;
+}
+
+.drop-overlay {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #f0f2ffeb;
+  color: #4f46d5;
+  font-size: 20px;
+  font-weight: 800;
+  border: 3px dashed #766ee8;
+  border-radius: inherit;
+  pointer-events: none;
+}

@@ -40,16 +40,19 @@ function WorkspaceContent({ project, tab, navigate, notify, user, onLogout, dele
   const [pendingFile, setPendingFile] = useState(null)
   const canEdit = project.role !== 'VIEWER'
   const openUpload = () => fileInputRef.current?.click()
-  async function upload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
+  function requestUpload(file) {
+    if (!file || !canEdit) return
     const extension = file.name.split('.').pop()?.toLowerCase()
     if (extension === 'docx' || extension === 'hwpx') {
       setPendingFile(file)
-      event.target.value = ''
       return
     }
-    try { await data.uploadFile(file, 'AUTO') } catch { /* 공통 토스트에서 처리 */ }
+    return data.uploadFile(file, 'AUTO')
+  }
+  async function upload(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try { await requestUpload(file) } catch { /* 공통 토스트에서 처리 */ }
     finally { event.target.value = '' }
   }
   async function confirmDocumentUpload(extractionStrategy) {
@@ -63,13 +66,13 @@ function WorkspaceContent({ project, tab, navigate, notify, user, onLogout, dele
   }
   return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
     <nav className="tabs">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
-    <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+    <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploading={data.uploading} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
     <DocumentUploadOptionsDialog file={pendingFile} uploading={data.uploading} onCancel={() => setPendingFile(null)} onConfirm={confirmDocumentUpload}/>
   </div>
 }
 
-function TabContent({ tab, project, data, canEdit, onUpload, onDeleteProject, deleting }) {
-  if (tab === 'documents') return <DocumentsView documents={data.documents} canEdit={canEdit} onUpload={onUpload}/>
+function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploading, onDeleteProject, deleting }) {
+  if (tab === 'documents') return <DocumentsView documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploading={uploading}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView documents={data.documents} members={data.members}/>
   return <BoardView/>
