@@ -48,7 +48,6 @@ class ErrorCode(Enum):
     # ── OCR 검수 (리비전 0004: document_pages · ocr_groups · ocr_elements) ──
     PAGE_NOT_FOUND = ("PAGE_NOT_FOUND", "문서 페이지를 찾을 수 없습니다.", 404)
     OCR_ELEMENT_NOT_FOUND = ("OCR_ELEMENT_NOT_FOUND", "인식 영역을 찾을 수 없습니다.", 404)
-    OCR_ELEMENT_CONFLICT = ("OCR_ELEMENT_CONFLICT", "다른 사용자가 먼저 수정했습니다. 새로 불러온 뒤 다시 시도해 주세요.", 409)
     OCR_ELEMENT_DELETED = ("OCR_ELEMENT_DELETED", "삭제된 인식 영역은 수정할 수 없습니다.", 409)
     INVALID_BBOX = ("INVALID_BBOX", "인식 영역의 좌표가 올바르지 않습니다.", 400)
     RE_OCR_FAILED = ("RE_OCR_FAILED", "선택한 영역을 다시 인식하지 못했습니다.", 502)
