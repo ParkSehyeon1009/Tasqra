@@ -7,7 +7,7 @@ from app.dependencies import ProjectAccess, get_current_user, get_project_access
 from app.models.project import ProjectMember
 from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
-from app.schemas.project import MemberAddRequest, MemberResponse, MemberRoleUpdateRequest, ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
+from app.schemas.project import InvitationResponse, MemberAddRequest, MemberResponse, MemberRoleUpdateRequest, ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
 from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -22,6 +22,14 @@ def project_response(project, role: str) -> ProjectResponse:
 
 def member_response(member: ProjectMember) -> MemberResponse:
     return MemberResponse(id=member.id, user_id=member.user_id, login_id=member.user.login_id, email=member.user.email, name=member.user.name, role=member.role, invited_at=member.invited_at)
+
+def invitation_response(invitation) -> InvitationResponse:
+    return InvitationResponse(
+        id=invitation.id, project_id=invitation.project_id, project_name=invitation.project.name,
+        invitee_id=invitation.invitee_id, invitee_login_id=invitation.invitee.login_id,
+        invitee_name=invitation.invitee.name, inviter_name=invitation.inviter.name,
+        role=invitation.role, status=invitation.status, created_at=invitation.created_at,
+    )
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(body: ProjectCreateRequest, user: User = Depends(get_current_user), service: ProjectService = Depends(get_project_service)):
@@ -52,6 +60,14 @@ def list_members(access: ProjectAccess = Depends(get_project_access), repository
 def add_member(body: MemberAddRequest, access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service), repository: ProjectRepository = Depends(get_project_repository)):
     member = service.add_member(access.project, body.login_id, body.role)
     return member_response(repository.get_member(access.project.id, member.user_id))
+
+@router.get("/{project_id}/invitations", response_model=list[InvitationResponse])
+def list_project_invitations(access: ProjectAccess = Depends(get_project_owner_access), repository: ProjectRepository = Depends(get_project_repository)):
+    return [invitation_response(item) for item in repository.list_invitations_for_project(access.project.id)]
+
+@router.post("/{project_id}/invitations", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
+def invite_member(body: MemberAddRequest, user: User = Depends(get_current_user), access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service)):
+    return invitation_response(service.invite_member(access.project, user, body.login_id, body.role))
 
 def find_member(project_id: int, user_id: int, repository: ProjectRepository) -> ProjectMember:
     member = repository.get_member(project_id, user_id)

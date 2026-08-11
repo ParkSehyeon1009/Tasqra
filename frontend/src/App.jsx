@@ -24,12 +24,12 @@ export default function App() {
   return <>
     <Toast toast={toast} onClose={closeToast}/>
     <Routes>
-      <Route path="/" element={<LandingPage/>}/>
+      <Route path="/" element={<LandingPage user={session.user} onLogout={session.logout} notify={notify}/>}/>
       <Route path="/login" element={session.user ? <Navigate to="/projects" replace/> : <AuthPage mode="login" onAuthenticated={session.login} notify={notify}/>}/>
       <Route path="/signup" element={session.user ? <Navigate to="/projects" replace/> : <AuthPage mode="signup" onAuthenticated={session.login} notify={notify}/>}/>
       <Route path="/projects" element={<ProtectedRoute {...session}><ProjectsPage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="/projects/:projectId" element={<Navigate to="documents" replace/>}/>
-      <Route path="/projects/:projectId/:tab" element={<ProtectedRoute {...session}><WorkspacePage notify={notify}/></ProtectedRoute>}/>
+      <Route path="/projects/:projectId/:tab" element={<ProtectedRoute {...session}><WorkspacePage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="*" element={<NotFoundPage/>}/>
     </Routes>
   </>

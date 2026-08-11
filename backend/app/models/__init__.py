@@ -21,7 +21,7 @@ __all__ = [
     "AnalyzerType",
 ]
 from app.models.user import User
-from app.models.project import Project, ProjectMember
+from app.models.project import Project, ProjectInvitation, ProjectMember
 from app.models.document import Analysis, Document, ExtractedText
 
-__all__ = ["User", "Project", "ProjectMember", "Document", "ExtractedText", "Analysis"]
+__all__ = ["User", "Project", "ProjectMember", "ProjectInvitation", "Document", "ExtractedText", "Analysis"]

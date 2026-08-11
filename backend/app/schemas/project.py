@@ -49,3 +49,16 @@ class MemberResponse(BaseModel):
     name: str
     role: str
     invited_at: datetime
+
+
+class InvitationResponse(BaseModel):
+    id: int
+    project_id: int
+    project_name: str
+    invitee_id: int
+    invitee_login_id: str
+    invitee_name: str
+    inviter_name: str
+    role: str
+    status: str
+    created_at: datetime

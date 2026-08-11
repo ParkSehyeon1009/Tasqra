@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { addMember, listMembers, listProjectDocuments, removeMember, updateMember, uploadProjectDocument } from '../api/project'
+import { inviteMember, listMembers, listProjectDocuments, removeMember, updateMember, uploadProjectDocument } from '../api/project'
 
 const FALLBACK_ERROR = '요청 처리 중 오류가 발생했습니다.'
 
@@ -11,12 +11,12 @@ export function useWorkspaceData(project, notify) {
   const documentsQuery = useQuery({ queryKey: documentsKey, queryFn: () => listProjectDocuments(project.id) })
 
   const inviteMutation = useMutation({
-    mutationFn: values => addMember(project.id, values),
-    onSuccess: member => {
-      queryClient.setQueryData(membersKey, current => [...(current ?? []), member])
-      notify('success', '팀원 추가 완료', `${member.name}님을 ${member.role} 권한으로 추가했습니다.`)
+    mutationFn: values => inviteMember(project.id, values),
+    onSuccess: invitation => {
+      queryClient.invalidateQueries({ queryKey: ['recent-invitees'] })
+      notify('success', '초대 전송 완료', `${invitation.invitee_name}님에게 프로젝트 초대를 보냈습니다.`)
     },
-    onError: error => notify('error', '팀원 추가 실패', error.message || FALLBACK_ERROR),
+    onError: error => notify('error', '초대 전송 실패', error.message || FALLBACK_ERROR),
   })
   const roleMutation = useMutation({
     mutationFn: ({ member, role }) => updateMember(project.id, member.user_id, role),
@@ -50,8 +50,9 @@ export function useWorkspaceData(project, notify) {
   })
 
   async function invite(event) {
-    event.preventDefault(); const form = event.currentTarget
-    try { await inviteMutation.mutateAsync(Object.fromEntries(new FormData(form))); form.reset() } catch { /* mutation 알림 사용 */ }
+    event.preventDefault()
+    const form = event.currentTarget
+    try { await inviteMutation.mutateAsync(Object.fromEntries(new FormData(form))); form.reset() } catch { /* 공통 토스트에서 처리 */ }
   }
 
   return {

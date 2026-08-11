@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.project import Project, ProjectMember
+from app.models.project import Project, ProjectInvitation, ProjectMember
 
 
 class ProjectRepository:
@@ -49,3 +49,32 @@ class ProjectRepository:
 
     def delete_member(self, member: ProjectMember) -> None:
         self._db.delete(member)
+
+    def save_invitation(self, invitation: ProjectInvitation) -> ProjectInvitation:
+        self._db.add(invitation)
+        self._db.flush()
+        return invitation
+
+    def get_invitation(self, invitation_id: int) -> ProjectInvitation | None:
+        return self._db.query(ProjectInvitation).filter(ProjectInvitation.id == invitation_id).one_or_none()
+
+    def get_invitation_for_user(self, invitation_id: int, user_id: int) -> ProjectInvitation | None:
+        return self._db.query(ProjectInvitation).filter(ProjectInvitation.id == invitation_id, ProjectInvitation.invitee_id == user_id).one_or_none()
+
+    def get_project_invitation(self, project_id: int, invitee_id: int) -> ProjectInvitation | None:
+        return self._db.query(ProjectInvitation).filter_by(project_id=project_id, invitee_id=invitee_id).one_or_none()
+
+    def list_invitations_for_user(self, user_id: int) -> list[ProjectInvitation]:
+        return self._db.query(ProjectInvitation).filter(ProjectInvitation.invitee_id == user_id, ProjectInvitation.status == "PENDING").order_by(ProjectInvitation.created_at.desc()).all()
+
+    def list_invitations_for_project(self, project_id: int) -> list[ProjectInvitation]:
+        return self._db.query(ProjectInvitation).filter(ProjectInvitation.project_id == project_id).order_by(ProjectInvitation.created_at.desc()).all()
+
+    def list_sent_invitations(self, inviter_id: int) -> list[ProjectInvitation]:
+        return (
+            self._db.query(ProjectInvitation)
+            .options(joinedload(ProjectInvitation.invitee))
+            .filter(ProjectInvitation.invited_by == inviter_id)
+            .order_by(ProjectInvitation.created_at.desc())
+            .all()
+        )

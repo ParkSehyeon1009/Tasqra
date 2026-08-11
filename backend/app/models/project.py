@@ -39,3 +39,25 @@ class ProjectMember(Base):
 
     project = relationship("Project", back_populates="members")
     user = relationship("User", back_populates="memberships")
+
+
+class ProjectInvitation(Base):
+    __tablename__ = "project_invitations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "invitee_id", name="uq_project_invitee"),
+        CheckConstraint("role IN ('EDITOR', 'VIEWER')", name="ck_invitation_role"),
+        CheckConstraint("status IN ('PENDING', 'ACCEPTED', 'DECLINED')", name="ck_invitation_status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    invitee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    invited_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    responded_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+
+    project = relationship("Project")
+    invitee = relationship("User", foreign_keys=[invitee_id])
+    inviter = relationship("User", foreign_keys=[invited_by])

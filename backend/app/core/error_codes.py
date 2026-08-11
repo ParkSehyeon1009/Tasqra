@@ -14,6 +14,8 @@ class ErrorCode(Enum):
     OWNER_ROLE_RESERVED = ("OWNER_ROLE_RESERVED", "프로젝트 소유자 역할은 이 작업으로 변경할 수 없습니다.", 409)
     INVALID_PROJECT_DATES = ("INVALID_PROJECT_DATES", "프로젝트 시작일은 종료일보다 늦을 수 없습니다.", 400)
     INVALID_PROJECT_NAME = ("INVALID_PROJECT_NAME", "프로젝트 이름은 비워둘 수 없습니다.", 400)
+    INVITATION_NOT_FOUND = ("INVITATION_NOT_FOUND", "프로젝트 초대를 찾을 수 없습니다.", 404)
+    INVITATION_NOT_PENDING = ("INVITATION_NOT_PENDING", "이미 처리된 프로젝트 초대입니다.", 409)
     INVALID_FILE_TYPE = ("INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다.", 400)
     FILE_TOO_LARGE = ("FILE_TOO_LARGE", "파일 크기가 허용 범위를 초과했습니다.", 413)
     TOO_MANY_PAGES = ("TOO_MANY_PAGES", "페이지 수가 허용 범위를 초과했습니다.", 413)
