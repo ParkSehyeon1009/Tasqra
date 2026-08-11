@@ -134,8 +134,14 @@ class DocumentService:
                 document.extracted_text.char_count = len(document.extracted_text.content)
                 document.extracted_text.text_version += 1
             document.ocr_revision += 1
-            if document.review_status == ReviewStatus.PENDING.value:
+            if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
                 document.review_status = ReviewStatus.IN_PROGRESS.value
+                document.reviewed_by = None
+                document.reviewed_at = None
+                if document.extracted_text:
+                    document.extracted_text.is_confirmed = False
+                    document.extracted_text.confirmed_by = None
+                    document.extracted_text.confirmed_at = None
         return element
 
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:

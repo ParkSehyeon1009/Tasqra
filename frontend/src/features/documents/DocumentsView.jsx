@@ -2,6 +2,7 @@ import { useState } from 'react'
 import PageHeading from '../../components/common/PageHeading'
 import DocumentDetailPanel from './DocumentDetailPanel'
 import './DocumentsView.css'
+import './DocumentReviewBadge.css'
 
 export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName }) {
   const [dragging, setDragging] = useState(false)
@@ -33,7 +34,7 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
 }
 
 function DocumentList({ documents, onSelect }) {
-  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><small>{document.extract_method || '처리 대기'} · {document.char_count?.toLocaleString() ?? 0}자</small></div><span className="type-pill">{document.document_type || '미분류'}</span><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
+  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><small>{document.extract_method || '처리 대기'} · {document.char_count?.toLocaleString() ?? 0}자</small></div><span className="type-pill">{document.document_type || '미분류'}</span><ReviewBadge status={document.review_status}/><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
 }
 
 function ProcessingDocument({ filename }) {
@@ -50,4 +51,9 @@ function EmptyDocuments({ onUpload, canEdit }) {
 
 function statusLabel(status) {
   return { PENDING: '대기 중', EXTRACTING: '추출 중', EXTRACTED: '추출 완료', ANALYZING: '분석 중', COMPLETED: '완료', FAILED: '실패' }[status] ?? status
+}
+
+function ReviewBadge({ status }) {
+  if (status === 'NOT_REQUIRED') return null
+  return <span className={`document-review-badge review-${status?.toLowerCase()}`}>{({ PENDING: '검수 필요', IN_PROGRESS: '검수 중', COMPLETED: '검수 완료' })[status] ?? status}</span>
 }

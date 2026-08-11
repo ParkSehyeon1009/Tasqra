@@ -6,6 +6,7 @@ import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
 import '../styles/ocr-review.css'
+import '../styles/ocr-review-adjustments.css'
 
 export default function OcrReviewPage({ user, onLogout, notify }) {
   const { projectId, documentId } = useParams()
@@ -22,7 +23,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const pages = review?.pages ?? []
   const page = pages[pageIndex]
   const selected = useMemo(() => page?.elements.find(item => item.id === selectedId) ?? null, [page, selectedId])
-  const canEdit = projectQuery.data?.role !== 'VIEWER' && review?.review_status !== 'COMPLETED'
+  const canEdit = projectQuery.data?.role !== 'VIEWER'
 
   useEffect(() => {
     if (!page) return
@@ -31,15 +32,17 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     setDraft(next?.text ?? '')
   }, [page?.id, selected?.version])
 
-  function selectElement(element) {
+  function selectElement(element, moveToEditor = false) {
     setSelectedId(element.id)
     setDraft(element.text)
+    if (moveToEditor) requestAnimationFrame(() => document.getElementById(`ocr-element-${element.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
   }
 
   const updateMutation = useMutation({
     mutationFn: () => updateOcrElement(projectId, documentId, selected.id, draft, selected.version),
     onSuccess: updated => {
-      queryClient.setQueryData(reviewKey, current => ({ ...current, ocr_revision: current.ocr_revision + 1, review_status: current.review_status === 'PENDING' ? 'IN_PROGRESS' : current.review_status, pages: current.pages.map(item => item.id === page.id ? { ...item, elements: item.elements.map(element => element.id === updated.id ? updated : element) } : item) }))
+      queryClient.setQueryData(reviewKey, current => ({ ...current, ocr_revision: current.ocr_revision + 1, review_status: 'IN_PROGRESS', pages: current.pages.map(item => item.id === page.id ? { ...item, elements: item.elements.map(element => element.id === updated.id ? updated : element) } : item) }))
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true })
       notify('success', 'OCR 텍스트 저장 완료', '선택한 영역의 텍스트를 수정했습니다.')
     },
@@ -64,14 +67,14 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
     <header className="ocr-review-toolbar">
       <div><button className="back-button" onClick={() => navigate(`/projects/${projectId}/documents`)}>← 문서로 돌아가기</button><h1>{documentQuery.data?.filename ?? 'OCR 검수'}</h1><p>원본 영역을 선택하고 인식된 텍스트를 확인·수정하세요.</p></div>
-      <div className="ocr-review-actions"><StatusBadge status={review?.review_status}/><button className="primary" disabled={!canEdit || completeMutation.isPending} onClick={() => completeMutation.mutate()}>검수 완료</button></div>
+      <div className="ocr-review-actions"><StatusBadge status={review?.review_status}/><button className="primary" disabled={!canEdit || review?.review_status === 'COMPLETED' || completeMutation.isPending} onClick={() => completeMutation.mutate()}>{review?.review_status === 'COMPLETED' ? '검수 완료됨' : '검수 완료'}</button></div>
     </header>
     {(reviewQuery.isPending || documentQuery.isPending) && <LoadingState label="OCR 검수 데이터를 불러오는 중..."/>}
     {reviewQuery.isError && <div className="ocr-review-error">OCR 검수 데이터를 불러오지 못했습니다.<button onClick={() => reviewQuery.refetch()}>다시 시도</button></div>}
     {review && pages.length === 0 && <div className="ocr-review-empty"><h2>검수할 OCR 영역이 없습니다.</h2><p>텍스트 레이어로 추출된 문서이거나 OCR 좌표가 생성되지 않은 문서입니다.</p></div>}
     {page && <main className="ocr-review-workspace">
-      <section className="ocr-canvas-panel"><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={index => { setPageIndex(index); setSelectedId(null) }}/><OcrCanvas page={page} selectedId={selectedId} onSelect={selectElement}/><ConfidenceLegend/></section>
-      <aside className="ocr-editor-panel"><h2>인식 텍스트</h2><p className="editor-help">왼쪽 원본에서 박스를 선택하세요.</p>{selected ? <><ConfidenceSummary confidence={selected.confidence}/><label>원본 인식 결과<textarea value={draft} readOnly={!canEdit} onChange={event => setDraft(event.target.value)}/></label><div className="original-value"><span>최초 인식 원문</span><p>{selected.original_text}</p></div><button className="primary save-ocr" disabled={!canEdit || draft === selected.text || updateMutation.isPending} onClick={() => updateMutation.mutate()}>{updateMutation.isPending ? '저장 중...' : '수정 내용 저장'}</button></> : <div className="no-selection">선택할 텍스트 영역이 없습니다.</div>}<ElementList elements={page.elements} selectedId={selectedId} onSelect={selectElement}/></aside>
+      <section className="ocr-canvas-panel"><div className="ocr-canvas-toolbar"><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={index => { setPageIndex(index); setSelectedId(null) }}/></div><OcrCanvas page={page} selectedId={selectedId} onSelect={element => selectElement(element, true)}/></section>
+      <aside className="ocr-editor-panel"><h2>인식 텍스트</h2><p className="editor-help">원본 박스를 누르면 해당 항목으로 이동합니다. 선택한 항목 바로 아래에서 수정할 수 있습니다.</p><ElementList elements={page.elements} selectedId={selectedId} onSelect={selectElement} draft={draft} onDraft={setDraft} canEdit={canEdit} saving={updateMutation.isPending} onSave={() => updateMutation.mutate()}/></aside>
     </main>}
   </div>
 }
@@ -86,5 +89,5 @@ function PageNavigator({ pageIndex, pageCount, onChange }) { return <div classNa
 function StatusBadge({ status }) { return <span className={`review-status review-status-${status?.toLowerCase()}`}>{({ PENDING: '검수 대기', IN_PROGRESS: '검수 중', COMPLETED: '검수 완료' })[status] ?? '불러오는 중'}</span> }
 function ConfidenceSummary({ confidence }) { const level = confidenceLevel(confidence); return <div className={`confidence-summary confidence-${level}`}><strong>인식 신뢰도</strong><span>{confidence == null ? '정보 없음' : `${Math.round(confidence * 100)}%`}</span></div> }
 function ConfidenceLegend() { return <div className="confidence-legend"><span className="high">높음</span><span className="medium">검토 권장</span><span className="low">낮음</span><span className="selected-key">선택 영역</span></div> }
-function ElementList({ elements, selectedId, onSelect }) { return <section className="ocr-element-list"><h3>현재 페이지 영역 <span>{elements.length}</span></h3>{elements.map((element, index) => <button className={selectedId === element.id ? 'active' : ''} key={element.id} onClick={() => onSelect(element)}><i className={`confidence-dot confidence-${confidenceLevel(element.confidence)}`}/><span>{index + 1}. {element.text || '(빈 텍스트)'}</span><small>v{element.version}</small></button>)}</section> }
+function ElementList({ elements, selectedId, onSelect, draft, onDraft, canEdit, saving, onSave }) { return <section className="ocr-element-list"><h3>현재 페이지 영역 <span>{elements.length}</span></h3>{elements.map((element, index) => <article id={`ocr-element-${element.id}`} className={selectedId === element.id ? 'active' : ''} key={element.id}><button className="ocr-element-summary" onClick={() => onSelect(element)}><i className={`confidence-dot confidence-${confidenceLevel(element.confidence)}`}/><span>{index + 1}. {element.text || '(빈 텍스트)'}</span><small>v{element.version}</small></button>{selectedId === element.id && <div className="inline-ocr-editor"><ConfidenceSummary confidence={element.confidence}/><label>선택 영역 텍스트<textarea value={draft} readOnly={!canEdit} onChange={event => onDraft(event.target.value)}/></label><div className="original-value"><span>최초 인식 원문</span><p>{element.original_text}</p></div><button className="primary save-ocr" disabled={!canEdit || draft === element.text || saving} onClick={onSave}>{saving ? '저장 중...' : '수정 내용 저장'}</button></div>}</article>)}</section> }
 function confidenceLevel(value) { if (value == null || value < .65) return 'low'; if (value < .85) return 'medium'; return 'high' }

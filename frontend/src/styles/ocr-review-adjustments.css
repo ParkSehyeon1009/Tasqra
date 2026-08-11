@@ -1,0 +1,88 @@
+.ocr-canvas-toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 62px;
+  padding: 0 18px;
+  border-bottom: 1px solid #e1e6ee;
+}
+
+.ocr-canvas-toolbar .confidence-legend {
+  flex: 1;
+  padding: 0;
+  border: 0;
+}
+
+.ocr-canvas-toolbar .page-navigator {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  height: auto;
+  border: 0;
+  white-space: nowrap;
+}
+
+.ocr-element-list > article {
+  margin-bottom: 7px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  scroll-margin: 20px;
+}
+
+.ocr-element-list > article.active {
+  border-color: #bfc4f5;
+  background: #f4f4ff;
+}
+
+.ocr-element-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ocr-element-summary:hover {
+  background: #eeefff;
+}
+
+.ocr-element-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocr-element-summary small {
+  color: #8893a3;
+}
+
+.inline-ocr-editor {
+  padding: 14px;
+  border-top: 1px solid #d9dcf5;
+  background: white;
+}
+
+.inline-ocr-editor textarea {
+  width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .ocr-canvas-toolbar {
+    align-items: flex-start;
+    flex-direction: column-reverse;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .ocr-canvas-toolbar .page-navigator {
+    position: static;
+    align-self: center;
+    transform: none;
+  }
+}

@@ -1,0 +1,19 @@
+.document-review-badge {
+  padding: 7px 10px;
+  border-radius: 99px;
+  background: #fff1d2;
+  color: #986300;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.document-review-badge.review-in_progress {
+  background: #e7eeff;
+  color: #355ad9;
+}
+
+.document-review-badge.review-completed {
+  background: #e5f8ec;
+  color: #138046;
+}
