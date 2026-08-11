@@ -1,6 +1,7 @@
 import { http } from './http'
 
 export async function listProjects() { return (await http.get('/api/projects')).data }
+export async function getProject(projectId) { return (await http.get(`/api/projects/${projectId}`)).data }
 export async function createProject(payload) { return (await http.post('/api/projects', payload)).data }
 export async function deleteProject(projectId) { await http.delete(`/api/projects/${projectId}`) }
 export async function listMembers(projectId) { return (await http.get(`/api/projects/${projectId}/members`)).data }

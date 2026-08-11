@@ -1,5 +1,7 @@
 import { useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
 import BoardView from '../features/board/BoardView'
@@ -15,11 +17,19 @@ const TABS = [['dashboard','대시보드'],['documents','문서'],['board','보�
 export default function WorkspacePage({ user, onLogout, notify }) {
   const { projectId, tab } = useParams()
   const navigate = useNavigate()
-  const { projects, loading, deleteMutation } = useProjectsQuery(notify)
-  const project = projects.find(item => String(item.id) === projectId)
+  const projectQuery = useQuery({
+    queryKey: ['project-access', projectId],
+    queryFn: () => getProject(projectId),
+    retry: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: 3_000,
+  })
+  const { deleteMutation } = useProjectsQuery(notify)
+  const project = projectQuery.data
   if (!TABS.some(([key]) => key === tab)) return <Navigate to={`/projects/${projectId}/documents`} replace/>
-  if (loading) return <LoadingState label="프로젝트를 불러오는 중..."/>
-  if (!project) return <Navigate to="/projects" replace/>
+  if (projectQuery.isPending) return <LoadingState label="프로젝트 접근 권한을 확인하는 중..."/>
+  if (projectQuery.isError || !project) return <Navigate to="/projects" replace/>
   return <WorkspaceContent project={project} tab={tab} navigate={navigate} notify={notify} user={user} onLogout={onLogout} deleteMutation={deleteMutation}/>
 }
 
