@@ -18,6 +18,32 @@ export async function getDocument(projectId, documentId) {
   return data
 }
 
+export async function getOcrReview(projectId, documentId) {
+  return (await http.get(`/api/projects/${projectId}/documents/${documentId}/review`)).data
+}
+
+export async function getOcrPageImage(imageUrl) {
+  const response = await http.get(imageUrl, { responseType: 'blob' })
+  return await blobToDataUrl(response.data)
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+export async function updateOcrElement(projectId, documentId, elementId, text, version) {
+  return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}`, { text, version })).data
+}
+
+export async function completeOcrReview(projectId, documentId) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
+}
+
 // GET /api/documents/{id}/download?format=txt — 요약 .txt 다운로드
 // 서버가 Content-Disposition 에 한글 파일명을 UTF-8 로 인코딩해 보내므로,
 // 그 값을 파싱해 실제 파일명으로 저장한다.

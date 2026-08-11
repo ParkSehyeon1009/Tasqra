@@ -15,7 +15,7 @@ import re
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models.document import Analysis, Document, ExtractedText
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement
 
 
 class DocumentRepository:
@@ -32,6 +32,12 @@ class DocumentRepository:
 
     def delete(self, document: Document) -> None:
         self._db.delete(document)
+
+    def get_review_page(self, project_id: int, document_id: int, page_id: int) -> DocumentPage | None:
+        return self._db.query(DocumentPage).join(Document).filter(Document.project_id == project_id, Document.id == document_id, DocumentPage.id == page_id).one_or_none()
+
+    def get_ocr_element(self, project_id: int, document_id: int, element_id: int) -> OcrElement | None:
+        return self._db.query(OcrElement).join(DocumentPage).join(Document).filter(Document.project_id == project_id, Document.id == document_id, OcrElement.id == element_id).one_or_none()
 
     def search(
         self,

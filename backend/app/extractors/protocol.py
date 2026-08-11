@@ -11,8 +11,29 @@
 #   (AIClientProtocol.generate만 async인 것과 대조된다).
 # =============================================================================
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class ExtractedElement:
+    x: float
+    y: float
+    width: float
+    height: float
+    text: str
+    confidence: float | None = None
+    source: str = "OCR"
+
+
+@dataclass(frozen=True)
+class ExtractedPage:
+    page_number: int
+    width: int
+    height: int
+    image_bytes: bytes
+    elements: tuple[ExtractedElement, ...] = field(default_factory=tuple)
+    page_kind: str = "PAGE"
 
 
 @dataclass(frozen=True)
@@ -21,6 +42,7 @@ class ExtractResult:
     page_count: int
     char_count: int
     extract_method: str
+    review_pages: tuple[ExtractedPage, ...] = field(default_factory=tuple)
 
 
 class TextExtractor(Protocol):

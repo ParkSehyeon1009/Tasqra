@@ -17,7 +17,7 @@ export async function declineInvitation(invitationId) { await http.post(`/api/in
 export async function updateMember(projectId, userId, role) { return (await http.patch(`/api/projects/${projectId}/members/${userId}`, { role })).data }
 export async function removeMember(projectId, userId) { await http.delete(`/api/projects/${projectId}/members/${userId}`) }
 export async function listProjectDocuments(projectId) { return (await http.get(`/api/projects/${projectId}/documents`)).data }
-export async function uploadProjectDocument(projectId, file) {
-  const body = new FormData(); body.append('file', file)
+export async function uploadProjectDocument(projectId, file, extractionStrategy = 'AUTO') {
+  const body = new FormData(); body.append('file', file); body.append('extraction_strategy', extractionStrategy)
   return (await http.post(`/api/projects/${projectId}/documents`, body)).data
 }

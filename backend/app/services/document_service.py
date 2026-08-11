@@ -22,8 +22,8 @@ from sqlalchemy.orm import Session
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
-from app.models.document import Document
-from app.models.enums import AnalyzerType
+from app.models.document import Document, OcrElementRevision
+from app.models.enums import AnalyzerType, ReviewStatus
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
 
@@ -111,6 +111,51 @@ class DocumentService:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return document
 
+    def get_review_page(self, project_id: int, document_id: int, page_id: int):
+        page = self._document_repository.get_review_page(project_id, document_id, page_id)
+        if page is None:
+            raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+        return page
+
+    def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
+        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
+        if element is None:
+            raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+        if element.version != version:
+            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+        document = element.page.document
+        before = element.text
+        with transactional(self._db):
+            self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=before, after_text=text, from_version=version, to_version=version + 1))
+            element.text = text
+            element.version += 1
+            if document.extracted_text:
+                document.extracted_text.content = document.extracted_text.content.replace(before, text, 1)
+                document.extracted_text.char_count = len(document.extracted_text.content)
+                document.extracted_text.text_version += 1
+            document.ocr_revision += 1
+            if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
+                document.review_status = ReviewStatus.IN_PROGRESS.value
+                document.reviewed_by = None
+                document.reviewed_at = None
+                if document.extracted_text:
+                    document.extracted_text.is_confirmed = False
+                    document.extracted_text.confirmed_by = None
+                    document.extracted_text.confirmed_at = None
+        return element
+
+    def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
+        document = self.get_document(project_id, document_id)
+        with transactional(self._db):
+            document.review_status = ReviewStatus.COMPLETED.value
+            document.reviewed_by = user_id
+            document.reviewed_at = datetime.now().astimezone()
+            if document.extracted_text:
+                document.extracted_text.is_confirmed = True
+                document.extracted_text.confirmed_by = user_id
+                document.extracted_text.confirmed_at = document.reviewed_at
+        return document
+
     # -------------------------------------------------------------- 다운로드
     def build_summary_text(self, project_id: int, document_id: int) -> tuple[str, str]:
         """(다운로드 파일명, 파일 내용) 을 반환한다.
@@ -176,6 +221,7 @@ class DocumentService:
         """
         document = self.get_document(project_id, document_id)
         stored_path = document.stored_path
+        review_paths = [page.image_path for page in document.review_pages]
 
         with transactional(self._db):
             self._document_repository.delete(document)
@@ -186,6 +232,13 @@ class DocumentService:
             except OSError:
                 # 파일 정리 실패는 조회·목록에 영향이 없으므로 요청을 실패시키지 않는다.
                 logger.warning("업로드 파일 삭제 실패: %s", stored_path)
+
+        for review_path in review_paths:
+            if review_path and os.path.exists(review_path):
+                try:
+                    os.remove(review_path)
+                except OSError:
+                    logger.warning("OCR 검수 이미지 삭제 실패: %s", review_path)
 
 
     @staticmethod

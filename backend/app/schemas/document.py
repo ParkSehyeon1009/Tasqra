@@ -63,8 +63,13 @@ class DocumentListItem(BaseModel):
 
     id: int
     filename: str
+    file_type: str
     document_type: str | None
     status: str
+    review_status: str
+    page_count: int | None = None
+    char_count: int | None = None
+    extract_method: str | None = None
     category: str | None = None
     summary_preview: str | None = None
     created_at: datetime
@@ -79,9 +84,48 @@ class DocumentDetailResponse(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    review_status: str
+    extraction_strategy: str
     created_at: datetime
     extracted_text: str | None = None
     page_count: int | None = None
     char_count: int | None = None
     extract_method: str | None = None
     analyses: list[AnalysisResponse] = []
+
+
+class OcrElementResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    original_text: str
+    text: str
+    x: float
+    y: float
+    width: float
+    height: float
+    confidence: float | None
+    source: str
+    reading_order: int
+    version: int
+
+
+class OcrPageResponse(BaseModel):
+    id: int
+    page_number: int
+    page_kind: str
+    width: int
+    height: int
+    image_url: str
+    elements: list[OcrElementResponse]
+
+
+class OcrReviewResponse(BaseModel):
+    document_id: int
+    review_status: str
+    ocr_revision: int
+    pages: list[OcrPageResponse]
+
+
+class OcrElementUpdateRequest(BaseModel):
+    text: str = Field(max_length=10000)
+    version: int = Field(ge=1)

@@ -9,7 +9,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.extractors.layout import LayoutElement
 from app.extractors.ocr_extractor import OcrExtractor
-from app.extractors.protocol import ExtractResult, TextExtractor
+from app.extractors.protocol import ExtractedElement, ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.reading_order import build_reading_groups
 from app.models.enums import ExtractMethod
 
@@ -22,6 +22,7 @@ class PdfExtractor(TextExtractor):
 
     def extract(self, file_path: str) -> ExtractResult:
         page_contents: list[str] = []
+        review_pages: list[ExtractedPage] = []
 
         has_text = False
         has_ocr = False
@@ -54,6 +55,9 @@ class PdfExtractor(TextExtractor):
                         page_left=float(page.rect.x0),
                     )
 
+                if page_has_ocr:
+                    review_pages.append(self._build_review_page(page, elements, len(page_contents) + 1))
+
                 page_content = "\n".join(
                     element.content
                     for element in elements
@@ -76,7 +80,28 @@ class PdfExtractor(TextExtractor):
             page_count=page_count,
             char_count=len(content),
             extract_method=extract_method,
+            review_pages=tuple(review_pages),
         )
+
+    @staticmethod
+    def _build_review_page(page: fitz.Page, elements: list[LayoutElement], page_number: int) -> ExtractedPage:
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        page_width = max(float(page.rect.width), 1.0)
+        page_height = max(float(page.rect.height), 1.0)
+        review_elements = []
+        for element in elements:
+            if element.source != "ocr" or not element.content.strip():
+                continue
+            x2 = element.x2 if element.x2 is not None else element.x
+            y2 = element.y2 if element.y2 is not None else element.y
+            review_elements.append(ExtractedElement(
+                x=max(0.0, min(1.0, element.x / page_width)),
+                y=max(0.0, min(1.0, element.y / page_height)),
+                width=max(0.0, min(1.0, (x2 - element.x) / page_width)),
+                height=max(0.0, min(1.0, (y2 - element.y) / page_height)),
+                text=element.content, confidence=element.confidence,
+            ))
+        return ExtractedPage(page_number, pixmap.width, pixmap.height, pixmap.tobytes("png"), tuple(review_elements))
 
     def _extract_page(
         self,

@@ -19,7 +19,7 @@ class DocxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str) -> ExtractResult:
+    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
         doc = Document(file_path)
 
         contents: list[str] = []
@@ -27,10 +27,10 @@ class DocxExtractor(TextExtractor):
         for block in self._iter_block_items(doc):
 
             if isinstance(block, Paragraph):
-                self._extract_paragraph(block, contents)
+                self._extract_paragraph(block, contents, include_image_ocr)
 
             elif isinstance(block, Table):
-                self._extract_table(block, contents)
+                self._extract_table(block, contents, include_image_ocr)
 
         content = "\n".join(contents)
 
@@ -57,18 +57,21 @@ class DocxExtractor(TextExtractor):
         self,
         paragraph: Paragraph,
         contents: list[str],
+        include_image_ocr: bool,
     ) -> None:
         text = paragraph.text.strip()
 
         if text:
             contents.append(text)
 
-        self._extract_images(paragraph, contents)
+        if include_image_ocr:
+            self._extract_images(paragraph, contents)
 
     def _extract_table(
         self,
         table: Table,
         contents: list[str],
+        include_image_ocr: bool,
     ) -> None:
         for row in table.rows:
 
@@ -87,7 +90,8 @@ class DocxExtractor(TextExtractor):
                         cell_text.append(text)
 
                     # 셀 안 이미지 OCR
-                    self._extract_images(paragraph, cell_text)
+                    if include_image_ocr:
+                        self._extract_images(paragraph, cell_text)
 
                 if cell_text:
                     row_contents.append("\n".join(cell_text))
