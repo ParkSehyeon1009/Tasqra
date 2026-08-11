@@ -1,3 +1,4 @@
+import hashlib
 import os
 import uuid
 from pathlib import Path
@@ -27,7 +28,7 @@ class ExtractionService:
         self._document_repository = document_repository
         self._extractor_registry = extractor_registry
 
-    def upload_and_extract(self, filename: str, content: bytes) -> Document:
+    def upload_and_extract(self, project_id: int, uploaded_by: int, filename: str, content: bytes) -> Document:
         safe_filename = self._sanitize_filename(filename)
         extension = Path(safe_filename).suffix.lower()
 
@@ -90,12 +91,15 @@ class ExtractionService:
             with transactional(self._db):
                 document = self._document_repository.create(
                     Document(
+                        project_id=project_id,
+                        uploaded_by=uploaded_by,
                         # 사용자에게 표시할 원래 파일명
                         filename=safe_filename,
                         # UUID 기반 실제 저장 경로
-                        stored_path=stored_path,
+                        storage_path=stored_path,
                         file_type=file_type,
                         file_size=len(content),
+                        content_hash=hashlib.sha256(content).hexdigest(),
                         status=DocumentStatus.EXTRACTED.value,
                     )
                 )

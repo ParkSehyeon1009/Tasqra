@@ -1,0 +1,26 @@
+.mobile-menu-button{display:none;margin-left:auto;width:42px;height:42px;border:1px solid #d7e0ec;border-radius:10px;background:white;font-size:20px;cursor:pointer}
+.danger-zone{max-width:900px;margin-top:22px;display:flex;align-items:center;justify-content:space-between;gap:20px;border-color:#f0caca}
+.danger-zone h2{margin:0;color:#a52828}
+.danger-zone p{margin:8px 0 0;color:#78859a}
+.danger-button{flex:none;padding:11px 16px;border:1px solid #cf3d3d;border-radius:10px;background:white;color:#b52e2e;font-weight:800;cursor:pointer}
+.danger-button:hover{background:#fff3f3}
+.danger-button:disabled{opacity:.5;cursor:not-allowed}
+
+@media(max-width:800px){
+  .app-header{height:72px}
+  .app-header__brand .logo strong{display:none}
+  .app-header__brand .logo span{width:36px;height:36px}
+  .app-header__divider{margin:0 10px}
+  .app-header__project{display:block;max-width:calc(100vw - 145px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+  .mobile-menu-button{display:block}
+  .app-header__nav{display:none;position:absolute;left:12px;right:12px;top:64px;margin:0;padding:12px;align-items:stretch;flex-direction:column;gap:8px;border:1px solid #d7e0ec;border-radius:14px;background:white;box-shadow:0 18px 48px #1828472b}
+  .app-header__nav.is-open{display:flex}
+  .app-header__nav>a,.app-header__nav>a:not(.primary){display:block;text-align:center}
+  .app-header__nav .header-menu{width:100%}
+  .header-icon-button,.profile-button,.logout-button{width:100%;justify-content:center}
+  .header-popover{position:static;inset:auto;width:100%;margin-top:8px;box-shadow:none}
+  .profile-button span{display:inline}
+  .app-frame{overflow:visible}
+  .danger-zone{align-items:flex-start;flex-direction:column}
+  .danger-button{width:100%}
+}

@@ -13,9 +13,11 @@
 #   여기서는 settings.USE_FAKE_AI 값을 보고 if/else로 직접 선택한다.
 # =============================================================================
 
+from dataclasses import dataclass
 from functools import lru_cache
 
 from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.ai.client_protocol import AIClientProtocol
@@ -25,6 +27,9 @@ from app.analyzers.category_analyzer import CategoryAnalyzer
 from app.analyzers.protocol import Analyzer
 from app.analyzers.summary_analyzer import SummaryAnalyzer
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.extractors.docx_extractor import DocxExtractor
 from app.extractors.fake_extractor import FakeExtractor
@@ -35,9 +40,24 @@ from app.extractors.pdf_extractor import PdfExtractor
 from app.extractors.registry import ExtractorRegistry
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.user_repository import UserRepository
+from app.models.enums import MemberRole
+from app.models.project import Project, ProjectMember
+from app.models.user import User
+from app.services.auth_service import AuthService
+from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
 from app.services.extraction_service import ExtractionService
 from app.services.document_service import DocumentService
+
+bearer = HTTPBearer(auto_error=False)
+
+
+@dataclass(frozen=True)
+class ProjectAccess:
+    project: Project
+    member: ProjectMember
 
 
 
@@ -92,6 +112,49 @@ def get_document_repository(db: Session = Depends(get_db)) -> DocumentRepository
 
 def get_analysis_repository(db: Session = Depends(get_db)) -> AnalysisRepository:
     return AnalysisRepository(db)
+
+
+def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
+    return UserRepository(db)
+
+
+def get_project_repository(db: Session = Depends(get_db)) -> ProjectRepository:
+    return ProjectRepository(db)
+
+
+def get_auth_service(db: Session = Depends(get_db), users: UserRepository = Depends(get_user_repository)) -> AuthService:
+    return AuthService(db, users)
+
+
+def get_project_service(db: Session = Depends(get_db), projects: ProjectRepository = Depends(get_project_repository), users: UserRepository = Depends(get_user_repository)) -> ProjectService:
+    return ProjectService(db, projects, users)
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer), users: UserRepository = Depends(get_user_repository)) -> User:
+    user_id = decode_access_token(credentials.credentials) if credentials else None
+    user = users.get_by_id(user_id) if user_id else None
+    if user is None or not user.is_active:
+        raise BusinessError(ErrorCode.UNAUTHORIZED)
+    return user
+
+
+def get_project_access(project_id: int, user: User = Depends(get_current_user), projects: ProjectRepository = Depends(get_project_repository)) -> ProjectAccess:
+    row = projects.get_for_user(project_id, user.id)
+    if row is None:
+        raise BusinessError(ErrorCode.PROJECT_NOT_FOUND)
+    return ProjectAccess(*row)
+
+
+def get_project_editor_access(access: ProjectAccess = Depends(get_project_access)) -> ProjectAccess:
+    if access.member.role not in {MemberRole.OWNER.value, MemberRole.EDITOR.value}:
+        raise BusinessError(ErrorCode.PROJECT_FORBIDDEN)
+    return access
+
+
+def get_project_owner_access(access: ProjectAccess = Depends(get_project_access)) -> ProjectAccess:
+    if access.member.role != MemberRole.OWNER.value or access.project.owner_id != access.member.user_id:
+        raise BusinessError(ErrorCode.PROJECT_FORBIDDEN)
+    return access
 
 
 def get_analysis_service(

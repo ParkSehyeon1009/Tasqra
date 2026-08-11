@@ -36,3 +36,26 @@ class ExtractMethod(str, Enum):
 class AnalyzerType(str, Enum):
     SUMMARY = "summary"
     CATEGORY = "category"
+
+
+class MemberRole(str, Enum):
+    OWNER = "OWNER"
+    EDITOR = "EDITOR"
+    VIEWER = "VIEWER"
+
+
+class ProjectStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
+class ProcessingMode(str, Enum):
+    NORMAL = "NORMAL"
+    REVIEW = "REVIEW"
+
+
+class ReviewStatus(str, Enum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"

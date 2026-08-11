@@ -1,23 +1,21 @@
-# =============================================================================
-# 이 파일의 책임: 서비스 전체에서 사용할 "에러의 종류"를 한 곳에 모아 정의한다.
-#   각 케이스는 (내부 식별 코드, 사용자 노출 메시지, HTTP 상태 코드) 3요소를 가진다.
-# 다른 파일과의 관계: exceptions.py의 BusinessError가 이 Enum 멤버를 받아서
-#   예외를 표현하고, 전역 exception_handler가 이 정보를 ErrorResponse로 변환한다.
-# Spring 비교: 커스텀 ErrorCode enum + BusinessException(errorCode) 조합과 동일.
-#   Spring에서 흔히 ErrorCode 인터페이스/enum에 (code, message, HttpStatus)를
-#   같이 묶어두는 패턴을 그대로 Python Enum으로 옮긴 것입니다.
-# =============================================================================
-
 from enum import Enum
 
 
 class ErrorCode(Enum):
-
-    USER_NOT_FOUND = ("USER_NOT_FOUND", "사용자를 찾을 수 없습니다", 404)
-    DUPLICATE_USER = ("DUPLICATE_USER", "이미 존재하는 사용자입니다", 409)
-    INTERNAL_ERROR = ("INTERNAL_ERROR", "서버 내부 오류가 발생했습니다", 500)
-
-    # --- PDF Brief AI 도메인 에러코드 ---------------------------------------
+    USER_NOT_FOUND = ("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.", 404)
+    DUPLICATE_USER = ("DUPLICATE_USER", "이미 가입된 이메일입니다.", 409)
+    DUPLICATE_LOGIN_ID = ("DUPLICATE_LOGIN_ID", "이미 사용 중인 아이디입니다.", 409)
+    INVALID_CREDENTIALS = ("INVALID_CREDENTIALS", "이메일 또는 비밀번호가 올바르지 않습니다.", 401)
+    UNAUTHORIZED = ("UNAUTHORIZED", "로그인이 필요합니다.", 401)
+    PROJECT_NOT_FOUND = ("PROJECT_NOT_FOUND", "프로젝트를 찾을 수 없습니다.", 404)
+    PROJECT_FORBIDDEN = ("PROJECT_FORBIDDEN", "프로젝트에 접근할 권한이 없습니다.", 403)
+    DUPLICATE_MEMBER = ("DUPLICATE_MEMBER", "이미 프로젝트에 참여 중인 사용자입니다.", 409)
+    MEMBER_NOT_FOUND = ("MEMBER_NOT_FOUND", "프로젝트 멤버를 찾을 수 없습니다.", 404)
+    OWNER_ROLE_RESERVED = ("OWNER_ROLE_RESERVED", "프로젝트 소유자 역할은 이 작업으로 변경할 수 없습니다.", 409)
+    INVALID_PROJECT_DATES = ("INVALID_PROJECT_DATES", "프로젝트 시작일은 종료일보다 늦을 수 없습니다.", 400)
+    INVALID_PROJECT_NAME = ("INVALID_PROJECT_NAME", "프로젝트 이름은 비워둘 수 없습니다.", 400)
+    INVITATION_NOT_FOUND = ("INVITATION_NOT_FOUND", "프로젝트 초대를 찾을 수 없습니다.", 404)
+    INVITATION_NOT_PENDING = ("INVITATION_NOT_PENDING", "이미 처리된 프로젝트 초대입니다.", 409)
     INVALID_FILE_TYPE = ("INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다.", 400)
     FILE_TOO_LARGE = ("FILE_TOO_LARGE", "파일 크기가 허용 범위를 초과했습니다.", 413)
     TOO_MANY_PAGES = ("TOO_MANY_PAGES", "페이지 수가 허용 범위를 초과했습니다.", 413)
@@ -28,6 +26,7 @@ class ErrorCode(Enum):
     ANALYZER_NOT_FOUND = ("ANALYZER_NOT_FOUND", "지원하지 않는 분석기입니다.", 400)
     AI_PROVIDER_ERROR = ("AI_PROVIDER_ERROR", "AI 분석 중 오류가 발생했습니다.", 502)
     AI_TIMEOUT = ("AI_TIMEOUT", "AI 응답 시간이 초과되었습니다.", 504)
+    INTERNAL_ERROR = ("INTERNAL_ERROR", "서버 내부 오류가 발생했습니다.", 500)
 
     def __init__(self, code: str, message: str, status_code: int):
         self.code = code

@@ -28,9 +28,9 @@ class AnalysisService:
         self._analyzer_registry = analyzer_registry
 
     async def analyze_document(
-        self, document_id: int, analyzer_types: list[str] | None
+        self, project_id: int, document_id: int, analyzer_types: list[str] | None
     ) -> list[Analysis]:
-        document = self._document_repository.get_by_id(document_id)
+        document = self._document_repository.get_by_id(project_id, document_id)
         if document is None:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         if document.extracted_text is None:
@@ -75,6 +75,7 @@ class AnalysisService:
                         tokens_in=result.tokens_in,
                         tokens_out=result.tokens_out,
                         latency_ms=result.latency_ms,
+                        source_text_revision=document.ocr_revision,
                     )
                 )
                 for analyzer_type, result in results
