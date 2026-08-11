@@ -7,6 +7,7 @@ class ErrorCode(Enum):
     DUPLICATE_LOGIN_ID = ("DUPLICATE_LOGIN_ID", "이미 사용 중인 아이디입니다.", 409)
     INVALID_CREDENTIALS = ("INVALID_CREDENTIALS", "이메일 또는 비밀번호가 올바르지 않습니다.", 401)
     UNAUTHORIZED = ("UNAUTHORIZED", "로그인이 필요합니다.", 401)
+    INVALID_REFRESH_TOKEN = ("INVALID_REFRESH_TOKEN", "유효하지 않거나 만료된 로그인 세션입니다.", 401)
     PROJECT_NOT_FOUND = ("PROJECT_NOT_FOUND", "프로젝트를 찾을 수 없습니다.", 404)
     PROJECT_FORBIDDEN = ("PROJECT_FORBIDDEN", "프로젝트에 접근할 권한이 없습니다.", 403)
     DUPLICATE_MEMBER = ("DUPLICATE_MEMBER", "이미 프로젝트에 참여 중인 사용자입니다.", 409)

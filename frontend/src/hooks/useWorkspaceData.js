@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { inviteMember, listMembers, listProjectDocuments, removeMember, updateMember, uploadProjectDocument } from '../api/project'
+import { cancelProjectInvitation, inviteMember, listMembers, listProjectDocuments, listProjectInvitations, removeMember, updateMember, updateProject, uploadProjectDocument } from '../api/project'
 
 const FALLBACK_ERROR = '요청 처리 중 오류가 발생했습니다.'
 
@@ -7,16 +7,36 @@ export function useWorkspaceData(project, notify) {
   const queryClient = useQueryClient()
   const membersKey = ['projects', project.id, 'members']
   const documentsKey = ['projects', project.id, 'documents']
+  const invitationsKey = ['projects', project.id, 'invitations']
   const membersQuery = useQuery({ queryKey: membersKey, queryFn: () => listMembers(project.id) })
   const documentsQuery = useQuery({ queryKey: documentsKey, queryFn: () => listProjectDocuments(project.id) })
+  const invitationsQuery = useQuery({ queryKey: invitationsKey, queryFn: () => listProjectInvitations(project.id), enabled: project.role === 'OWNER' })
 
+  const projectMutation = useMutation({
+    mutationFn: values => updateProject(project.id, values),
+    onSuccess: updated => {
+      queryClient.setQueryData(['project-access', String(project.id)], updated)
+      queryClient.setQueryData(['projects'], current => current?.map(item => item.id === updated.id ? updated : item))
+      notify('success', '프로젝트 정보 수정 완료', '변경한 프로젝트 정보를 저장했습니다.')
+    },
+    onError: error => notify('error', '프로젝트 정보 수정 실패', error.message || FALLBACK_ERROR),
+  })
   const inviteMutation = useMutation({
     mutationFn: values => inviteMember(project.id, values),
     onSuccess: invitation => {
+      queryClient.setQueryData(invitationsKey, current => [invitation, ...(current ?? []).filter(item => item.id !== invitation.id)])
       queryClient.invalidateQueries({ queryKey: ['recent-invitees'] })
       notify('success', '초대 전송 완료', `${invitation.invitee_name}님에게 프로젝트 초대를 보냈습니다.`)
     },
     onError: error => notify('error', '초대 전송 실패', error.message || FALLBACK_ERROR),
+  })
+  const cancelInvitationMutation = useMutation({
+    mutationFn: invitation => cancelProjectInvitation(project.id, invitation.id),
+    onSuccess: (_, invitation) => {
+      queryClient.setQueryData(invitationsKey, current => current?.map(item => item.id === invitation.id ? { ...item, status: 'CANCELED' } : item))
+      notify('success', '초대 취소 완료', `${invitation.invitee_name}님에게 보낸 초대를 취소했습니다.`)
+    },
+    onError: error => notify('error', '초대 취소 실패', error.message || FALLBACK_ERROR),
   })
   const roleMutation = useMutation({
     mutationFn: ({ member, role }) => updateMember(project.id, member.user_id, role),
@@ -56,10 +76,11 @@ export function useWorkspaceData(project, notify) {
   }
 
   return {
-    members: membersQuery.data ?? [], documents: documentsQuery.data?.items ?? [],
+    members: membersQuery.data ?? [], documents: documentsQuery.data?.items ?? [], invitations: invitationsQuery.data ?? [],
     loading: membersQuery.isPending || documentsQuery.isPending,
     error: membersQuery.error || documentsQuery.error,
-    invite,
+    invite, cancelInvitation: invitation => cancelInvitationMutation.mutate(invitation),
+    updateProject: values => projectMutation.mutateAsync(values), updatingProject: projectMutation.isPending,
     changeRole: (member, role) => roleMutation.mutate({ member, role }),
     excludeMember: member => removeMutation.mutate(member),
     uploadFile: file => uploadMutation.mutateAsync(file),

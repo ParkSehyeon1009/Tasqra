@@ -8,6 +8,19 @@
 .confirm-dialog__verification{display:grid;gap:8px;margin-top:18px;padding:14px;border-radius:10px;background:#fff3f3;color:#7f1d1d;font-size:13px}
 .confirm-dialog__verification input{width:100%;padding:10px;border:1px solid #e2a7a7;border-radius:8px;background:white}
 .confirm-dialog button:disabled{opacity:.45;cursor:not-allowed}
+.settings-section{margin-top:22px}
+.project-info-form{display:grid;gap:14px;margin-top:20px}
+.project-info-form label{display:grid;gap:7px;color:#344054;font-weight:700}
+.project-info-form input,.project-info-form textarea{padding:12px;border:1px solid #d5deeb;border-radius:10px;background:white}
+.project-info-form button{justify-self:end}
+.invitation-list{list-style:none;margin:12px 0 0;padding:0}
+.invitation-list li{display:flex;align-items:center;gap:12px;padding:14px 0;border-top:1px solid #e5eaf1}
+.invitation-list li>div{flex:1}
+.invitation-list small{display:block;margin-top:5px;color:#718097}
+.invitation-list button{padding:8px 11px;border:1px solid #d5deeb;border-radius:8px;background:white;cursor:pointer}
+.invitation-status{padding:6px 9px;border-radius:99px;background:#eef2f7;color:#5c6879;font-size:12px;font-weight:800}
+.invitation-status--pending{background:#fff4d8;color:#a66a00}.invitation-status--accepted{background:#e9f8ef;color:#148348}.invitation-status--declined,.invitation-status--canceled{background:#f8eded;color:#a23a3a}
+.settings-empty{color:#718097}
 
 @media(max-width:800px){
   .app-header{height:72px}

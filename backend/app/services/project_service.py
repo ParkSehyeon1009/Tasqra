@@ -99,6 +99,13 @@ class ProjectService:
             invitation.status = "DECLINED"
             invitation.responded_at = datetime.now(timezone.utc)
 
+    def cancel_invitation(self, invitation: ProjectInvitation) -> None:
+        if invitation.status != "PENDING":
+            raise BusinessError(ErrorCode.INVITATION_NOT_PENDING)
+        with transactional(self._db):
+            invitation.status = "CANCELED"
+            invitation.responded_at = datetime.now(timezone.utc)
+
     def update_member(self, project: Project, member: ProjectMember, role: MemberRole) -> ProjectMember:
         if member.user_id == project.owner_id or role == MemberRole.OWNER:
             raise BusinessError(ErrorCode.OWNER_ROLE_RESERVED)

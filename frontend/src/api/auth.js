@@ -12,3 +12,4 @@ export async function getMe() {
   const { data } = await http.get('/api/auth/me')
   return data
 }
+export async function logout() { await http.post('/api/auth/logout') }

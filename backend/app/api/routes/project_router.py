@@ -3,7 +3,7 @@ from starlette import status
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
-from app.dependencies import ProjectAccess, get_current_user, get_project_access, get_project_owner_access, get_project_repository, get_project_service
+from app.dependencies import ProjectAccess, get_current_user, get_project_access, get_project_editor_access, get_project_owner_access, get_project_repository, get_project_service
 from app.models.project import ProjectMember
 from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
@@ -44,7 +44,7 @@ def get_project(access: ProjectAccess = Depends(get_project_access)):
     return project_response(access.project, access.member.role)
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
-def update_project(body: ProjectUpdateRequest, access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service)):
+def update_project(body: ProjectUpdateRequest, access: ProjectAccess = Depends(get_project_editor_access), service: ProjectService = Depends(get_project_service)):
     return project_response(service.update(access.project, body.model_dump(exclude_unset=True)), access.member.role)
 
 @router.delete("/{project_id}", status_code=204)
@@ -68,6 +68,14 @@ def list_project_invitations(access: ProjectAccess = Depends(get_project_owner_a
 @router.post("/{project_id}/invitations", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
 def invite_member(body: MemberAddRequest, user: User = Depends(get_current_user), access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service)):
     return invitation_response(service.invite_member(access.project, user, body.login_id, body.role))
+
+@router.delete("/{project_id}/invitations/{invitation_id}", status_code=204)
+def cancel_invitation(invitation_id: int, access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service), repository: ProjectRepository = Depends(get_project_repository)):
+    invitation = repository.get_invitation(invitation_id)
+    if invitation is None or invitation.project_id != access.project.id:
+        raise BusinessError(ErrorCode.INVITATION_NOT_FOUND)
+    service.cancel_invitation(invitation)
+    return Response(status_code=204)
 
 def find_member(project_id: int, user_id: int, repository: ProjectRepository) -> ProjectMember:
     member = repository.get_member(project_id, user_id)
