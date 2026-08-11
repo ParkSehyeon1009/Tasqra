@@ -1,16 +1,19 @@
+import logging
+import os
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.enums import MemberRole
-from app.models.enums import ProjectStatus
 from app.models.project import Project, ProjectInvitation, ProjectMember
-from datetime import datetime, timezone
 from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 
+logger = logging.getLogger(__name__)
 
 class ProjectService:
     def __init__(self, db: Session, projects: ProjectRepository, users: UserRepository) -> None:
@@ -38,9 +41,16 @@ class ProjectService:
             self._db.add(project)
         return project
 
-    def archive(self, project: Project) -> None:
+    def delete(self, project: Project) -> None:
+        storage_paths = self._projects.list_storage_paths(project.id)
         with transactional(self._db):
-            project.status = ProjectStatus.ARCHIVED.value
+            self._projects.delete_project(project)
+        for storage_path in storage_paths:
+            try:
+                if os.path.exists(storage_path):
+                    os.remove(storage_path)
+            except OSError:
+                logger.warning("프로젝트 삭제 후 원본 파일 정리 실패: %s", storage_path)
 
     def add_member(self, project: Project, login_id: str, role: MemberRole) -> ProjectMember:
         user = self._users.get_by_login_id(login_id)
@@ -87,6 +97,13 @@ class ProjectService:
             raise BusinessError(ErrorCode.INVITATION_NOT_PENDING)
         with transactional(self._db):
             invitation.status = "DECLINED"
+            invitation.responded_at = datetime.now(timezone.utc)
+
+    def cancel_invitation(self, invitation: ProjectInvitation) -> None:
+        if invitation.status != "PENDING":
+            raise BusinessError(ErrorCode.INVITATION_NOT_PENDING)
+        with transactional(self._db):
+            invitation.status = "CANCELED"
             invitation.responded_at = datetime.now(timezone.utc)
 
     def update_member(self, project: Project, member: ProjectMember, role: MemberRole) -> ProjectMember:

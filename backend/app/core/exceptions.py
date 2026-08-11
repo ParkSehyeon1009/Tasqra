@@ -33,6 +33,13 @@ class BusinessError(Exception):
 logger = getLogger(__name__)
 
 async def business_error_handler(request: Request, exc: BusinessError) -> JSONResponse:
+    logger.warning(
+        "Business error: method=%s path=%s code=%s status=%s",
+        request.method,
+        request.url.path,
+        exc.error_code.code,
+        exc.error_code.status_code,
+    )
     body = ErrorResponse(
         code= exc.error_code.code,
         message= exc.detail or exc.error_code.message,

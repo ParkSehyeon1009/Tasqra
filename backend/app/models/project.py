@@ -46,7 +46,7 @@ class ProjectInvitation(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "invitee_id", name="uq_project_invitee"),
         CheckConstraint("role IN ('EDITOR', 'VIEWER')", name="ck_invitation_role"),
-        CheckConstraint("status IN ('PENDING', 'ACCEPTED', 'DECLINED')", name="ck_invitation_status"),
+        CheckConstraint("status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'CANCELED')", name="ck_invitation_status"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

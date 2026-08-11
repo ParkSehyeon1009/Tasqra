@@ -3,11 +3,13 @@ import { http } from './http'
 export async function listProjects() { return (await http.get('/api/projects')).data }
 export async function getProject(projectId) { return (await http.get(`/api/projects/${projectId}`)).data }
 export async function createProject(payload) { return (await http.post('/api/projects', payload)).data }
+export async function updateProject(projectId, payload) { return (await http.patch(`/api/projects/${projectId}`, payload)).data }
 export async function deleteProject(projectId) { await http.delete(`/api/projects/${projectId}`) }
 export async function listMembers(projectId) { return (await http.get(`/api/projects/${projectId}/members`)).data }
 export async function addMember(projectId, payload) { return (await http.post(`/api/projects/${projectId}/members`, payload)).data }
 export async function inviteMember(projectId, payload) { return (await http.post(`/api/projects/${projectId}/invitations`, payload)).data }
 export async function listProjectInvitations(projectId) { return (await http.get(`/api/projects/${projectId}/invitations`)).data }
+export async function cancelProjectInvitation(projectId, invitationId) { await http.delete(`/api/projects/${projectId}/invitations/${invitationId}`) }
 export async function listMyInvitations() { return (await http.get('/api/invitations')).data }
 export async function listRecentInvitees() { return (await http.get('/api/invitations/recent-invitees')).data }
 export async function acceptInvitation(invitationId) { await http.post(`/api/invitations/${invitationId}/accept`) }
