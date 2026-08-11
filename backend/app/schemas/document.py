@@ -63,8 +63,13 @@ class DocumentListItem(BaseModel):
 
     id: int
     filename: str
+    file_type: str
     document_type: str | None
     status: str
+    review_status: str
+    page_count: int | None = None
+    char_count: int | None = None
+    extract_method: str | None = None
     category: str | None = None
     summary_preview: str | None = None
     created_at: datetime
@@ -79,6 +84,8 @@ class DocumentDetailResponse(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    review_status: str
+    extraction_strategy: str
     created_at: datetime
     extracted_text: str | None = None
     page_count: int | None = None

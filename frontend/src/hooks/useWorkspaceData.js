@@ -85,5 +85,6 @@ export function useWorkspaceData(project, notify) {
     excludeMember: member => removeMutation.mutate(member),
     uploadFile: (file, extractionStrategy = 'AUTO') => uploadMutation.mutateAsync({ file, extractionStrategy }),
     uploading: uploadMutation.isPending,
+    uploadingFileName: uploadMutation.variables?.file?.name ?? null,
   }
 }
