@@ -28,6 +28,7 @@ class DocumentUploadResponse(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    review_status: str
     page_count: int
     char_count: int
     extract_method: str

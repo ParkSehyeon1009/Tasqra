@@ -1,0 +1,128 @@
+.analysis-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid #d9e0eb;
+  border-radius: 13px;
+  background: #f8f9ff;
+}
+
+.analysis-toolbar strong,
+.analysis-toolbar span {
+  display: block;
+}
+
+.analysis-toolbar span {
+  margin-top: 4px;
+  color: #758197;
+  font-size: 13px;
+}
+
+.analysis-toolbar button,
+.analysis-footer-actions button {
+  padding: 10px 13px;
+  border: 1px solid #d2dae7;
+  border-radius: 9px;
+  background: white;
+  cursor: pointer;
+}
+
+.analysis-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.analysis-footer-actions .reanalyze-button {
+  background: #554bd8;
+  border-color: #554bd8;
+  color: white;
+}
+
+.analysis-history {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #d8dfeb;
+  border-radius: 14px;
+  background: #f5f7fa;
+}
+
+.analysis-history h3 {
+  margin: 0 0 4px;
+}
+
+.compact-analysis {
+  padding: 17px;
+}
+
+.compact-analysis .analysis-copy {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.revision-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.revision-heading span {
+  padding: 4px 8px;
+  border-radius: 99px;
+  background: #ecebff;
+  color: #5048bd;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.history-tab details {
+  margin-top: 10px;
+}
+
+.history-tab summary {
+  color: #4f57aa;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.revision-detail {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 10px 0 0;
+  padding: 13px;
+  border-radius: 9px;
+  background: #f5f7fa;
+}
+
+.revision-detail dt {
+  color: #758197;
+  font-size: 12px;
+}
+
+.revision-detail dd {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .analysis-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .revision-detail {
+    grid-template-columns: 1fr;
+  }
+}
