@@ -19,7 +19,7 @@ class HwpxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str) -> ExtractResult:
+    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
         with zipfile.ZipFile(file_path) as archive:
             section_names = self._find_section_names(archive)
             image_paths = self._read_manifest(archive)
@@ -37,6 +37,7 @@ class HwpxExtractor(TextExtractor):
                         paragraph,
                         archive,
                         image_paths,
+                        include_image_ocr,
                     )
                     contents.extend(paragraph_contents)
 
@@ -57,6 +58,7 @@ class HwpxExtractor(TextExtractor):
         paragraph: ET.Element,
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
+        include_image_ocr: bool,
     ) -> list[str]:
         contents: list[str] = []
 
@@ -76,11 +78,12 @@ class HwpxExtractor(TextExtractor):
                         element,
                         archive,
                         image_paths,
+                        include_image_ocr,
                     )
                     if table_text:
                         contents.append(table_text)
 
-                elif element_name == "pic":
+                elif element_name == "pic" and include_image_ocr:
                     image_text = self._extract_picture(
                         element,
                         archive,
@@ -96,6 +99,7 @@ class HwpxExtractor(TextExtractor):
         table: ET.Element,
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
+        include_image_ocr: bool,
     ) -> str:
         rows: list[str] = []
 
@@ -112,6 +116,7 @@ class HwpxExtractor(TextExtractor):
                                 paragraph,
                                 archive,
                                 image_paths,
+                                include_image_ocr,
                             )
                         )
 

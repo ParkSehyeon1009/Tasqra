@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.document import Document
+from app.models.document import Document, DocumentPage
 from app.models.project import Project, ProjectInvitation, ProjectMember
 
 
@@ -52,7 +52,9 @@ class ProjectRepository:
         self._db.delete(member)
 
     def list_storage_paths(self, project_id: int) -> list[str]:
-        return [path for (path,) in self._db.query(Document.storage_path).filter(Document.project_id == project_id).all() if path]
+        originals = self._db.query(Document.storage_path).filter(Document.project_id == project_id).all()
+        review_images = self._db.query(DocumentPage.image_path).join(Document).filter(Document.project_id == project_id).all()
+        return [path for (path,) in originals + review_images if path]
 
     def delete_project(self, project: Project) -> None:
         self._db.delete(project)

@@ -9,7 +9,7 @@
 #   패키지 진입점에서 명시적으로 모아 import해준다.
 # =============================================================================
 
-from app.models.document import Analysis, Document, ExtractedText
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
 from app.models.enums import AnalyzerType, DocumentStatus, ExtractMethod
 
 __all__ = [
@@ -22,6 +22,6 @@ __all__ = [
 ]
 from app.models.user import RefreshToken, User
 from app.models.project import Project, ProjectInvitation, ProjectMember
-from app.models.document import Analysis, Document, ExtractedText
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "ExtractedText", "Analysis"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis"]

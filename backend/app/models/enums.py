@@ -59,3 +59,9 @@ class ReviewStatus(str, Enum):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+
+
+class ExtractionStrategy(str, Enum):
+    AUTO = "AUTO"
+    TEXT_ONLY = "TEXT_ONLY"
+    TEXT_WITH_IMAGE_OCR = "TEXT_WITH_IMAGE_OCR"

@@ -10,8 +10,8 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.registry import ExtractorRegistry
-from app.models.document import Document, ExtractedText
-from app.models.enums import DocumentStatus
+from app.models.document import Document, DocumentPage, ExtractedText, OcrElement
+from app.models.enums import DocumentStatus, ExtractionStrategy, ProcessingMode, ReviewStatus
 from app.repositories.document_repository import DocumentRepository
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".hwpx", ".png", ".jpg", ".jpeg"}
@@ -28,7 +28,7 @@ class ExtractionService:
         self._document_repository = document_repository
         self._extractor_registry = extractor_registry
 
-    def upload_and_extract(self, project_id: int, uploaded_by: int, filename: str, content: bytes) -> Document:
+    def upload_and_extract(self, project_id: int, uploaded_by: int, filename: str, content: bytes, extraction_strategy: str = "AUTO") -> Document:
         safe_filename = self._sanitize_filename(filename)
         extension = Path(safe_filename).suffix.lower()
 
@@ -52,13 +52,27 @@ class ExtractionService:
             )
 
         stored_path = self._save_file(extension, content)
+        review_paths: list[str] = []
 
         try:
             file_type = extension.lstrip(".")
             extractor = self._extractor_registry.get(file_type)
 
             try:
-                result = extractor.extract(stored_path)
+                strategy = ExtractionStrategy(extraction_strategy.upper())
+            except ValueError as exc:
+                raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY) from exc
+            if file_type in {"docx", "hwpx"}:
+                if strategy is ExtractionStrategy.AUTO:
+                    strategy = ExtractionStrategy.TEXT_ONLY
+            elif strategy is not ExtractionStrategy.AUTO:
+                raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY)
+
+            try:
+                if file_type in {"docx", "hwpx"}:
+                    result = extractor.extract(stored_path, include_image_ocr=strategy is ExtractionStrategy.TEXT_WITH_IMAGE_OCR)
+                else:
+                    result = extractor.extract(stored_path)
 
                 if not result.content.strip():
                     raise BusinessError(
@@ -101,6 +115,9 @@ class ExtractionService:
                         file_size=len(content),
                         content_hash=hashlib.sha256(content).hexdigest(),
                         status=DocumentStatus.EXTRACTED.value,
+                        extraction_strategy=strategy.value,
+                        processing_mode=ProcessingMode.REVIEW.value if result.review_pages else ProcessingMode.NORMAL.value,
+                        review_status=ReviewStatus.PENDING.value if result.review_pages else ReviewStatus.NOT_REQUIRED.value,
                     )
                 )
                 document.extracted_text = ExtractedText(
@@ -109,6 +126,12 @@ class ExtractionService:
                     char_count=result.char_count,
                     extract_method=result.extract_method,
                 )
+                for page_result in result.review_pages:
+                    page_path = self._save_review_image(document.id, page_result.page_number, page_result.image_bytes)
+                    review_paths.append(page_path)
+                    page = DocumentPage(page_number=page_result.page_number, page_kind=page_result.page_kind, image_path=page_path, width=page_result.width, height=page_result.height)
+                    page.elements = [OcrElement(original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height, confidence=item.confidence, source=item.source, reading_order=index) for index, item in enumerate(page_result.elements)]
+                    document.review_pages.append(page)
 
             return document
         except Exception:
@@ -116,6 +139,9 @@ class ExtractionService:
             # 원본 파일을 삭제해 고아 파일이 남지 않게 한다.
             if os.path.exists(stored_path):
                 os.remove(stored_path)
+            for path in review_paths:
+                if os.path.exists(path):
+                    os.remove(path)
             raise
 
     @staticmethod
@@ -144,4 +170,13 @@ class ExtractionService:
         with open(stored_path, "wb") as file:
             file.write(content)
 
+        return stored_path
+
+    @staticmethod
+    def _save_review_image(document_id: int, page_number: int, content: bytes) -> str:
+        directory = os.path.join(settings.UPLOAD_DIR, "review", str(document_id))
+        os.makedirs(directory, exist_ok=True)
+        stored_path = os.path.join(directory, f"{page_number}.png")
+        with open(stored_path, "wb") as file:
+            file.write(content)
         return stored_path
