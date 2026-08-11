@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { getDocument } from '../../api/document'
 import LoadingState from '../../components/common/LoadingState'
 import './DocumentDetailPanel.css'
 
 export default function DocumentDetailPanel({ projectId, documentId, onClose }) {
+  const navigate = useNavigate()
   const query = useQuery({
     queryKey: ['projects', projectId, 'documents', documentId],
     queryFn: () => getDocument(projectId, documentId),
@@ -23,7 +25,7 @@ export default function DocumentDetailPanel({ projectId, documentId, onClose }) 
           <div><dt>페이지</dt><dd>{document.page_count ?? 0}</dd></div>
           <div><dt>글자 수</dt><dd>{document.char_count?.toLocaleString() ?? 0}자</dd></div>
         </dl>
-        {document.review_status !== 'NOT_REQUIRED' && <section className="review-callout"><div><strong>OCR 검수</strong><p>{reviewLabel(document.review_status)}</p></div><button disabled>검수 화면 준비 중</button></section>}
+        {document.review_status !== 'NOT_REQUIRED' && <section className="review-callout"><div><strong>OCR 검수</strong><p>{reviewLabel(document.review_status)}</p></div><button onClick={() => navigate(`/projects/${projectId}/documents/${document.id}/review`)}>{document.review_status === 'COMPLETED' ? '검수 결과 보기' : '검수 시작'}</button></section>}
         <section className="extracted-content"><div><h3>추출된 문서 내용</h3><span>{document.char_count?.toLocaleString() ?? 0}자</span></div>{document.extracted_text ? <pre>{document.extracted_text}</pre> : <p className="empty-text">추출된 텍스트가 없습니다.</p>}</section>
       </div>}
     </aside>
