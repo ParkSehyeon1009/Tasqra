@@ -48,8 +48,8 @@ def update_project(body: ProjectUpdateRequest, access: ProjectAccess = Depends(g
     return project_response(service.update(access.project, body.model_dump(exclude_unset=True)), access.member.role)
 
 @router.delete("/{project_id}", status_code=204)
-def archive_project(access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service)):
-    service.archive(access.project)
+def delete_project(access: ProjectAccess = Depends(get_project_owner_access), service: ProjectService = Depends(get_project_service)):
+    service.delete(access.project)
     return Response(status_code=204)
 
 @router.get("/{project_id}/members", response_model=list[MemberResponse])

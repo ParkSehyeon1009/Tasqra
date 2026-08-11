@@ -22,9 +22,9 @@ export function useProjectsQuery(notify) {
     onSuccess: (_, projectId) => {
       queryClient.setQueryData(['projects'], current => current?.filter(project => project.id !== projectId))
       queryClient.removeQueries({ queryKey: ['projects', projectId] })
-      notify('success', '프로젝트 삭제 완료', '프로젝트가 삭제되었습니다.')
+      notify('success', '프로젝트 영구 삭제 완료', '프로젝트와 관련 데이터가 영구 삭제되었습니다.')
     },
-    onError: error => notify('error', '프로젝트 삭제 실패', error.message),
+    onError: error => notify('error', '프로젝트 영구 삭제 실패', error.message),
   })
   return { projects: projectsQuery.data ?? [], loading: projectsQuery.isPending, error: projectsQuery.error, createMutation, deleteMutation }
 }

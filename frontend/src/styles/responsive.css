@@ -5,6 +5,9 @@
 .danger-button{flex:none;padding:11px 16px;border:1px solid #cf3d3d;border-radius:10px;background:white;color:#b52e2e;font-weight:800;cursor:pointer}
 .danger-button:hover{background:#fff3f3}
 .danger-button:disabled{opacity:.5;cursor:not-allowed}
+.confirm-dialog__verification{display:grid;gap:8px;margin-top:18px;padding:14px;border-radius:10px;background:#fff3f3;color:#7f1d1d;font-size:13px}
+.confirm-dialog__verification input{width:100%;padding:10px;border:1px solid #e2a7a7;border-radius:8px;background:white}
+.confirm-dialog button:disabled{opacity:.45;cursor:not-allowed}
 
 @media(max-width:800px){
   .app-header{height:72px}
