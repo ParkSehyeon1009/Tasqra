@@ -81,14 +81,11 @@ class AmountExtractionOut(BaseModel):
     notes: str | None = Field(default=None,
                               description="판단이 어려웠던 점. 금액이 없으면 사유")
 
-    @model_validator(mode="after")
-    def check_currency_consistency(self) -> "AmountExtractionOut":
-        # 통화는 문서 단위로 하나만 쓴다. 항목별 통화를 허용하면 집계가
-        # 복잡해지고, 실무 문서에서 한 장에 두 통화가 섞이는 경우는 드물다.
-        if self.stated_total is None and self.items:
-            # 합계가 없어도 항목은 있을 수 있다. 오류가 아니다.
-            pass
-        return self
+
+    # 통화 일치 검사는 여기서 하지 않는다. 문서 한 건에는 통화가 하나이므로
+    # 검사할 것이 없고, 여러 문서를 합칠 때만 문제가 된다. 그 검사는
+    # services/amount_calculator.aggregate_project() 가 담당한다.
+
 
     def has_amounts(self) -> bool:
         return bool(self.items)
