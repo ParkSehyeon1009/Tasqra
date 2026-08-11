@@ -8,6 +8,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import ProjectsPage from './pages/ProjectsPage'
 import WorkspacePage from './pages/WorkspacePage'
 import OcrReviewPage from './pages/OcrReviewPage'
+import DocumentDetailPage from './pages/DocumentDetailPage'
 import './styles/app.css'
 import './styles/states.css'
 import './styles/responsive.css'
@@ -31,6 +32,7 @@ export default function App() {
       <Route path="/signup" element={session.user ? <Navigate to="/projects" replace/> : <AuthPage mode="signup" onAuthenticated={session.login} notify={notify}/>}/>
       <Route path="/projects" element={<ProtectedRoute {...session}><ProjectsPage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="/projects/:projectId" element={<Navigate to="documents" replace/>}/>
+      <Route path="/projects/:projectId/documents/:documentId" element={<ProtectedRoute {...session}><DocumentDetailPage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="/projects/:projectId/documents/:documentId/review" element={<ProtectedRoute {...session}><OcrReviewPage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="/projects/:projectId/:tab" element={<ProtectedRoute {...session}><WorkspacePage user={session.user} onLogout={session.logout} notify={notify}/></ProtectedRoute>}/>
       <Route path="*" element={<NotFoundPage/>}/>

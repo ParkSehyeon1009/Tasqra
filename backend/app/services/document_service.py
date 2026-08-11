@@ -111,6 +111,10 @@ class DocumentService:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return document
 
+    def list_ocr_revisions(self, project_id: int, document_id: int):
+        self.get_document(project_id, document_id)
+        return self._document_repository.list_ocr_revisions(project_id, document_id)
+
     def get_review_page(self, project_id: int, document_id: int, page_id: int):
         page = self._document_repository.get_review_page(project_id, document_id, page_id)
         if page is None:

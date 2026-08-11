@@ -18,6 +18,15 @@ export async function getDocument(projectId, documentId) {
   return data
 }
 
+export async function getDocumentHistory(projectId, documentId) {
+  return (await http.get(`/api/projects/${projectId}/documents/${documentId}/history`)).data
+}
+
+export async function downloadDocumentSource(projectId, documentId, filename) {
+  const response = await http.get(`/api/projects/${projectId}/documents/${documentId}/source`, { responseType: 'blob' })
+  triggerBrowserDownload(response.data, filename)
+}
+
 export async function getOcrReview(projectId, documentId) {
   return (await http.get(`/api/projects/${projectId}/documents/${documentId}/review`)).data
 }

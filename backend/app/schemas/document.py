@@ -50,6 +50,7 @@ class AnalysisResponse(BaseModel):
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
+    source_text_revision: int
     created_at: datetime
 
 
@@ -86,12 +87,28 @@ class DocumentDetailResponse(BaseModel):
     status: str
     review_status: str
     extraction_strategy: str
+    uploaded_by_name: str | None = None
+    reviewed_by_name: str | None = None
+    reviewed_at: datetime | None = None
     created_at: datetime
     extracted_text: str | None = None
     page_count: int | None = None
     char_count: int | None = None
     extract_method: str | None = None
+    text_version: int | None = None
+    is_confirmed: bool = False
     analyses: list[AnalysisResponse] = []
+
+
+class OcrRevisionResponse(BaseModel):
+    id: int
+    element_id: int
+    changed_by_name: str | None = None
+    before_text: str
+    after_text: str
+    from_version: int
+    to_version: int
+    created_at: datetime
 
 
 class OcrElementResponse(BaseModel):

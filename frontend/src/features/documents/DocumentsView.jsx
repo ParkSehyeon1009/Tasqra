@@ -1,12 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import PageHeading from '../../components/common/PageHeading'
-import DocumentDetailPanel from './DocumentDetailPanel'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
 export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName }) {
   const [dragging, setDragging] = useState(false)
-  const [selectedDocumentId, setSelectedDocumentId] = useState(null)
+  const navigate = useNavigate()
+  const openDocument = documentId => navigate(`/projects/${projectId}/documents/${documentId}`)
   const action = canEdit ? <button className="primary" disabled={uploading} onClick={onUpload}>문서 업로드</button> : null
   function handleDragOver(event) {
     if (!canEdit) return
@@ -26,10 +27,9 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
       {dragging && <div className="drop-overlay">여기에 파일을 놓아 업로드하세요.</div>}
       <div className="panel-head"><h2>전체 문서</h2><span>{documents.length}건</span></div>
       {uploading && <ProcessingDocument filename={uploadingFileName}/>}
-      {documents.length ? <DocumentList documents={documents} onSelect={setSelectedDocumentId}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+      {documents.length ? <DocumentList documents={documents} onSelect={openDocument}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
-    <DocumentDetailPanel projectId={projectId} documentId={selectedDocumentId} onClose={() => setSelectedDocumentId(null)}/>
   </>
 }
 

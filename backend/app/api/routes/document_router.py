@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.dependencies import ProjectAccess, get_document_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
@@ -20,7 +20,16 @@ def list_documents(q: str | None = None, document_type: str | None = None, categ
 def get_document(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document(access.project.id, document_id)
     extracted = document.extracted_text
-    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, review_status=document.review_status, extraction_strategy=document.extraction_strategy, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+
+@router.get("/documents/{document_id}/source")
+def download_source(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
+    document = service.get_document(access.project.id, document_id)
+    return FileResponse(document.storage_path, filename=document.filename, media_type="application/octet-stream")
+
+@router.get("/documents/{document_id}/history", response_model=list[OcrRevisionResponse])
+def get_document_history(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
+    return [OcrRevisionResponse(id=item.id, element_id=item.element_id, changed_by_name=name, before_text=item.before_text, after_text=item.after_text, from_version=item.from_version, to_version=item.to_version, created_at=item.created_at) for item, name in service.list_ocr_revisions(access.project.id, document_id)]
 
 @router.get("/documents/{document_id}/review", response_model=OcrReviewResponse)
 def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
