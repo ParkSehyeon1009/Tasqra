@@ -52,6 +52,9 @@ class DocumentRepository:
             .all()
         )
 
+    def list_excluded_ocr_elements(self, document_id: int) -> list[OcrElement]:
+        return self._db.query(OcrElement).join(DocumentPage).filter(DocumentPage.document_id == document_id, OcrElement.is_excluded.is_(True), OcrElement.is_deleted.is_(False)).order_by(DocumentPage.page_number, OcrElement.reading_order).all()
+
     def search(
         self,
         *,

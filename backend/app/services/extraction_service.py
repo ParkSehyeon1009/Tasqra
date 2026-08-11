@@ -64,13 +64,13 @@ class ExtractionService:
                 raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY) from exc
             if file_type in {"docx", "hwpx"}:
                 if strategy is ExtractionStrategy.AUTO:
-                    strategy = ExtractionStrategy.TEXT_ONLY
+                    strategy = ExtractionStrategy.TEXT_WITH_IMAGE_OCR
             elif strategy is not ExtractionStrategy.AUTO:
                 raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY)
 
             try:
                 if file_type in {"docx", "hwpx"}:
-                    result = extractor.extract(stored_path, include_image_ocr=strategy is ExtractionStrategy.TEXT_WITH_IMAGE_OCR)
+                    result = extractor.extract(stored_path, include_image_ocr=True)
                 else:
                     result = extractor.extract(stored_path)
 

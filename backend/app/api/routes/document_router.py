@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.dependencies import ProjectAccess, get_document_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
@@ -35,7 +35,7 @@ def get_document_history(document_id: int, access: ProjectAccess = Depends(get_p
 def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document(access.project.id, document_id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
-    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, pages=pages)
+    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements), pages=pages)
 
 @router.get("/documents/{document_id}/review/pages/{page_id}/image")
 def get_ocr_page_image(document_id: int, page_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
@@ -46,11 +46,15 @@ def get_ocr_page_image(document_id: int, page_id: int, access: ProjectAccess = D
 def update_ocr_element(document_id: int, element_id: int, payload: OcrElementUpdateRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     return OcrElementResponse.model_validate(service.update_ocr_element(access.project.id, document_id, element_id, payload.text, payload.version, access.member.user_id))
 
+@router.patch("/documents/{document_id}/ocr-elements/{element_id}/exclusion", response_model=OcrElementResponse)
+def set_ocr_element_exclusion(document_id: int, element_id: int, payload: OcrElementExclusionRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
+    return OcrElementResponse.model_validate(service.set_ocr_element_exclusion(access.project.id, document_id, element_id, payload.is_excluded, payload.version))
+
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     document = service.complete_ocr_review(access.project.id, document_id, access.member.user_id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
-    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, pages=pages)
+    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements), pages=pages)
 
 @router.get("/documents/{document_id}/download")
 def download_summary(document_id: int, format: str = Query("txt", pattern="^txt$"), access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):

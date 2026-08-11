@@ -8,7 +8,8 @@ from xml.etree import ElementTree as ET
 from PIL import Image, UnidentifiedImageError
 
 from app.extractors.ocr_extractor import OcrExtractor
-from app.extractors.protocol import ExtractResult, TextExtractor
+from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
+from app.extractors.review_page import build_image_review_page
 from app.models.enums import ExtractMethod
 
 _SECTION_PATTERN = re.compile(r"Contents/section(\d+)\.xml")
@@ -25,6 +26,7 @@ class HwpxExtractor(TextExtractor):
             image_paths = self._read_manifest(archive)
 
             contents: list[str] = []
+            review_pages: list[ExtractedPage] = []
             page_break_count = 0
 
             for section_name in section_names:
@@ -38,6 +40,7 @@ class HwpxExtractor(TextExtractor):
                         archive,
                         image_paths,
                         include_image_ocr,
+                        review_pages,
                     )
                     contents.extend(paragraph_contents)
 
@@ -51,6 +54,7 @@ class HwpxExtractor(TextExtractor):
             page_count=page_break_count + 1,
             char_count=len(content),
             extract_method=ExtractMethod.HWPX.value,
+            review_pages=tuple(review_pages),
         )
 
     def _extract_paragraph(
@@ -59,6 +63,7 @@ class HwpxExtractor(TextExtractor):
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
         include_image_ocr: bool,
+        review_pages: list[ExtractedPage],
     ) -> list[str]:
         contents: list[str] = []
 
@@ -79,6 +84,7 @@ class HwpxExtractor(TextExtractor):
                         archive,
                         image_paths,
                         include_image_ocr,
+                        review_pages,
                     )
                     if table_text:
                         contents.append(table_text)
@@ -88,6 +94,7 @@ class HwpxExtractor(TextExtractor):
                         element,
                         archive,
                         image_paths,
+                        review_pages,
                     )
                     if image_text:
                         contents.append(image_text)
@@ -100,6 +107,7 @@ class HwpxExtractor(TextExtractor):
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
         include_image_ocr: bool,
+        review_pages: list[ExtractedPage],
     ) -> str:
         rows: list[str] = []
 
@@ -117,6 +125,7 @@ class HwpxExtractor(TextExtractor):
                                 archive,
                                 image_paths,
                                 include_image_ocr,
+                                review_pages,
                             )
                         )
 
@@ -132,6 +141,7 @@ class HwpxExtractor(TextExtractor):
         picture: ET.Element,
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
+        review_pages: list[ExtractedPage],
     ) -> str:
         image_id = self._find_image_id(picture)
         if image_id is None:
@@ -152,11 +162,14 @@ class HwpxExtractor(TextExtractor):
             # 문서 전체 추출은 중단하지 않고 해당 이미지만 건너뛴다.
             return ""
 
-        return "\n".join(
+        text = "\n".join(
             element.content
             for element in elements
             if element.content.strip()
         )
+        if text:
+            review_pages.append(build_image_review_page(image, elements, len(review_pages) + 1))
+        return text
 
     @classmethod
     def _find_section_names(cls, archive: zipfile.ZipFile) -> list[str]:

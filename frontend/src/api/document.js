@@ -49,6 +49,10 @@ export async function updateOcrElement(projectId, documentId, elementId, text, v
   return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}`, { text, version })).data
 }
 
+export async function setOcrElementExclusion(projectId, documentId, elementId, isExcluded, version) {
+  return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/exclusion`, { is_excluded: isExcluded, version })).data
+}
+
 export async function completeOcrReview(projectId, documentId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
 }

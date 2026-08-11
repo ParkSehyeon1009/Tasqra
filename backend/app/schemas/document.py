@@ -125,6 +125,7 @@ class OcrElementResponse(BaseModel):
     source: str
     reading_order: int
     version: int
+    is_excluded: bool
 
 
 class OcrPageResponse(BaseModel):
@@ -141,9 +142,15 @@ class OcrReviewResponse(BaseModel):
     document_id: int
     review_status: str
     ocr_revision: int
+    ocr_char_count: int
     pages: list[OcrPageResponse]
 
 
 class OcrElementUpdateRequest(BaseModel):
     text: str = Field(max_length=10000)
+    version: int = Field(ge=1)
+
+
+class OcrElementExclusionRequest(BaseModel):
+    is_excluded: bool
     version: int = Field(ge=1)
