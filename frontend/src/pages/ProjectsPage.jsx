@@ -11,7 +11,7 @@ export default function ProjectsPage({ user, onLogout, notify }) {
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
   const { projects, loading, error, createMutation } = useProjectsQuery(notify)
-  const { recentInvitees } = useInvitationsQuery(Boolean(user), notify)
+  const { recentInvitees } = useInvitationsQuery(user?.id, notify)
 
   async function submit(values) {
     try {

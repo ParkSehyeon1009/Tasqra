@@ -9,6 +9,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import WorkspacePage from './pages/WorkspacePage'
 import './styles/app.css'
 import './styles/states.css'
+import './styles/responsive.css'
 
 function ProtectedRoute({ user, loading, children }) {
   const location = useLocation()

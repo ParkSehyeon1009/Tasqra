@@ -15,7 +15,11 @@ export default function ProjectCreateModal({ open, recentInvitees, pending, onCl
   function submit(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    onSubmit({ project: { name: form.get('name'), description: form.get('description') || null }, invitations: invites })
+    const pendingLoginId = loginId.trim()
+    const invitations = pendingLoginId && !invites.some(item => item.login_id === pendingLoginId)
+      ? [...invites, { login_id: pendingLoginId, role: 'EDITOR' }]
+      : invites
+    onSubmit({ project: { name: form.get('name'), description: form.get('description') || null }, invitations })
   }
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><form className="project-dialog" onSubmit={submit} onMouseDown={event => event.stopPropagation()}>

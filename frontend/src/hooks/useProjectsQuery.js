@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createProject, inviteMember, listProjects } from '../api/project'
+import { createProject, deleteProject, inviteMember, listProjects } from '../api/project'
 
 export function useProjectsQuery(notify) {
   const queryClient = useQueryClient()
@@ -17,5 +17,14 @@ export function useProjectsQuery(notify) {
     },
     onError: error => notify('error', '프로젝트 생성 실패', error.message),
   })
-  return { projects: projectsQuery.data ?? [], loading: projectsQuery.isPending, error: projectsQuery.error, createMutation }
+  const deleteMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: (_, projectId) => {
+      queryClient.setQueryData(['projects'], current => current?.filter(project => project.id !== projectId))
+      queryClient.removeQueries({ queryKey: ['projects', projectId] })
+      notify('success', '프로젝트 삭제 완료', '프로젝트가 삭제되었습니다.')
+    },
+    onError: error => notify('error', '프로젝트 삭제 실패', error.message),
+  })
+  return { projects: projectsQuery.data ?? [], loading: projectsQuery.isPending, error: projectsQuery.error, createMutation, deleteMutation }
 }

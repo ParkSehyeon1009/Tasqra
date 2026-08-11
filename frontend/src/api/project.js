@@ -2,6 +2,7 @@ import { http } from './http'
 
 export async function listProjects() { return (await http.get('/api/projects')).data }
 export async function createProject(payload) { return (await http.post('/api/projects', payload)).data }
+export async function deleteProject(projectId) { await http.delete(`/api/projects/${projectId}`) }
 export async function listMembers(projectId) { return (await http.get(`/api/projects/${projectId}/members`)).data }
 export async function addMember(projectId, payload) { return (await http.post(`/api/projects/${projectId}/members`, payload)).data }
 export async function inviteMember(projectId, payload) { return (await http.post(`/api/projects/${projectId}/invitations`, payload)).data }

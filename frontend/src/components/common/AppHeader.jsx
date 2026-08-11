@@ -5,12 +5,18 @@ import Logo from './Logo'
 
 export default function AppHeader({ user, onLogout, notify, project }) {
   const [open, setOpen] = useState(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const rootRef = useRef(null)
   const navigate = useNavigate()
-  const invitationData = useInvitationsQuery(Boolean(user), notify)
+  const invitationData = useInvitationsQuery(user?.id, notify)
 
   useEffect(() => {
-    const close = event => { if (!rootRef.current?.contains(event.target)) setOpen(null) }
+    const close = event => {
+      if (!rootRef.current?.contains(event.target)) {
+        setOpen(null)
+        setMobileOpen(false)
+      }
+    }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [])
@@ -18,13 +24,15 @@ export default function AppHeader({ user, onLogout, notify, project }) {
   function logout() {
     onLogout?.()
     setOpen(null)
+    setMobileOpen(false)
     navigate('/')
   }
 
   return <header className="app-header" ref={rootRef}>
     <Link className="app-header__brand" to={user ? '/projects' : '/'}><Logo/></Link>
     {project && <><span className="app-header__divider">/</span><strong className="app-header__project">{project.name}</strong></>}
-    <nav className="app-header__nav">
+    <button className="mobile-menu-button" aria-label="메뉴 열기" aria-expanded={mobileOpen} onClick={() => setMobileOpen(value => !value)}>☰</button>
+    <nav className={`app-header__nav ${mobileOpen ? 'is-open' : ''}`}>
       {!user ? <><a href="/#features">기능 소개</a><Link to="/login">로그인</Link><Link className="primary" to="/signup">무료로 시작하기</Link></> : <>
         <Link to="/projects">내 프로젝트</Link>
         <div className="header-menu">

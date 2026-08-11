@@ -21,7 +21,7 @@ class ProjectRepository:
         row = (
             self._db.query(Project, ProjectMember)
             .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .filter(Project.id == project_id, ProjectMember.user_id == user_id)
+            .filter(Project.id == project_id, ProjectMember.user_id == user_id, Project.status == "ACTIVE")
             .one_or_none()
         )
         return row
@@ -30,7 +30,7 @@ class ProjectRepository:
         return (
             self._db.query(Project, ProjectMember)
             .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .filter(ProjectMember.user_id == user_id)
+            .filter(ProjectMember.user_id == user_id, Project.status == "ACTIVE")
             .order_by(Project.created_at.desc())
             .all()
         )
@@ -65,7 +65,13 @@ class ProjectRepository:
         return self._db.query(ProjectInvitation).filter_by(project_id=project_id, invitee_id=invitee_id).one_or_none()
 
     def list_invitations_for_user(self, user_id: int) -> list[ProjectInvitation]:
-        return self._db.query(ProjectInvitation).filter(ProjectInvitation.invitee_id == user_id, ProjectInvitation.status == "PENDING").order_by(ProjectInvitation.created_at.desc()).all()
+        return (
+            self._db.query(ProjectInvitation)
+            .join(Project, Project.id == ProjectInvitation.project_id)
+            .filter(ProjectInvitation.invitee_id == user_id, ProjectInvitation.status == "PENDING", Project.status == "ACTIVE")
+            .order_by(ProjectInvitation.created_at.desc())
+            .all()
+        )
 
     def list_invitations_for_project(self, project_id: int) -> list[ProjectInvitation]:
         return self._db.query(ProjectInvitation).filter(ProjectInvitation.project_id == project_id).order_by(ProjectInvitation.created_at.desc()).all()
