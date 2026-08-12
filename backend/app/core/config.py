@@ -34,8 +34,21 @@ class Settings(BaseSettings):
     # USE_FAKE_AI 기본값은 반드시 True로 둔다 — 개발 중 실수로 실제 OpenAI API가
     # 호출되어 비용이 발생하는 것을 막기 위한 안전장치이다 (dependencies.py에서 사용).
     USE_FAKE_AI: bool = True
+    # USE_FAKE_AI=false일 때 어떤 제공자를 쓸지 고른다.
+    #   "openai" -> 상용 OpenAI API
+    #   "local"  -> Ollama 등 OpenAI 호환 로컬 서버 (호출 비용 없음)
+    AI_PROVIDER: str = "openai"
+    # AI_PROVIDER=local일 때 호출할 로컬 서버 주소.
+    #   venv에서 직접 실행: http://localhost:11434/v1
+    #   도커 컨테이너 안:   http://host.docker.internal:11434/v1
+    #   (컨테이너의 localhost는 컨테이너 자신이라 호스트에 닿지 않는다)
+    AI_BASE_URL: str = "http://localhost:11434/v1"
     AI_MODEL: str
     AI_TIMEOUT_SECONDS: int
+    # 프롬프트에 실어 보낼 문서 텍스트의 최대 길이. 로컬 소형 모델은 컨텍스트
+    # 창이 좁아(Ollama 기본 num_ctx=2048) 긴 문서를 조용히 잘라먹으므로,
+    # 어디까지 반영됐는지 예측 가능하도록 보내기 전에 명시적으로 자른다.
+    AI_MAX_INPUT_CHARS: int = 6000
 
     # --- 업로드/추출 제약 ----------------------------------------------------
     UPLOAD_DIR: str

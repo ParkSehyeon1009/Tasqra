@@ -28,6 +28,19 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
       TZ: Asia/Seoul
+      # env_file(.env.example)의 AI 설정을 컨테이너 환경에 맞게 덮어쓴다.
+      # 기본값은 안전장치를 유지해 fake로 두고, 로컬 LLM을 쓸 때만
+      # 셸이나 루트 .env에서 USE_FAKE_AI=false AI_PROVIDER=local로 넘긴다.
+      USE_FAKE_AI: ${USE_FAKE_AI:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      # 컨테이너의 localhost는 컨테이너 자신이라 호스트의 Ollama에 닿지 않는다.
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434/v1}
+      AI_MODEL: ${AI_MODEL:-docflow}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
+    # Docker Desktop(Windows/Mac)은 host.docker.internal을 기본 제공하지만,
+    # Linux에서는 이 매핑이 있어야 호스트에 닿는다.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:

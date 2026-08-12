@@ -2,8 +2,12 @@ import asyncio
 import json
 
 from app.ai.client_protocol import AIClientProtocol
-from app.ai.fake_client import FakeAIClient
-from app.analyzers.prompts import CATEGORY_CANDIDATES, PROMPT_VERSION, build_category_prompt
+from app.analyzers.prompts import (
+    CATEGORY_CANDIDATES,
+    PROMPT_VERSION,
+    build_category_prompt,
+    truncate_for_prompt,
+)
 from app.analyzers.protocol import Analyzer, AnalyzeResult
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
@@ -17,7 +21,9 @@ class CategoryAnalyzer(Analyzer):
         self._ai_client = ai_client
 
     async def analyze(self, text: str) -> AnalyzeResult:
-        prompt = build_category_prompt(text)
+        prompt = build_category_prompt(
+            truncate_for_prompt(text, settings.AI_MAX_INPUT_CHARS)
+        )
 
         try:
             ai_result = await asyncio.wait_for(
@@ -42,7 +48,7 @@ class CategoryAnalyzer(Analyzer):
         if category not in CATEGORY_CANDIDATES:
             category = FALLBACK_CATEGORY
 
-        provider = "fake" if isinstance(self._ai_client, FakeAIClient) else "openai"
+        provider = self._ai_client.provider
 
         return AnalyzeResult(
             result={"category": category, "reason": reason},

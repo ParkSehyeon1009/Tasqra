@@ -1,6 +1,15 @@
 #프롬프트 버전 확인용 문자열 변수
 PROMPT_VERSION = "v1"
 
+
+#로컬 소형 모델은 컨텍스트 창이 좁아(Ollama 기본 num_ctx=2048) 긴 문서를 보내면
+#에러 없이 앞부분만 읽고 나머지를 버린다. 보내기 전에 명시적으로 잘라서
+#어디까지 반영됐는지 예측 가능하게 만든다.
+def truncate_for_prompt(text: str, max_chars: int) -> str:
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n...(이하 생략)"
+
 #카테고리 후보 문자열 리스트
 CATEGORY_CANDIDATES = [
     "계약서",

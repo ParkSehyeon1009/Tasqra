@@ -20,6 +20,8 @@ from app.core.config import Settings
 
 
 class OpenAIClient(AIClientProtocol):
+    provider = "openai"
+
     def __init__(self, settings: Settings) -> None:
         self._model = settings.AI_MODEL
         self._client = AsyncOpenAI(api_key=settings.API_KEY)
