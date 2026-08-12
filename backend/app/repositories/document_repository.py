@@ -15,7 +15,8 @@ import re
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
+from app.models.user import User
 
 
 class DocumentRepository:
@@ -38,6 +39,21 @@ class DocumentRepository:
 
     def get_ocr_element(self, project_id: int, document_id: int, element_id: int) -> OcrElement | None:
         return self._db.query(OcrElement).join(DocumentPage).join(Document).filter(Document.project_id == project_id, Document.id == document_id, OcrElement.id == element_id).one_or_none()
+
+    def list_ocr_revisions(self, project_id: int, document_id: int) -> list[tuple[OcrElementRevision, str | None]]:
+        return (
+            self._db.query(OcrElementRevision, User.name)
+            .join(OcrElement, OcrElement.id == OcrElementRevision.element_id)
+            .join(DocumentPage, DocumentPage.id == OcrElement.page_id)
+            .join(Document, Document.id == DocumentPage.document_id)
+            .outerjoin(User, User.id == OcrElementRevision.changed_by)
+            .filter(Document.project_id == project_id, Document.id == document_id)
+            .order_by(OcrElementRevision.created_at.desc())
+            .all()
+        )
+
+    def list_excluded_ocr_elements(self, document_id: int) -> list[OcrElement]:
+        return self._db.query(OcrElement).join(DocumentPage).filter(DocumentPage.document_id == document_id, OcrElement.is_excluded.is_(True), OcrElement.is_deleted.is_(False)).order_by(DocumentPage.page_number, OcrElement.reading_order).all()
 
     def search(
         self,

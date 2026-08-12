@@ -22,6 +22,7 @@ class PdfExtractor(TextExtractor):
 
     def extract(self, file_path: str) -> ExtractResult:
         page_contents: list[str] = []
+        document_page_elements: list[list[LayoutElement]] = []
         review_pages: list[ExtractedPage] = []
 
         has_text = False
@@ -58,6 +59,8 @@ class PdfExtractor(TextExtractor):
                 if page_has_ocr:
                     review_pages.append(self._build_review_page(page, elements, len(page_contents) + 1))
 
+                document_page_elements.append(elements)
+
                 page_content = "\n".join(
                     element.content
                     for element in elements
@@ -67,6 +70,18 @@ class PdfExtractor(TextExtractor):
                 page_contents.append(page_content)
 
         content = "\n\n".join(page_contents)
+        text_char_count = sum(
+            len(element.content)
+            for page in document_page_elements
+            for element in page
+            if element.source == "text"
+        )
+        ocr_char_count = sum(
+            len(element.content)
+            for page in document_page_elements
+            for element in page
+            if element.source == "ocr"
+        )
 
         if has_text and has_ocr:
             extract_method = ExtractMethod.HYBRID.value
@@ -79,6 +94,8 @@ class PdfExtractor(TextExtractor):
             content=content,
             page_count=page_count,
             char_count=len(content),
+            text_char_count=text_char_count,
+            ocr_char_count=ocr_char_count,
             extract_method=extract_method,
             review_pages=tuple(review_pages),
         )
@@ -357,11 +374,6 @@ class PdfExtractor(TextExtractor):
         if not ocr_elements:
             return []
 
-        x0 = float(bbox[0])
-        y0 = float(bbox[1])
-        x1 = float(bbox[2])
-        y1 = float(bbox[3])
-
         content = "\n".join(
             element.content
             for element in ocr_elements
@@ -371,28 +383,58 @@ class PdfExtractor(TextExtractor):
         if not content or recognized_char_count < 2:
             return []
 
-        confidences = [
-            element.confidence
-            for element in ocr_elements
-            if element.confidence is not None
-        ]
-        confidence = (
-            sum(confidences) / len(confidences)
-            if confidences
-            else None
+        return self._map_image_ocr_elements(
+            ocr_elements,
+            image_width=image_width,
+            image_height=image_height,
+            image_bbox=bbox,
         )
 
-        return [
-            LayoutElement(
-                x=x0,
-                y=y0,
-                x2=x1,
-                y2=y1,
-                content=content,
-                source="ocr",
-                confidence=confidence,
+    @staticmethod
+    def _map_image_ocr_elements(
+        ocr_elements: list[LayoutElement],
+        *,
+        image_width: int,
+        image_height: int,
+        image_bbox: tuple[float, float, float, float],
+    ) -> list[LayoutElement]:
+        """Map image-pixel OCR boxes into the image's PDF page rectangle."""
+        x0, y0, x1, y1 = (float(value) for value in image_bbox)
+        pdf_width = max(x1 - x0, 0.0)
+        pdf_height = max(y1 - y0, 0.0)
+        if pdf_width == 0 or pdf_height == 0:
+            return []
+
+        scale_x = pdf_width / max(float(image_width), 1.0)
+        scale_y = pdf_height / max(float(image_height), 1.0)
+        mapped: list[LayoutElement] = []
+
+        for element in ocr_elements:
+            text = element.content.strip()
+            if not text:
+                continue
+
+            element_x2 = element.x2 if element.x2 is not None else element.x
+            element_y2 = element.y2 if element.y2 is not None else element.y
+            left = max(0.0, min(float(image_width), min(element.x, element_x2)))
+            top = max(0.0, min(float(image_height), min(element.y, element_y2)))
+            right = max(left, min(float(image_width), max(element.x, element_x2)))
+            bottom = max(top, min(float(image_height), max(element.y, element_y2)))
+
+            mapped.append(
+                LayoutElement(
+                    x=x0 + left * scale_x,
+                    y=y0 + top * scale_y,
+                    x2=x0 + right * scale_x,
+                    y2=y0 + bottom * scale_y,
+                    content=text,
+                    source="ocr",
+                    confidence=element.confidence,
+                )
             )
-        ]
+
+        mapped.sort(key=lambda element: (element.y, element.x))
+        return mapped
 
     def _extract_full_page_with_ocr(
         self,

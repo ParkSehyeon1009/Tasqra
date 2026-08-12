@@ -28,8 +28,11 @@ class DocumentUploadResponse(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    review_status: str
     page_count: int
     char_count: int
+    text_char_count: int
+    ocr_char_count: int
     extract_method: str
     created_at: datetime
 
@@ -50,6 +53,7 @@ class AnalysisResponse(BaseModel):
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
+    source_text_revision: int
     created_at: datetime
 
 
@@ -69,6 +73,8 @@ class DocumentListItem(BaseModel):
     review_status: str
     page_count: int | None = None
     char_count: int | None = None
+    text_char_count: int | None = None
+    ocr_char_count: int = 0
     extract_method: str | None = None
     category: str | None = None
     summary_preview: str | None = None
@@ -86,12 +92,28 @@ class DocumentDetailResponse(BaseModel):
     status: str
     review_status: str
     extraction_strategy: str
+    uploaded_by_name: str | None = None
+    reviewed_by_name: str | None = None
+    reviewed_at: datetime | None = None
     created_at: datetime
     extracted_text: str | None = None
     page_count: int | None = None
     char_count: int | None = None
     extract_method: str | None = None
+    text_version: int | None = None
+    is_confirmed: bool = False
     analyses: list[AnalysisResponse] = []
+
+
+class OcrRevisionResponse(BaseModel):
+    id: int
+    element_id: int
+    changed_by_name: str | None = None
+    before_text: str
+    after_text: str
+    from_version: int
+    to_version: int
+    created_at: datetime
 
 
 class OcrElementResponse(BaseModel):
@@ -107,6 +129,7 @@ class OcrElementResponse(BaseModel):
     source: str
     reading_order: int
     version: int
+    is_excluded: bool
 
 
 class OcrPageResponse(BaseModel):
@@ -123,9 +146,15 @@ class OcrReviewResponse(BaseModel):
     document_id: int
     review_status: str
     ocr_revision: int
+    ocr_char_count: int
     pages: list[OcrPageResponse]
 
 
 class OcrElementUpdateRequest(BaseModel):
     text: str = Field(max_length=10000)
+    version: int = Field(ge=1)
+
+
+class OcrElementExclusionRequest(BaseModel):
+    is_excluded: bool
     version: int = Field(ge=1)

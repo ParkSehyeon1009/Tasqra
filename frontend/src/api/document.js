@@ -18,6 +18,15 @@ export async function getDocument(projectId, documentId) {
   return data
 }
 
+export async function getDocumentHistory(projectId, documentId) {
+  return (await http.get(`/api/projects/${projectId}/documents/${documentId}/history`)).data
+}
+
+export async function downloadDocumentSource(projectId, documentId, filename) {
+  const response = await http.get(`/api/projects/${projectId}/documents/${documentId}/source`, { responseType: 'blob' })
+  triggerBrowserDownload(response.data, filename)
+}
+
 export async function getOcrReview(projectId, documentId) {
   return (await http.get(`/api/projects/${projectId}/documents/${documentId}/review`)).data
 }
@@ -38,6 +47,10 @@ function blobToDataUrl(blob) {
 
 export async function updateOcrElement(projectId, documentId, elementId, text, version) {
   return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}`, { text, version })).data
+}
+
+export async function setOcrElementExclusion(projectId, documentId, elementId, isExcluded, version) {
+  return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/exclusion`, { is_excluded: isExcluded, version })).data
 }
 
 export async function completeOcrReview(projectId, documentId) {

@@ -1,12 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import PageHeading from '../../components/common/PageHeading'
-import DocumentDetailPanel from './DocumentDetailPanel'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
 export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName }) {
   const [dragging, setDragging] = useState(false)
-  const [selectedDocumentId, setSelectedDocumentId] = useState(null)
+  const navigate = useNavigate()
+  const openDocument = documentId => navigate(`/projects/${projectId}/documents/${documentId}`)
   const action = canEdit ? <button className="primary" disabled={uploading} onClick={onUpload}>문서 업로드</button> : null
   function handleDragOver(event) {
     if (!canEdit) return
@@ -26,15 +27,24 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
       {dragging && <div className="drop-overlay">여기에 파일을 놓아 업로드하세요.</div>}
       <div className="panel-head"><h2>전체 문서</h2><span>{documents.length}건</span></div>
       {uploading && <ProcessingDocument filename={uploadingFileName}/>}
-      {documents.length ? <DocumentList documents={documents} onSelect={setSelectedDocumentId}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+      {documents.length ? <DocumentList documents={documents} onSelect={openDocument}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
-    <DocumentDetailPanel projectId={projectId} documentId={selectedDocumentId} onClose={() => setSelectedDocumentId(null)}/>
   </>
 }
 
 function DocumentList({ documents, onSelect }) {
-  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><small>{document.extract_method || '처리 대기'} · {document.char_count?.toLocaleString() ?? 0}자</small></div><span className="type-pill">{document.document_type || '미분류'}</span><ReviewBadge status={document.review_status}/><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
+  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><DocumentCharacterCounts document={document}/></div><span className="type-pill">{document.document_type || '미분류'}</span><ReviewBadge status={document.review_status}/><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
+}
+
+function DocumentCharacterCounts({ document }) {
+  const textCount = document.text_char_count ?? document.char_count ?? 0
+  const ocrCount = document.ocr_char_count ?? 0
+  const counts = [
+    textCount > 0 && `TEXT ${textCount.toLocaleString()}자`,
+    ocrCount > 0 && `OCR ${ocrCount.toLocaleString()}자`,
+  ].filter(Boolean)
+  return <small>{counts.join(' · ') || '처리 대기'}</small>
 }
 
 function ProcessingDocument({ filename }) {

@@ -111,6 +111,10 @@ class DocumentService:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return document
 
+    def list_ocr_revisions(self, project_id: int, document_id: int):
+        self.get_document(project_id, document_id)
+        return self._document_repository.list_ocr_revisions(project_id, document_id)
+
     def get_review_page(self, project_id: int, document_id: int, page_id: int):
         page = self._document_repository.get_review_page(project_id, document_id, page_id)
         if page is None:
@@ -132,7 +136,32 @@ class DocumentService:
             if document.extracted_text:
                 document.extracted_text.content = document.extracted_text.content.replace(before, text, 1)
                 document.extracted_text.char_count = len(document.extracted_text.content)
+                document.extracted_text.ocr_char_count = max(
+                    document.extracted_text.ocr_char_count + len(text) - len(before),
+                    0,
+                )
                 document.extracted_text.text_version += 1
+            document.ocr_revision += 1
+            if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
+                document.review_status = ReviewStatus.IN_PROGRESS.value
+                document.reviewed_by = None
+                document.reviewed_at = None
+                if document.extracted_text:
+                    document.extracted_text.is_confirmed = False
+                    document.extracted_text.confirmed_by = None
+                    document.extracted_text.confirmed_at = None
+        return element
+
+    def set_ocr_element_exclusion(self, project_id: int, document_id: int, element_id: int, is_excluded: bool, version: int):
+        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
+        if element is None:
+            raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+        if element.version != version:
+            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+        document = element.page.document
+        with transactional(self._db):
+            element.is_excluded = is_excluded
+            element.version += 1
             document.ocr_revision += 1
             if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
                 document.review_status = ReviewStatus.IN_PROGRESS.value
@@ -147,6 +176,20 @@ class DocumentService:
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
         document = self.get_document(project_id, document_id)
         with transactional(self._db):
+            if document.extracted_text:
+                content = document.extracted_text.content
+                for element in self._document_repository.list_excluded_ocr_elements(document.id):
+                    content = content.replace(element.text, "", 1)
+                if content != document.extracted_text.content:
+                    document.extracted_text.content = content
+                    document.extracted_text.char_count = len(content)
+                    document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(
+                    len(element.text)
+                    for page in document.review_pages
+                    for element in page.elements
+                    if not element.is_deleted and not element.is_excluded
+                )
             document.review_status = ReviewStatus.COMPLETED.value
             document.reviewed_by = user_id
             document.reviewed_at = datetime.now().astimezone()

@@ -41,6 +41,8 @@ class ExtractResult:
     content: str
     page_count: int
     char_count: int
+    text_char_count: int
+    ocr_char_count: int
     extract_method: str
     review_pages: tuple[ExtractedPage, ...] = field(default_factory=tuple)
 
