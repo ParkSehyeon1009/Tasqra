@@ -105,6 +105,8 @@ class OcrElement(Base):
         CheckConstraint("x >= 0 AND x <= 1 AND y >= 0 AND y <= 1", name="ck_ocr_element_origin"),
         CheckConstraint("width >= 0 AND width <= 1 AND height >= 0 AND height <= 1", name="ck_ocr_element_size"),
         CheckConstraint("version >= 1", name="ck_ocr_element_version"),
+        CheckConstraint("content_start IS NULL OR content_start >= 0", name="ck_ocr_element_content_start"),
+        CheckConstraint("content_end IS NULL OR content_end >= content_start", name="ck_ocr_element_content_end"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -122,6 +124,9 @@ class OcrElement(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    content_start: Mapped[int | None] = mapped_column(Integer)
+    content_end: Mapped[int | None] = mapped_column(Integer)
+    is_in_content: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

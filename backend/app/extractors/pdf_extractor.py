@@ -56,9 +56,6 @@ class PdfExtractor(TextExtractor):
                         page_left=float(page.rect.x0),
                     )
 
-                if page_has_ocr:
-                    review_pages.append(self._build_review_page(page, elements, len(page_contents) + 1))
-
                 document_page_elements.append(elements)
 
                 page_content = "\n".join(
@@ -66,6 +63,10 @@ class PdfExtractor(TextExtractor):
                     for element in elements
                     if element.content.strip()
                 )
+
+                if page_has_ocr:
+                    content_offset = sum(len(content) for content in page_contents) + 2 * len(page_contents)
+                    review_pages.append(self._build_review_page(page, elements, len(page_contents) + 1, content_offset))
 
                 page_contents.append(page_content)
 
@@ -101,13 +102,17 @@ class PdfExtractor(TextExtractor):
         )
 
     @staticmethod
-    def _build_review_page(page: fitz.Page, elements: list[LayoutElement], page_number: int) -> ExtractedPage:
+    def _build_review_page(page: fitz.Page, elements: list[LayoutElement], page_number: int, content_offset: int) -> ExtractedPage:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
         page_width = max(float(page.rect.width), 1.0)
         page_height = max(float(page.rect.height), 1.0)
         review_elements = []
-        for element in elements:
-            if element.source != "ocr" or not element.content.strip():
+        content_cursor = content_offset
+        content_elements = [element for element in elements if element.content.strip()]
+        for element in content_elements:
+            element_start = content_cursor
+            content_cursor += len(element.content) + 1
+            if element.source != "ocr":
                 continue
             x2 = element.x2 if element.x2 is not None else element.x
             y2 = element.y2 if element.y2 is not None else element.y
@@ -117,6 +122,8 @@ class PdfExtractor(TextExtractor):
                 width=max(0.0, min(1.0, (x2 - element.x) / page_width)),
                 height=max(0.0, min(1.0, (y2 - element.y) / page_height)),
                 text=element.content, confidence=element.confidence,
+                content_start=element_start,
+                content_end=element_start + len(element.content),
             ))
         return ExtractedPage(page_number, pixmap.width, pixmap.height, pixmap.tobytes("png"), tuple(review_elements))
 

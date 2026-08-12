@@ -128,11 +128,18 @@ class ExtractionService:
                     ocr_char_count=result.ocr_char_count,
                     extract_method=result.extract_method,
                 )
+                content_cursor = 0
                 for page_result in result.review_pages:
                     page_path = self._save_review_image(document.id, page_result.page_number, page_result.image_bytes)
                     review_paths.append(page_path)
                     page = DocumentPage(page_number=page_result.page_number, page_kind=page_result.page_kind, image_path=page_path, width=page_result.width, height=page_result.height)
-                    page.elements = [OcrElement(original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height, confidence=item.confidence, source=item.source, reading_order=index) for index, item in enumerate(page_result.elements)]
+                    page.elements = []
+                    for index, item in enumerate(page_result.elements):
+                        content_start = item.content_start if item.content_start is not None else result.content.find(item.text, content_cursor)
+                        content_end = item.content_end if item.content_end is not None else content_start + len(item.text) if content_start >= 0 else None
+                        if content_end is not None:
+                            content_cursor = content_end
+                        page.elements.append(OcrElement(original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height, confidence=item.confidence, source=item.source, reading_order=index, content_start=content_start if content_start >= 0 else None, content_end=content_end, is_in_content=True))
                     document.review_pages.append(page)
 
             return document

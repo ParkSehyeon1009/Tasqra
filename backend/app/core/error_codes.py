@@ -36,6 +36,7 @@ class ErrorCode(Enum):
     INVALID_FILE_TYPE = ("INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다.", 400)
     INVALID_EXTRACTION_STRATEGY = ("INVALID_EXTRACTION_STRATEGY", "이 파일에서 사용할 수 없는 텍스트 추출 방식입니다.", 400)
     OCR_EDIT_CONFLICT = ("OCR_EDIT_CONFLICT", "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.", 409)
+    OCR_CONTENT_MAPPING_CONFLICT = ("OCR_CONTENT_MAPPING_CONFLICT", "OCR 영역과 문서 본문의 연결 정보가 일치하지 않습니다. 문서를 다시 추출해 주세요.", 409)
     FILE_TOO_LARGE = ("FILE_TOO_LARGE", "파일 크기가 허용 범위를 초과했습니다.", 413)
     TOO_MANY_PAGES = ("TOO_MANY_PAGES", "페이지 수가 허용 범위를 초과했습니다.", 413)
     CONTENT_TOO_LARGE = ("CONTENT_TOO_LARGE", "추출된 문서 내용이 허용 범위를 초과했습니다.", 413)
