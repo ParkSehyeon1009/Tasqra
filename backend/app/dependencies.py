@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.client_protocol import AIClientProtocol
 from app.ai.fake_client import FakeAIClient
+from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
 from app.analyzers.protocol import Analyzer
@@ -68,6 +69,11 @@ def get_ai_client() -> AIClientProtocol:
     # USE_FAKE_AI=false로 바꿔야만 일어난다.
     if settings.USE_FAKE_AI:
         return FakeAIClient()
+    # 로컬(Ollama 등 OpenAI 호환) 서버는 호출 비용이 없으므로 USE_FAKE_AI를
+    # 끈 뒤 AI_PROVIDER=local로 두고 쓴다. 상용 API 호출은 AI_PROVIDER=openai일
+    # 때만 일어난다.
+    if settings.AI_PROVIDER.lower() == "local":
+        return LocalAIClient(settings)
     return OpenAIClient(settings)
 
 

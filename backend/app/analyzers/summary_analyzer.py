@@ -2,8 +2,11 @@ import asyncio
 import json
 
 from app.ai.client_protocol import AIClientProtocol
-from app.ai.fake_client import FakeAIClient
-from app.analyzers.prompts import PROMPT_VERSION, build_summary_prompt
+from app.analyzers.prompts import (
+    PROMPT_VERSION,
+    build_summary_prompt,
+    truncate_for_prompt,
+)
 from app.analyzers.protocol import Analyzer, AnalyzeResult
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
@@ -16,7 +19,9 @@ class SummaryAnalyzer(Analyzer):
         self._ai_client = ai_client
 
     async def analyze(self, text: str) -> AnalyzeResult:
-        prompt = build_summary_prompt(text)
+        prompt = build_summary_prompt(
+            truncate_for_prompt(text, settings.AI_MAX_INPUT_CHARS)
+        )
 
         try:
             # settings.AI_TIMEOUT_SECONDS를 넘기면 asyncio.TimeoutError 발생
@@ -37,8 +42,9 @@ class SummaryAnalyzer(Analyzer):
         except (json.JSONDecodeError, KeyError):
             summary_text = ai_result.text
 
-        # FakeAIClient면 "fake", 실제 OpenAIClient면 "openai"로 기록
-        provider = "fake" if isinstance(self._ai_client, FakeAIClient) else "openai"
+        # 클라이언트가 자기 라벨을 들고 있으므로("fake"/"openai"/"local")
+        # 구현체를 isinstance로 판별하지 않고 그대로 기록한다.
+        provider = self._ai_client.provider
 
         return AnalyzeResult(
             result={"summary": summary_text},

@@ -28,6 +28,12 @@ class AIResult:
 
 
 class AIClientProtocol(Protocol):
+    # 이 클라이언트가 어떤 제공자인지 나타내는 라벨("fake"/"openai"/"local").
+    # analyses.provider 컬럼에 그대로 저장되어, 로컬 모델과 상용 API의
+    # 비용/성능을 비교할 때의 기준이 된다. 분석기가 isinstance로 구현체를
+    # 판별하지 않아도 되도록 클라이언트 자신이 들고 있는다.
+    provider: str
+
     # 기존 유지 (하위 호환). 구현체는 보통 generate_with_meta()를 호출해
     # .text만 반환하는 방식으로 만들어 로직 중복을 피한다.
     async def generate(self, prompt: str) -> str:
