@@ -126,3 +126,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 문서 상세의 상태 설명과 보조 정보 */
+.document-header-statuses { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.document-page-actions { align-items: center; }
+@media (max-width: 760px) { .document-header-statuses { width: 100%; } .document-page-actions { align-items: stretch; } }
