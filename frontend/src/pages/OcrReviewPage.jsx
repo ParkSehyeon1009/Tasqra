@@ -102,10 +102,12 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const exclusionMutation = useMutation({
     mutationFn: element => setOcrElementExclusion(projectId, documentId, element.id, !element.is_excluded, element.version),
     onSuccess: updated => {
-      queryClient.setQueryData(reviewKey, current => ({ ...current, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === updated.id ? updated : element) })) }))
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: current.ocr_revision + 1, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === updated.id ? updated : element) })) }) : current)
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true })
       notify('success', updated.is_excluded ? '본문 제외 예정' : '본문 포함 예정', '검수 완료 시 최종 문서 텍스트에 반영됩니다.')
     },
-    onError: error => notify('error', 'OCR 본문 포함 설정 실패', error.message),
+    onError: error => { reviewQuery.refetch(); notify('error', error.status === 409 ? '본문 포함 설정 충돌' : 'OCR 본문 포함 설정 실패', error.message) },
   })
 
   const completeMutation = useMutation({
@@ -129,12 +131,12 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
     <header className='ocr-review-toolbar'>
       <div className='ocr-review-title'><button className='back-button' onClick={goBack}>← 문서로 돌아가기</button><h1>{documentQuery.data?.filename ?? 'OCR 검수'}</h1><p>문서 {page.page_number}/{documentPageCount}쪽 · OCR 대상 {pageIndex + 1}/{pages.length}쪽</p></div>
-      <div className='ocr-review-toolbar-actions'><span className={'status-badge status-' + reviewStatus.tone} title={reviewStatus.description}>{reviewStatus.label}</span><button className='primary' disabled={!canEdit || completeMutation.isPending || updateMutation.isPending} onClick={completeReview}>{completeMutation.isPending ? '검수 완료 처리 중...' : 'OCR 검수 완료'}</button></div>
+      <div className='ocr-review-toolbar-actions'><span className={'status-badge status-' + reviewStatus.tone} title={reviewStatus.description}>{reviewStatus.label}</span><button className='primary' disabled={!canEdit || completeMutation.isPending || updateMutation.isPending || exclusionMutation.isPending} onClick={completeReview}>{completeMutation.isPending ? '검수 완료 처리 중...' : 'OCR 검수 완료'}</button></div>
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + page.elements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     <main className='ocr-review-workspace ocr-review-layout'>
       <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>현재 확인 중인 OCR 원본 페이지</small></div></div><OcrCanvas page={page} selectedId={effectiveSelectedId} onSelect={element => selectElement(element, true)}/></section>
-      <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>이미지 글자가 본문에 불필요하면 해당 영역을 제외할 수 있습니다.</p></div><span>{page.elements.length}개</span></div><ElementList elements={page.elements} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending} excluding={exclusionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)}/></aside>
+      <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>이미지 글자가 본문에 불필요하면 해당 영역을 제외할 수 있습니다.</p></div><span>{page.elements.length}개</span></div><ElementList elements={page.elements} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)}/></aside>
     </main>
   </div>
 }
