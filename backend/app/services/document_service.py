@@ -122,14 +122,16 @@ class DocumentService:
         return page
 
     def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
-        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
-        if element is None:
-            raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
-        if element.version != version:
-            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
-        document = element.page.document
-        before = element.text
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
+            if element is None:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if element.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+            before = element.text
             self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=before, after_text=text, from_version=version, to_version=version + 1))
             element.text = text
             element.version += 1
@@ -153,13 +155,15 @@ class DocumentService:
         return element
 
     def set_ocr_element_exclusion(self, project_id: int, document_id: int, element_id: int, is_excluded: bool, version: int):
-        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
-        if element is None:
-            raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
-        if element.version != version:
-            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
-        document = element.page.document
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
+            if element is None:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if element.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
             element.is_excluded = is_excluded
             element.version += 1
             document.ocr_revision += 1
@@ -174,8 +178,10 @@ class DocumentService:
         return element
 
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
-        document = self.get_document(project_id, document_id)
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             if document.extracted_text:
                 content = document.extracted_text.content
                 for element in self._document_repository.list_excluded_ocr_elements(document.id):
