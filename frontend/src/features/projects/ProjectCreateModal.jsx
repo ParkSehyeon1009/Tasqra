@@ -9,13 +9,23 @@ export default function ProjectCreateModal({ open, recentInvitees, pending, onCl
   const dialogRef = useRef(null)
   const nameRef = useRef(null)
   const previousFocusRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   useEffect(() => {
     if (!open) return
     previousFocusRef.current = document.activeElement
-    requestAnimationFrame(() => nameRef.current?.focus())
+    requestAnimationFrame(() => {
+      setInvites([])
+      setLoginId('')
+      setName('')
+      setDescription('')
+      setNameError('')
+      nameRef.current?.focus()
+    })
     const handleKeyDown = event => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); requestAnimationFrame(() => previousFocusRef.current?.focus()); return }
+      if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); requestAnimationFrame(() => previousFocusRef.current?.focus()); return }
       if (event.key !== 'Tab') return
       const focusable = dialogRef.current?.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')
       if (!focusable?.length) return
@@ -26,7 +36,7 @@ export default function ProjectCreateModal({ open, recentInvitees, pending, onCl
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 

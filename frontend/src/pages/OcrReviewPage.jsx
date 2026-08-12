@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useRef } from 'react'
+import { useBlocker, useNavigate, useParams } from 'react-router-dom'
 import { completeOcrReview, getDocument, getOcrPageImage, getOcrReview, setOcrElementExclusion, updateOcrElement } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
@@ -17,6 +18,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [selectedId, setSelectedId] = useState(null)
   const [drafts, setDrafts] = useState({})
+  const allowNavigationRef = useRef(false)
   const projectQuery = useQuery({ queryKey: ['project-access', projectId], queryFn: () => getProject(projectId), retry: false })
   const documentQuery = useQuery({ queryKey: ['projects', projectId, 'documents', documentId], queryFn: () => getDocument(projectId, documentId) })
   const reviewKey = ['projects', projectId, 'documents', documentId, 'ocr-review']
@@ -33,6 +35,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const totalElements = pages.reduce((count, item) => count + item.elements.length, 0)
   const changedElements = pages.reduce((count, item) => count + item.elements.filter(element => element.version > 1 || element.is_excluded).length, 0)
   const reviewStatus = getReviewStatus(review?.review_status)
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => hasUnsavedChanges && !allowNavigationRef.current && currentLocation.pathname !== nextLocation.pathname)
 
 
   useEffect(() => {
@@ -40,6 +43,12 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     window.addEventListener('beforeunload', protectChanges)
     return () => window.removeEventListener('beforeunload', protectChanges)
   }, [hasUnsavedChanges])
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('저장하지 않은 수정 내용이 있습니다. 이 페이지를 떠날까요?')) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
 
   function confirmDiscard(message) {
     return !hasUnsavedChanges || window.confirm(message)
@@ -59,6 +68,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
 
   function goBack() {
     if (!confirmDiscard('저장하지 않은 수정 내용이 있습니다. 문서 목록으로 돌아갈까요?')) return
+    allowNavigationRef.current = true
     navigate('/projects/' + projectId + '/documents')
   }
 
