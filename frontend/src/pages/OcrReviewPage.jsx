@@ -76,7 +76,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
     <header className="ocr-review-toolbar">
       <div><button className="back-button" onClick={() => navigate(`/projects/${projectId}/documents`)}>← 문서로 돌아가기</button><h1>{documentQuery.data?.filename ?? 'OCR 검수'}</h1><p>원본 영역을 선택하고 인식된 텍스트를 확인·수정하세요.</p></div>
-      <div className="ocr-review-actions"><span className="ocr-char-count">이미지 OCR {review?.ocr_char_count?.toLocaleString() ?? 0}자</span><StatusBadge status={review?.review_status}/><button className="primary" disabled={!canEdit || review?.review_status === 'COMPLETED' || completeMutation.isPending} onClick={() => completeMutation.mutate()}>{review?.review_status === 'COMPLETED' ? '검수 완료됨' : '검수 완료'}</button></div>
+      <div className="ocr-review-actions"><StatusBadge status={review?.review_status}/><button className="primary" disabled={!canEdit || review?.review_status === 'COMPLETED' || completeMutation.isPending} onClick={() => completeMutation.mutate()}>{review?.review_status === 'COMPLETED' ? '검수 완료됨' : '검수 완료'}</button></div>
     </header>
     {(reviewQuery.isPending || documentQuery.isPending) && <LoadingState label="OCR 검수 데이터를 불러오는 중..."/>}
     {reviewQuery.isError && <div className="ocr-review-error">OCR 검수 데이터를 불러오지 못했습니다.<button onClick={() => reviewQuery.refetch()}>다시 시도</button></div>}

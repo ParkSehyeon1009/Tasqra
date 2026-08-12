@@ -48,6 +48,20 @@ class Document(Base):
     def stored_path(self) -> str:
         return self.storage_path
 
+    @property
+    def active_ocr_char_count(self) -> int:
+        return sum(
+            len(element.text)
+            for page in self.review_pages
+            for element in page.elements
+            if not element.is_deleted and not element.is_excluded
+        )
+
+    @property
+    def native_text_char_count(self) -> int:
+        total = self.extracted_text.char_count if self.extracted_text else 0
+        return max(total - self.active_ocr_char_count, 0)
+
 
 class ExtractedText(Base):
     __tablename__ = "extracted_texts"

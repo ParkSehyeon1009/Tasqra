@@ -31,6 +31,8 @@ class DocumentUploadResponse(BaseModel):
     review_status: str
     page_count: int
     char_count: int
+    text_char_count: int
+    ocr_char_count: int
     extract_method: str
     created_at: datetime
 
@@ -71,6 +73,8 @@ class DocumentListItem(BaseModel):
     review_status: str
     page_count: int | None = None
     char_count: int | None = None
+    text_char_count: int | None = None
+    ocr_char_count: int = 0
     extract_method: str | None = None
     category: str | None = None
     summary_preview: str | None = None

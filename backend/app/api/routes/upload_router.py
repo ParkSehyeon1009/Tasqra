@@ -25,5 +25,7 @@ def upload_document(file: UploadFile = File(...), extraction_strategy: str = For
         file_type=document.file_type, document_type=document.document_type,
         status=document.status, review_status=document.review_status, page_count=document.extracted_text.page_count,
         char_count=document.extracted_text.char_count,
+        text_char_count=document.native_text_char_count,
+        ocr_char_count=document.active_ocr_char_count,
         extract_method=document.extracted_text.extract_method, created_at=document.created_at,
     )

@@ -34,7 +34,13 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
 }
 
 function DocumentList({ documents, onSelect }) {
-  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><small>{document.extract_method || '처리 대기'} · {document.char_count?.toLocaleString() ?? 0}자</small></div><span className="type-pill">{document.document_type || '미분류'}</span><ReviewBadge status={document.review_status}/><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
+  return <ul className="document-list">{documents.map(document => <li className="document-row" key={document.id} onClick={() => onSelect(document.id)}><span className="file-icon">{document.file_type?.toUpperCase()}</span><div><strong>{document.filename}</strong><DocumentCharacterCounts document={document}/></div><span className="type-pill">{document.document_type || '미분류'}</span><ReviewBadge status={document.review_status}/><span className={`complete-pill status-${document.status?.toLowerCase()}`}>{statusLabel(document.status)}</span><time>{new Date(document.created_at).toLocaleDateString()}</time><button className="document-open" onClick={event => { event.stopPropagation(); onSelect(document.id) }}>내용 보기</button></li>)}</ul>
+}
+
+function DocumentCharacterCounts({ document }) {
+  const textCount = document.text_char_count ?? document.char_count ?? 0
+  const ocrCount = document.ocr_char_count ?? 0
+  return <small>TEXT {textCount.toLocaleString()}자{ocrCount > 0 && <> · OCR {ocrCount.toLocaleString()}자</>}</small>
 }
 
 function ProcessingDocument({ filename }) {
