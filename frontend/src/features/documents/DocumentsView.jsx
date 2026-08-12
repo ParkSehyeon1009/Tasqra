@@ -40,7 +40,11 @@ function DocumentList({ documents, onSelect }) {
 function DocumentCharacterCounts({ document }) {
   const textCount = document.text_char_count ?? document.char_count ?? 0
   const ocrCount = document.ocr_char_count ?? 0
-  return <small>TEXT {textCount.toLocaleString()}자{ocrCount > 0 && <> · OCR {ocrCount.toLocaleString()}자</>}</small>
+  const counts = [
+    textCount > 0 && `TEXT ${textCount.toLocaleString()}자`,
+    ocrCount > 0 && `OCR ${ocrCount.toLocaleString()}자`,
+  ].filter(Boolean)
+  return <small>{counts.join(' · ') || '처리 대기'}</small>
 }
 
 function ProcessingDocument({ filename }) {

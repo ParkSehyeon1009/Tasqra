@@ -25,14 +25,15 @@ class DocxExtractor(TextExtractor):
 
         contents: list[str] = []
         review_pages: list[ExtractedPage] = []
+        counts = {"text": 0, "ocr": 0}
 
         for block in self._iter_block_items(doc):
 
             if isinstance(block, Paragraph):
-                self._extract_paragraph(block, contents, include_image_ocr, review_pages)
+                self._extract_paragraph(block, contents, include_image_ocr, review_pages, counts)
 
             elif isinstance(block, Table):
-                self._extract_table(block, contents, include_image_ocr, review_pages)
+                self._extract_table(block, contents, include_image_ocr, review_pages, counts)
 
         content = "\n".join(contents)
 
@@ -40,6 +41,8 @@ class DocxExtractor(TextExtractor):
             content=content,
             page_count=self._count_pages(doc),
             char_count=len(content),
+            text_char_count=counts["text"],
+            ocr_char_count=counts["ocr"],
             extract_method=ExtractMethod.DOCX.value,
             review_pages=tuple(review_pages),
         )
@@ -62,14 +65,16 @@ class DocxExtractor(TextExtractor):
         contents: list[str],
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> None:
         text = paragraph.text.strip()
 
         if text:
             contents.append(text)
+            counts["text"] += len(text)
 
         if include_image_ocr:
-            self._extract_images(paragraph, contents, review_pages)
+            self._extract_images(paragraph, contents, review_pages, counts)
 
     def _extract_table(
         self,
@@ -77,6 +82,7 @@ class DocxExtractor(TextExtractor):
         contents: list[str],
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> None:
         for row in table.rows:
 
@@ -93,10 +99,11 @@ class DocxExtractor(TextExtractor):
 
                     if text:
                         cell_text.append(text)
+                        counts["text"] += len(text)
 
                     # 셀 안 이미지 OCR
                     if include_image_ocr:
-                        self._extract_images(paragraph, cell_text, review_pages)
+                        self._extract_images(paragraph, cell_text, review_pages, counts)
 
                 if cell_text:
                     row_contents.append("\n".join(cell_text))
@@ -109,6 +116,7 @@ class DocxExtractor(TextExtractor):
         paragraph: Paragraph,
         contents: list[str],
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> None:
         # paragraph 안의 drawing 태그 찾기
         drawings = paragraph._element.xpath(".//w:drawing")
@@ -133,13 +141,14 @@ class DocxExtractor(TextExtractor):
                 except KeyError:
                     continue
 
-                text, page = self._ocr_image(image_part.blob, len(review_pages) + 1)
+                text, page, ocr_char_count = self._ocr_image(image_part.blob, len(review_pages) + 1)
 
                 if text:
                     contents.append(text)
                     review_pages.append(page)
+                    counts["ocr"] += ocr_char_count
 
-    def _ocr_image(self, image_bytes: bytes, page_number: int) -> tuple[str, ExtractedPage | None]:
+    def _ocr_image(self, image_bytes: bytes, page_number: int) -> tuple[str, ExtractedPage | None, int]:
         try:
             with Image.open(BytesIO(image_bytes)) as source_image:
                 image = source_image.copy()
@@ -150,11 +159,13 @@ class DocxExtractor(TextExtractor):
                 for element in elements
                 if element.content.strip()
             )
-            return text, build_image_review_page(image, elements, page_number)
+            return text, build_image_review_page(image, elements, page_number), sum(
+                len(element.content) for element in elements if element.content.strip()
+            )
         except (UnidentifiedImageError, OSError):
             # Word 내부에는 python-docx/Pillow가 해석하지 못하는 이미지 형식도
             # 있을 수 있으므로 해당 이미지만 건너뛴다.
-            return "", None
+            return "", None, 0
 
     @staticmethod
     def _count_pages(document: DocxDocument) -> int:

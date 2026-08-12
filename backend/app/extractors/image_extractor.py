@@ -38,6 +38,8 @@ class ImageExtractor(TextExtractor):
             content=content,
             page_count=1,
             char_count=len(content),
+            text_char_count=0,
+            ocr_char_count=sum(len(element.text) for element in review_elements),
             extract_method=ExtractMethod.OCR.value,
             review_pages=(ExtractedPage(1, width, height, buffer.getvalue(), review_elements),),
         )

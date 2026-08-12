@@ -27,6 +27,7 @@ class HwpxExtractor(TextExtractor):
 
             contents: list[str] = []
             review_pages: list[ExtractedPage] = []
+            counts = {"text": 0, "ocr": 0}
             page_break_count = 0
 
             for section_name in section_names:
@@ -41,6 +42,7 @@ class HwpxExtractor(TextExtractor):
                         image_paths,
                         include_image_ocr,
                         review_pages,
+                        counts,
                     )
                     contents.extend(paragraph_contents)
 
@@ -53,6 +55,8 @@ class HwpxExtractor(TextExtractor):
             content=content,
             page_count=page_break_count + 1,
             char_count=len(content),
+            text_char_count=counts["text"],
+            ocr_char_count=counts["ocr"],
             extract_method=ExtractMethod.HWPX.value,
             review_pages=tuple(review_pages),
         )
@@ -64,6 +68,7 @@ class HwpxExtractor(TextExtractor):
         image_paths: dict[str, str],
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> list[str]:
         contents: list[str] = []
 
@@ -77,6 +82,7 @@ class HwpxExtractor(TextExtractor):
                     text = self._extract_text(element).strip()
                     if text:
                         contents.append(text)
+                        counts["text"] += len(text)
 
                 elif element_name == "tbl":
                     table_text = self._extract_table(
@@ -85,6 +91,7 @@ class HwpxExtractor(TextExtractor):
                         image_paths,
                         include_image_ocr,
                         review_pages,
+                        counts,
                     )
                     if table_text:
                         contents.append(table_text)
@@ -95,6 +102,7 @@ class HwpxExtractor(TextExtractor):
                         archive,
                         image_paths,
                         review_pages,
+                        counts,
                     )
                     if image_text:
                         contents.append(image_text)
@@ -108,6 +116,7 @@ class HwpxExtractor(TextExtractor):
         image_paths: dict[str, str],
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> str:
         rows: list[str] = []
 
@@ -126,6 +135,7 @@ class HwpxExtractor(TextExtractor):
                                 image_paths,
                                 include_image_ocr,
                                 review_pages,
+                                counts,
                             )
                         )
 
@@ -142,6 +152,7 @@ class HwpxExtractor(TextExtractor):
         archive: zipfile.ZipFile,
         image_paths: dict[str, str],
         review_pages: list[ExtractedPage],
+        counts: dict[str, int],
     ) -> str:
         image_id = self._find_image_id(picture)
         if image_id is None:
@@ -169,6 +180,9 @@ class HwpxExtractor(TextExtractor):
         )
         if text:
             review_pages.append(build_image_review_page(image, elements, len(review_pages) + 1))
+            counts["ocr"] += sum(
+                len(element.content) for element in elements if element.content.strip()
+            )
         return text
 
     @classmethod

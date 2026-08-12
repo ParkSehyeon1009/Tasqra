@@ -50,17 +50,11 @@ class Document(Base):
 
     @property
     def active_ocr_char_count(self) -> int:
-        return sum(
-            len(element.text)
-            for page in self.review_pages
-            for element in page.elements
-            if not element.is_deleted and not element.is_excluded
-        )
+        return self.extracted_text.ocr_char_count if self.extracted_text else 0
 
     @property
     def native_text_char_count(self) -> int:
-        total = self.extracted_text.char_count if self.extracted_text else 0
-        return max(total - self.active_ocr_char_count, 0)
+        return self.extracted_text.text_char_count if self.extracted_text else 0
 
 
 class ExtractedText(Base):
@@ -68,6 +62,8 @@ class ExtractedText(Base):
     __table_args__ = (
         CheckConstraint("page_count IS NULL OR page_count >= 0", name="ck_extracted_page_count"),
         CheckConstraint("char_count IS NULL OR char_count >= 0", name="ck_extracted_char_count"),
+        CheckConstraint("text_char_count >= 0", name="ck_extracted_text_char_count"),
+        CheckConstraint("ocr_char_count >= 0", name="ck_extracted_ocr_char_count"),
         CheckConstraint("text_version >= 1", name="ck_extracted_text_version"),
     )
 
@@ -75,6 +71,8 @@ class ExtractedText(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_count: Mapped[int | None] = mapped_column(Integer)
     char_count: Mapped[int | None] = mapped_column(Integer)
+    text_char_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ocr_char_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     extract_method: Mapped[str | None] = mapped_column(String(20))
     text_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

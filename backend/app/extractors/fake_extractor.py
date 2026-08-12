@@ -17,5 +17,7 @@ class FakeExtractor(TextExtractor):
             content=content,
             page_count=1,
             char_count=len(content),
+            text_char_count=len(content),
+            ocr_char_count=0,
             extract_method="FAKE",
         )

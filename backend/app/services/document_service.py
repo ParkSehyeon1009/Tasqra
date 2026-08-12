@@ -136,6 +136,10 @@ class DocumentService:
             if document.extracted_text:
                 document.extracted_text.content = document.extracted_text.content.replace(before, text, 1)
                 document.extracted_text.char_count = len(document.extracted_text.content)
+                document.extracted_text.ocr_char_count = max(
+                    document.extracted_text.ocr_char_count + len(text) - len(before),
+                    0,
+                )
                 document.extracted_text.text_version += 1
             document.ocr_revision += 1
             if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
@@ -180,6 +184,12 @@ class DocumentService:
                     document.extracted_text.content = content
                     document.extracted_text.char_count = len(content)
                     document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(
+                    len(element.text)
+                    for page in document.review_pages
+                    for element in page.elements
+                    if not element.is_deleted and not element.is_excluded
+                )
             document.review_status = ReviewStatus.COMPLETED.value
             document.reviewed_by = user_id
             document.reviewed_at = datetime.now().astimezone()

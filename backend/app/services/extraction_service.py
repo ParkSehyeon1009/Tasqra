@@ -124,6 +124,8 @@ class ExtractionService:
                     content=result.content,
                     page_count=result.page_count,
                     char_count=result.char_count,
+                    text_char_count=result.text_char_count,
+                    ocr_char_count=result.ocr_char_count,
                     extract_method=result.extract_method,
                 )
                 for page_result in result.review_pages:

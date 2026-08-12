@@ -22,6 +22,7 @@ class PdfExtractor(TextExtractor):
 
     def extract(self, file_path: str) -> ExtractResult:
         page_contents: list[str] = []
+        document_page_elements: list[list[LayoutElement]] = []
         review_pages: list[ExtractedPage] = []
 
         has_text = False
@@ -58,6 +59,8 @@ class PdfExtractor(TextExtractor):
                 if page_has_ocr:
                     review_pages.append(self._build_review_page(page, elements, len(page_contents) + 1))
 
+                document_page_elements.append(elements)
+
                 page_content = "\n".join(
                     element.content
                     for element in elements
@@ -67,6 +70,18 @@ class PdfExtractor(TextExtractor):
                 page_contents.append(page_content)
 
         content = "\n\n".join(page_contents)
+        text_char_count = sum(
+            len(element.content)
+            for page in document_page_elements
+            for element in page
+            if element.source == "text"
+        )
+        ocr_char_count = sum(
+            len(element.content)
+            for page in document_page_elements
+            for element in page
+            if element.source == "ocr"
+        )
 
         if has_text and has_ocr:
             extract_method = ExtractMethod.HYBRID.value
@@ -79,6 +94,8 @@ class PdfExtractor(TextExtractor):
             content=content,
             page_count=page_count,
             char_count=len(content),
+            text_char_count=text_char_count,
+            ocr_char_count=ocr_char_count,
             extract_method=extract_method,
             review_pages=tuple(review_pages),
         )
