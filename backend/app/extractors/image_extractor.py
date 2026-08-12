@@ -18,21 +18,25 @@ class ImageExtractor(TextExtractor):
         buffer = BytesIO()
         image.convert("RGB").save(buffer, format="PNG")
         width, height = image.size
-        review_elements = tuple(
-            ExtractedElement(
-                x=max(0.0, min(1.0, element.x / width)),
-                y=max(0.0, min(1.0, element.y / height)),
-                width=max(0.0, min(1.0, ((element.x2 if element.x2 is not None else element.x) - element.x) / width)),
-                height=max(0.0, min(1.0, ((element.y2 if element.y2 is not None else element.y) - element.y) / height)),
-                text=element.content,
-                confidence=element.confidence,
-            ) for element in elements if element.content.strip()
-        )
+        review_elements = []
+        content_parts = []
+        content_cursor = 0
+        for element in elements:
+            content_parts.append(element.content)
+            if element.content.strip():
+                review_elements.append(ExtractedElement(
+                    x=max(0.0, min(1.0, element.x / width)),
+                    y=max(0.0, min(1.0, element.y / height)),
+                    width=max(0.0, min(1.0, ((element.x2 if element.x2 is not None else element.x) - element.x) / width)),
+                    height=max(0.0, min(1.0, ((element.y2 if element.y2 is not None else element.y) - element.y) / height)),
+                    text=element.content,
+                    confidence=element.confidence,
+                    content_start=content_cursor,
+                    content_end=content_cursor + len(element.content),
+                ))
+            content_cursor += len(element.content) + 1
 
-        content = "\n".join(
-            element.content
-            for element in elements
-        )
+        content = "\n".join(content_parts)
 
         return ExtractResult(
             content=content,
@@ -41,5 +45,5 @@ class ImageExtractor(TextExtractor):
             text_char_count=0,
             ocr_char_count=sum(len(element.text) for element in review_elements),
             extract_method=ExtractMethod.OCR.value,
-            review_pages=(ExtractedPage(1, width, height, buffer.getvalue(), review_elements),),
+            review_pages=(ExtractedPage(1, width, height, buffer.getvalue(), tuple(review_elements)),),
         )

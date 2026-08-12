@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
-from app.models.document import Document, OcrElementRevision
+from app.models.document import Document, OcrElement, OcrElementRevision
 from app.models.enums import AnalyzerType, ReviewStatus
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
@@ -121,26 +121,67 @@ class DocumentService:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return page
 
+    @staticmethod
+    def _ordered_ocr_elements(document: Document) -> list[OcrElement]:
+        return [
+            element
+            for page in document.review_pages
+            for element in page.elements
+            if not element.is_deleted
+        ]
+
+    def _replace_ocr_content(self, document: Document, element: OcrElement, replacement: str) -> bool:
+        extracted = document.extracted_text
+        if extracted is None:
+            return False
+        if element.content_start is None or element.content_end is None:
+            raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+
+        start = element.content_start
+        end = element.content_end
+        expected = element.text if element.is_in_content else ""
+        if start > end or end > len(extracted.content) or extracted.content[start:end] != expected:
+            raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+        if expected == replacement:
+            return False
+
+        ordered = self._ordered_ocr_elements(document)
+        current_order = next(index for index, item in enumerate(ordered) if item.id == element.id)
+        delta = len(replacement) - (end - start)
+        extracted.content = extracted.content[:start] + replacement + extracted.content[end:]
+        element.content_end = start + len(replacement)
+
+        for candidate_order, candidate in enumerate(ordered):
+            if candidate.id == element.id or candidate.content_start is None or candidate.content_end is None:
+                continue
+            follows_range = candidate.content_start > end or (candidate.content_start == end and candidate_order > current_order)
+            if follows_range:
+                candidate.content_start += delta
+                candidate.content_end += delta
+
+        extracted.char_count = len(extracted.content)
+        return True
+
     def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
-        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
-        if element is None:
-            raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
-        if element.version != version:
-            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
-        document = element.page.document
-        before = element.text
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
+            if element is None:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if element.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+            before = element.text
+            content_changed = element.is_in_content and self._replace_ocr_content(document, element, text)
             self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=before, after_text=text, from_version=version, to_version=version + 1))
             element.text = text
             element.version += 1
             if document.extracted_text:
-                document.extracted_text.content = document.extracted_text.content.replace(before, text, 1)
-                document.extracted_text.char_count = len(document.extracted_text.content)
-                document.extracted_text.ocr_char_count = max(
-                    document.extracted_text.ocr_char_count + len(text) - len(before),
-                    0,
-                )
-                document.extracted_text.text_version += 1
+                if content_changed:
+                    document.extracted_text.text_version += 1
+                if element.is_in_content:
+                    document.extracted_text.ocr_char_count = max(document.extracted_text.ocr_char_count + len(text) - len(before), 0)
             document.ocr_revision += 1
             if document.review_status in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
                 document.review_status = ReviewStatus.IN_PROGRESS.value
@@ -153,13 +194,15 @@ class DocumentService:
         return element
 
     def set_ocr_element_exclusion(self, project_id: int, document_id: int, element_id: int, is_excluded: bool, version: int):
-        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
-        if element is None:
-            raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
-        if element.version != version:
-            raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
-        document = element.page.document
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
+            if element is None:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if element.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
             element.is_excluded = is_excluded
             element.version += 1
             document.ocr_revision += 1
@@ -174,21 +217,25 @@ class DocumentService:
         return element
 
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
-        document = self.get_document(project_id, document_id)
         with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             if document.extracted_text:
-                content = document.extracted_text.content
-                for element in self._document_repository.list_excluded_ocr_elements(document.id):
-                    content = content.replace(element.text, "", 1)
-                if content != document.extracted_text.content:
-                    document.extracted_text.content = content
-                    document.extracted_text.char_count = len(content)
+                content_changed = False
+                for element in self._ordered_ocr_elements(document):
+                    if element.is_excluded and element.is_in_content:
+                        content_changed = self._replace_ocr_content(document, element, "") or content_changed
+                        element.is_in_content = False
+                    elif not element.is_excluded and not element.is_in_content:
+                        content_changed = self._replace_ocr_content(document, element, element.text) or content_changed
+                        element.is_in_content = True
+                if content_changed:
                     document.extracted_text.text_version += 1
                 document.extracted_text.ocr_char_count = sum(
                     len(element.text)
-                    for page in document.review_pages
-                    for element in page.elements
-                    if not element.is_deleted and not element.is_excluded
+                    for element in self._ordered_ocr_elements(document)
+                    if not element.is_excluded
                 )
             document.review_status = ReviewStatus.COMPLETED.value
             document.reviewed_by = user_id

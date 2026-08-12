@@ -9,7 +9,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
-from app.extractors.review_page import build_image_review_page
+from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
 from app.models.enums import ExtractMethod
 
 _SECTION_PATTERN = re.compile(r"Contents/section(\d+)\.xml")
@@ -49,7 +49,7 @@ class HwpxExtractor(TextExtractor):
                     if self._has_page_break(paragraph):
                         page_break_count += 1
 
-        content = "\n".join(contents)
+        content, review_pages = resolve_review_content_ranges("\n".join(contents), review_pages)
 
         return ExtractResult(
             content=content,
@@ -179,10 +179,12 @@ class HwpxExtractor(TextExtractor):
             if element.content.strip()
         )
         if text:
-            review_pages.append(build_image_review_page(image, elements, len(review_pages) + 1))
+            page = build_image_review_page(image, elements, len(review_pages) + 1)
+            review_pages.append(page)
             counts["ocr"] += sum(
                 len(element.content) for element in elements if element.content.strip()
             )
+            return mark_review_text(text, page.page_number)
         return text
 
     @classmethod

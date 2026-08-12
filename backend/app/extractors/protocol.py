@@ -24,6 +24,8 @@ class ExtractedElement:
     text: str
     confidence: float | None = None
     source: str = "OCR"
+    content_start: int | None = None
+    content_end: int | None = None
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
-from app.extractors.review_page import build_image_review_page
+from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
 from app.models.enums import ExtractMethod
 
 
@@ -35,7 +35,7 @@ class DocxExtractor(TextExtractor):
             elif isinstance(block, Table):
                 self._extract_table(block, contents, include_image_ocr, review_pages, counts)
 
-        content = "\n".join(contents)
+        content, review_pages = resolve_review_content_ranges("\n".join(contents), review_pages)
 
         return ExtractResult(
             content=content,
@@ -144,8 +144,8 @@ class DocxExtractor(TextExtractor):
                 text, page, ocr_char_count = self._ocr_image(image_part.blob, len(review_pages) + 1)
 
                 if text:
-                    contents.append(text)
                     review_pages.append(page)
+                    contents.append(mark_review_text(text, page.page_number))
                     counts["ocr"] += ocr_char_count
 
     def _ocr_image(self, image_bytes: bytes, page_number: int) -> tuple[str, ExtractedPage | None, int]:

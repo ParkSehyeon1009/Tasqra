@@ -3,3 +3,12 @@
 .upload-option-actions button { display: grid; gap: 6px; padding: 16px; text-align: left; border: 1px solid var(--border-color, #dfe3eb); border-radius: 12px; background: #fff; cursor: pointer; }
 .upload-option-actions button:hover { border-color: #6558e8; background: #f7f6ff; }
 .upload-option-actions span { color: #697386; font-size: 13px; }
+
+/* 프로젝트 생성 모달의 오류·키보드 접근성 보완 */
+.dialog-field { display: grid; gap: 6px; }
+.dialog-field label { font-weight: 750; }
+.dialog-field label small { color: #778499; font-weight: 500; }
+.dialog-field input[aria-invalid='true'] { border-color: #c94a58; box-shadow: 0 0 0 3px rgba(201,74,88,.12); }
+.field-error { margin: 0; color: #b83345; font-size: 13px; font-weight: 650; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.project-dialog :focus-visible { outline: 3px solid rgba(86,78,211,.45); outline-offset: 2px; }

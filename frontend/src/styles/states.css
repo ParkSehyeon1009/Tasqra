@@ -1,1 +1,18 @@
 .loading-state{min-height:240px;display:grid;place-items:center;align-content:center;gap:14px;color:#6d7a90}.loading-state span{width:34px;height:34px;border:3px solid #dce4f5;border-top-color:#355ad9;border-radius:50%;animation:state-spin .7s linear infinite}.loading-state p{margin:0}.error-state{margin:28px 0;padding:20px;border:1px solid #f0c6c6;border-radius:12px;background:#fff3f3;color:#ad3030}.not-found{min-height:100vh;display:grid;place-items:center;align-content:center;gap:16px;text-align:center}.not-found h1{margin:24px 0 0;color:#111827}.not-found p{color:#6d7a90}.not-found a{text-decoration:none}@keyframes state-spin{to{transform:rotate(360deg)}}
+
+/* 오류·존재하지 않는 경로에서의 복구 행동 */
+.recovery-page { max-width: 620px; padding: 34px 24px; }
+.recovery-page > p:not(.eyebrow) { color: #69778b; line-height: 1.6; }
+.recovery-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+.recovery-actions a { min-height: 40px; padding: 10px 14px; border-radius: 9px; background: #5148c8; color: #fff; font-weight: 750; text-decoration: none; }
+.recovery-actions a.secondary-link { border: 1px solid #ccd5e3; background: #fff; color: #4b5870; }
+
+/* 앱 전역 상태 배지: 목록·상세·대시보드·검수에서 동일한 색상과 문구를 사용 */
+.status-badge { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 8px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 750; line-height: 1.25; }
+.status-badge-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.status-neutral { border-color: #d9e0eb; background: #f4f6f9; color: #59677a; }
+.status-progress { border-color: #bcd8f9; background: #edf6ff; color: #2169ac; }
+.status-ready { border-color: #c4d6ec; background: #f0f6fc; color: #356c9e; }
+.status-attention { border-color: #f0d9a3; background: #fff8e6; color: #9b6512; }
+.status-success { border-color: #bfe1cf; background: #ecfaf2; color: #237248; }
+.status-danger { border-color: #f0bdc4; background: #fff0f2; color: #aa3445; }
