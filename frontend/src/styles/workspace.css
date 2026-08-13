@@ -33,3 +33,37 @@
 .board-empty-state p { max-width: 650px; margin: 0; color: #69778b; line-height: 1.6; }
 .board-empty-state small { display: block; margin-top: 10px; color: #8a96a6; }
 @media (max-width: 560px) { .board-empty-state { grid-template-columns: 1fr; } }
+
+/* Dashboard split layout and future task integration */
+.dashboard-layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr); gap: 18px; align-items: start; }
+.dashboard-primary-column { display: grid; min-width: 0; gap: 18px; }
+.dashboard-summary-grid--compact { gap: 10px; margin-bottom: 0; }
+.dashboard-summary-grid--compact .dashboard-summary-card { min-height: 92px; padding: 15px; }
+.dashboard-summary-grid--compact .dashboard-summary-card > strong { margin: 12px 0 0; font-size: 28px; }
+.dashboard-next-actions { margin-bottom: 0; }
+.dashboard-task-panel { min-width: 0; }
+.dashboard-task-panel .panel-head p { margin: 5px 0 0; color: #758197; font-size: 13px; }
+.dashboard-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.dashboard-task-card { display: flex; min-height: 170px; padding: 15px; flex-direction: column; border: 1px solid #dce3ee; border-top: 4px solid #8792a4; border-radius: 12px; background: #f7f8fc; }
+.dashboard-task-card.task-type-development { border-top-color: #3d72d3; background: #eef4ff; }
+.dashboard-task-card.task-type-design { border-top-color: #8750cc; background: #f5efff; }
+.dashboard-task-card.task-type-infra { border-top-color: #c27622; background: #fff4e8; }
+.dashboard-task-card.task-type-document { border-top-color: #288a5a; background: #eaf8f0; }
+.dashboard-task-card__top, .dashboard-task-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dashboard-task-type { padding: 5px 8px; border-radius: 99px; background: #fff; color: #68768b; font-size: 12px; font-weight: 800; }
+.task-type-development .dashboard-task-type { color: #2f63c7; }
+.task-type-design .dashboard-task-type { color: #7a43c5; }
+.task-type-infra .dashboard-task-type { color: #b86610; }
+.task-type-document .dashboard-task-type { color: #218252; }
+.dashboard-task-status { color: #5f6e83; font-size: 12px; font-weight: 800; }
+.dashboard-task-card h3 { margin: 14px 0 0; color: #202b3e; font-size: 15px; }
+.dashboard-task-card > p { margin: 8px 0 0; color: #6d7a8f; font-size: 13px; line-height: 1.5; }
+.dashboard-task-card__meta { margin-top: auto; padding-top: 16px; color: #768399; font-size: 12px; }
+.dashboard-task-empty { display: grid; min-height: 300px; place-items: center; align-content: center; padding: 28px; border: 1px dashed #cbd4e2; border-radius: 12px; background: #fafbfe; text-align: center; }
+.dashboard-task-empty strong { color: #36435a; }
+.dashboard-task-empty p { max-width: 300px; margin: 8px 0 0; color: #758197; font-size: 13px; line-height: 1.6; }
+.dashboard-board-link { width: 100%; min-height: 40px; margin-top: 12px; border: 1px solid #d2d9e7; border-radius: 9px; background: #fff; color: #4a43ae; font-weight: 750; cursor: pointer; }
+.dashboard-board-link:hover, .dashboard-board-link:focus-visible { border-color: #756de8; background: #f5f4ff; }
+@media (max-width: 1180px) { .dashboard-layout { grid-template-columns: 1fr; } .dashboard-task-empty { min-height: 190px; } }
+@media (max-width: 680px) { .dashboard-summary-grid--compact, .dashboard-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 440px) { .dashboard-summary-grid--compact, .dashboard-task-grid { grid-template-columns: 1fr; } }
