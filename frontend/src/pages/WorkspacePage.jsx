@@ -1,4 +1,4 @@
-﻿import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getProject } from '../api/project'
@@ -8,8 +8,12 @@ import BoardView from '../features/board/BoardView'
 import DashboardView from '../features/dashboard/DashboardView'
 import DocumentsView from '../features/documents/DocumentsView'
 import MembersView from '../features/members/MembersView'
+import ProjectCreateModal from '../features/projects/ProjectCreateModal'
+import ProjectSidebar from '../features/projects/ProjectSidebar'
+import { useInvitationsQuery } from '../hooks/useInvitationsQuery'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
+import { clearRecentProjectId, setRecentProjectId } from '../utils/recentProject'
 import '../styles/workspace.css'
 
 const TABS = [['dashboard','대시보드'],['documents','문서'],['board','보드'],['settings','설정']]
@@ -25,19 +29,32 @@ export default function WorkspacePage({ user, onLogout, notify }) {
     refetchOnWindowFocus: true,
     refetchInterval: 3_000,
   })
-  const { deleteMutation } = useProjectsQuery(notify)
+  const { projects, createMutation, deleteMutation } = useProjectsQuery(notify)
+  const { recentInvitees } = useInvitationsQuery(user?.id, notify)
   const project = projectQuery.data
-  if (!TABS.some(([key]) => key === tab)) return <Navigate to={`/projects/${projectId}/documents`} replace/>
+  if (!TABS.some(([key]) => key === tab)) return <Navigate to={`/projects/${projectId}/dashboard`} replace/>
   if (projectQuery.isPending) return <LoadingState label="프로젝트 접근 권한을 확인하는 중..."/>
   if (projectQuery.isError || !project) return <Navigate to="/projects" replace/>
-  return <WorkspaceContent project={project} tab={tab} navigate={navigate} notify={notify} user={user} onLogout={onLogout} deleteMutation={deleteMutation}/>
+  return <WorkspaceContent project={project} projects={projects} tab={tab} navigate={navigate} notify={notify} user={user} onLogout={onLogout} createMutation={createMutation} deleteMutation={deleteMutation} recentInvitees={recentInvitees}/>
 }
 
-function WorkspaceContent({ project, tab, navigate, notify, user, onLogout, deleteMutation }) {
+function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLogout, createMutation, deleteMutation, recentInvitees }) {
+  const [creating, setCreating] = useState(false)
   const data = useWorkspaceData(project, notify)
   const fileInputRef = useRef(null)
   const canEdit = project.role !== 'VIEWER'
   const openUpload = () => fileInputRef.current?.click()
+
+  useEffect(() => { setRecentProjectId(user?.id, project.id) }, [project.id, user?.id])
+
+  async function createNewProject(values) {
+    try {
+      const { project: created } = await createMutation.mutateAsync(values)
+      setCreating(false)
+      setRecentProjectId(user?.id, created.id)
+      navigate(`/projects/${created.id}/dashboard`)
+    } catch { /* 공통 토스트에서 처리 */ }
+  }
   function requestUpload(file) {
     if (!file || !canEdit) return
     return data.uploadFile(file, 'AUTO')
@@ -51,12 +68,20 @@ function WorkspaceContent({ project, tab, navigate, notify, user, onLogout, dele
   async function deleteCurrentProject() {
     try {
       await deleteMutation.mutateAsync(project.id)
+      clearRecentProjectId(user?.id, project.id)
       navigate('/projects', { replace: true })
     } catch { /* 공통 토스트에서 처리 */ }
   }
+
   return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
-    <nav className="tabs">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
-    <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploading={data.uploading} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+    <div className="workspace-shell">
+      <ProjectSidebar projects={projects} activeProjectId={project.id} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onCreate={() => setCreating(true)}/>
+      <section className="workspace-content">
+        <nav className="tabs" aria-label="프로젝트 메뉴">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
+        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploading={data.uploading} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+      </section>
+    </div>
+    <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
   </div>
 }
 
