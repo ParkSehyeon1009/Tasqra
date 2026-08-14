@@ -1,6 +1,9 @@
 services:
   db:
-    image: postgres:16-alpine
+    # pgvector 확장이 미리 설치된 이미지. 리비전 0011(document_chunks)의
+    # CREATE EXTENSION vector 가 postgres:16-alpine 에서는 실패한다.
+    # alpine -> debian 계열이라 기존 볼륨은 붙지 않는다. docker compose down -v 필요.
+    image: pgvector/pgvector:pg16
     container_name: tasqra-db
     restart: unless-stopped
     environment:

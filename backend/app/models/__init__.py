@@ -23,5 +23,6 @@ __all__ = [
 from app.models.user import RefreshToken, User
 from app.models.project import Project, ProjectInvitation, ProjectMember
 from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
+from app.models.chunk import DocumentChunk
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk"]
