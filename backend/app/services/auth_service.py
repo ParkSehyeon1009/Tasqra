@@ -34,12 +34,13 @@ class AuthService:
         return user, create_access_token(user.id), refresh_token
 
     def refresh(self, raw_token: str | None) -> tuple[User, str, str]:
-        stored = self._find_active_refresh_token(raw_token)
         with transactional(self._db):
+            stored = self._find_active_refresh_token(raw_token, for_update=True)
+            user = stored.user
             stored.revoked_at = datetime.now(timezone.utc)
             raw_new, hash_new = create_refresh_token()
             self._db.add(RefreshToken(user_id=stored.user_id, token_hash=hash_new, expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)))
-        return stored.user, create_access_token(stored.user_id), raw_new
+        return user, create_access_token(user.id), raw_new
 
     def logout(self, raw_token: str | None) -> None:
         if not raw_token:
@@ -55,10 +56,13 @@ class AuthService:
             self._db.add(RefreshToken(user_id=user_id, token_hash=token_hash, expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)))
         return raw_token
 
-    def _find_active_refresh_token(self, raw_token: str | None) -> RefreshToken:
+    def _find_active_refresh_token(self, raw_token: str | None, *, for_update: bool = False) -> RefreshToken:
         if not raw_token:
             raise BusinessError(ErrorCode.INVALID_REFRESH_TOKEN)
-        stored = self._db.query(RefreshToken).filter(RefreshToken.token_hash == hash_refresh_token(raw_token), RefreshToken.revoked_at.is_(None)).one_or_none()
+        query = self._db.query(RefreshToken).filter(RefreshToken.token_hash == hash_refresh_token(raw_token), RefreshToken.revoked_at.is_(None))
+        if for_update:
+            query = query.with_for_update()
+        stored = query.one_or_none()
         if stored is None or stored.expires_at <= datetime.now(timezone.utc) or not stored.user.is_active:
             raise BusinessError(ErrorCode.INVALID_REFRESH_TOKEN)
         return stored

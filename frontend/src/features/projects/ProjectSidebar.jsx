@@ -5,7 +5,7 @@ export default function ProjectSidebar({ projects, activeProjectId, onSelect, on
       {projects.length ? projects.map((project, index) => {
         const active = String(project.id) === String(activeProjectId)
         return <button className={active ? 'is-active' : ''} aria-current={active ? 'page' : undefined} onClick={() => onSelect(project)} key={project.id}>
-          <i className={`project-sidebar__marker marker-${index % 5}`} aria-hidden="true"/><span>{project.name}</span>
+          <i className={`project-sidebar__marker marker-${index % 5}`} aria-hidden="true"/><span>{project.name}</span>{project.status === 'ARCHIVED' && <small>보관됨</small>}
         </button>
       }) : <p>참여 중인 프로젝트가 없습니다.</p>}
     </nav>

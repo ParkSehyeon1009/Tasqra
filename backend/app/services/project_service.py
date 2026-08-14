@@ -33,11 +33,17 @@ class ProjectService:
     def update(self, project: Project, values: dict) -> Project:
         if values.get("name") is None and "name" in values:
             raise BusinessError(ErrorCode.INVALID_PROJECT_NAME)
-        for key, value in values.items():
-            setattr(project, key, value)
-        if project.started_on and project.due_on and project.started_on > project.due_on:
+        if "name" in values:
+            values["name"] = values["name"].strip()
+            if not values["name"]:
+                raise BusinessError(ErrorCode.INVALID_PROJECT_NAME)
+        started_on = values.get("started_on", project.started_on)
+        due_on = values.get("due_on", project.due_on)
+        if started_on and due_on and started_on > due_on:
             raise BusinessError(ErrorCode.INVALID_PROJECT_DATES)
         with transactional(self._db):
+            for key, value in values.items():
+                setattr(project, key, value)
             self._db.add(project)
         return project
 
@@ -72,6 +78,8 @@ class ProjectService:
         if role == MemberRole.OWNER:
             raise BusinessError(ErrorCode.OWNER_ROLE_RESERVED)
         invitation = self._projects.get_project_invitation(project.id, user.id)
+        if invitation is not None and invitation.status == "PENDING":
+            raise BusinessError(ErrorCode.DUPLICATE_INVITATION)
         with transactional(self._db):
             if invitation is None:
                 invitation = ProjectInvitation(project_id=project.id, invitee_id=user.id, invited_by=inviter.id, role=role.value, status="PENDING")

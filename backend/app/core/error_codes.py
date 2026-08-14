@@ -33,6 +33,7 @@ class ErrorCode(Enum):
     INVALID_PROJECT_NAME = ("INVALID_PROJECT_NAME", "프로젝트 이름은 비워둘 수 없습니다.", 400)
     INVITATION_NOT_FOUND = ("INVITATION_NOT_FOUND", "프로젝트 초대를 찾을 수 없습니다.", 404)
     INVITATION_NOT_PENDING = ("INVITATION_NOT_PENDING", "이미 처리된 프로젝트 초대입니다.", 409)
+    DUPLICATE_INVITATION = ("DUPLICATE_INVITATION", "이미 대기 중인 프로젝트 초대가 있습니다.", 409)
     INVALID_FILE_TYPE = ("INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다.", 400)
     INVALID_EXTRACTION_STRATEGY = ("INVALID_EXTRACTION_STRATEGY", "이 파일에서 사용할 수 없는 텍스트 추출 방식입니다.", 400)
     OCR_EDIT_CONFLICT = ("OCR_EDIT_CONFLICT", "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.", 409)
