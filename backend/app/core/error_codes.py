@@ -18,6 +18,7 @@ from enum import Enum
 
 
 class ErrorCode(Enum):
+    PROCESS_QUEUE_UNAVAILABLE = ("PROCESS_QUEUE_UNAVAILABLE", "문서 처리 작업을 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503)
     DUPLICATE_DOCUMENT = ("DUPLICATE_DOCUMENT", "프로젝트에 동일한 문서가 이미 등록되어 있습니다.", 409)
     INVALID_DOCUMENT_TYPE = ("INVALID_DOCUMENT_TYPE", "지원하지 않는 문서 유형입니다.", 400)
     USER_NOT_FOUND = ("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.", 404)

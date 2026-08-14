@@ -63,7 +63,7 @@ function DocumentList({ documents, onOpen, onPrimaryAction }) {
       <div className='document-actions'>
         {document.review_status === 'COMPLETED' ? <><button className='document-open' onClick={() => onPrimaryAction(document)}>재검수하기</button><button className='document-open' onClick={() => onOpen(document.id)}>상세보기</button></> : <button className='document-open' onClick={() => onPrimaryAction(document)}>{getDocumentPrimaryAction(document)}</button>}
       </div>
-      {processing && <p className='document-state-note' role='status'>{documentStatus.description}</p>}
+      {(processing || document.status === 'FAILED') && <p className='document-state-note' role='status'>{document.processing_error || documentStatus.description}</p>}
     </li>
   })}</ul>
 }

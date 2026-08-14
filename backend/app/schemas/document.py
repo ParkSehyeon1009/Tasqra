@@ -30,12 +30,13 @@ class DocumentUploadResponse(BaseModel):
     document_type_source: str | None
     extraction_strategy: str
     status: str
+    processing_error: str | None
     review_status: str
-    page_count: int
-    char_count: int
+    page_count: int | None
+    char_count: int | None
     text_char_count: int
     ocr_char_count: int
-    extract_method: str
+    extract_method: str | None
     created_at: datetime
 
 
@@ -72,6 +73,7 @@ class DocumentListItem(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    processing_error: str | None = None
     review_status: str
     page_count: int | None = None
     char_count: int | None = None
@@ -92,6 +94,7 @@ class DocumentDetailResponse(BaseModel):
     file_type: str
     document_type: str | None
     status: str
+    processing_error: str | None = None
     review_status: str
     extraction_strategy: str
     uploaded_by_name: str | None = None

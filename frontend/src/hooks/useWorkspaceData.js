@@ -9,7 +9,11 @@ export function useWorkspaceData(project, notify) {
   const documentsKey = ['projects', project.id, 'documents']
   const invitationsKey = ['projects', project.id, 'invitations']
   const membersQuery = useQuery({ queryKey: membersKey, queryFn: () => listMembers(project.id) })
-  const documentsQuery = useQuery({ queryKey: documentsKey, queryFn: () => listProjectDocuments(project.id) })
+  const documentsQuery = useQuery({
+    queryKey: documentsKey,
+    queryFn: () => listProjectDocuments(project.id),
+    refetchInterval: query => query.state.data?.items?.some(item => ['PENDING', 'EXTRACTING'].includes(item.status)) ? 3_000 : false,
+  })
   const invitationsQuery = useQuery({ queryKey: invitationsKey, queryFn: () => listProjectInvitations(project.id), enabled: project.role === 'OWNER' })
 
   const projectMutation = useMutation({
@@ -64,7 +68,7 @@ export function useWorkspaceData(project, notify) {
     mutationFn: ({ file, extractionStrategy, documentType }) => uploadProjectDocument(project.id, file, extractionStrategy, documentType),
     onSuccess: document => {
       queryClient.setQueryData(documentsKey, current => ({ ...(current ?? {}), items: [document, ...(current?.items ?? [])], total: (current?.total ?? 0) + 1 }))
-      notify('success', '문서 업로드 완료', `${document.filename} 처리가 완료되었습니다.`)
+      notify('success', '문서 업로드 접수', `${document.filename} 처리를 시작했습니다.`)
     },
     onError: error => notify('error', '문서 업로드 실패', error.message || FALLBACK_ERROR),
   })

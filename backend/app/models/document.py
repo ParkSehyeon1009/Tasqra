@@ -26,6 +26,7 @@ class Document(Base):
     document_type: Mapped[str | None] = mapped_column(String(30))
     document_type_source: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentStatus.PENDING.value)
+    processing_error: Mapped[str | None] = mapped_column(String(1000))
     processing_mode: Mapped[str] = mapped_column(String(20), nullable=False, default=ProcessingMode.NORMAL.value)
     extraction_strategy: Mapped[str] = mapped_column(String(30), nullable=False, default="AUTO")
     review_status: Mapped[str] = mapped_column(String(20), nullable=False, default=ReviewStatus.NOT_REQUIRED.value)
