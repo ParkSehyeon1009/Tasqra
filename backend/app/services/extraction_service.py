@@ -59,6 +59,14 @@ class ExtractionService:
                 detail="빈 파일은 업로드할 수 없습니다.",
             )
 
+        content_hash = hashlib.sha256(content).hexdigest()
+        duplicate = self._document_repository.get_by_content_hash(project_id, content_hash)
+        if duplicate is not None:
+            raise BusinessError(
+                ErrorCode.DUPLICATE_DOCUMENT,
+                detail=f"동일한 내용의 문서 '{duplicate.filename}'이(가) 이미 등록되어 있습니다.",
+            )
+
         stored_path = self._save_file(extension, content)
         review_paths: list[str] = []
 
@@ -122,7 +130,7 @@ class ExtractionService:
                         storage_path=stored_path,
                         file_type=file_type,
                         file_size=len(content),
-                        content_hash=hashlib.sha256(content).hexdigest(),
+                        content_hash=content_hash,
                         document_type=selected_document_type.value if selected_document_type else None,
                         document_type_source=DocumentTypeSource.USER.value if selected_document_type else None,
                         status=DocumentStatus.EXTRACTED.value,

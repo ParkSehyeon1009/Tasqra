@@ -18,6 +18,7 @@ from enum import Enum
 
 
 class ErrorCode(Enum):
+    DUPLICATE_DOCUMENT = ("DUPLICATE_DOCUMENT", "프로젝트에 동일한 문서가 이미 등록되어 있습니다.", 409)
     INVALID_DOCUMENT_TYPE = ("INVALID_DOCUMENT_TYPE", "지원하지 않는 문서 유형입니다.", 400)
     USER_NOT_FOUND = ("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.", 404)
     DUPLICATE_USER = ("DUPLICATE_USER", "이미 가입된 이메일입니다.", 409)

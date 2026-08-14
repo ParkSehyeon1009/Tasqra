@@ -34,6 +34,17 @@ class DocumentRepository:
     def get_by_id_for_update(self, project_id: int, document_id: int) -> Document | None:
         return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).with_for_update().one_or_none()
 
+    def get_by_content_hash(self, project_id: int, content_hash: str) -> Document | None:
+        return (
+            self._db.query(Document)
+            .filter(
+                Document.project_id == project_id,
+                Document.content_hash == content_hash,
+            )
+            .order_by(Document.created_at.desc())
+            .first()
+        )
+
     def delete(self, document: Document) -> None:
         self._db.delete(document)
 
