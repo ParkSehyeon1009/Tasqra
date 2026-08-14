@@ -241,7 +241,7 @@ class OcrExtractor:
             rows.setdefault((cell.table_id, cell.row), []).append(cell)
 
         table_rows: list[LayoutElement] = []
-        for row_cells in rows.values():
+        for (table_id, table_row), row_cells in rows.items():
             ordered_cells = sorted(row_cells, key=lambda cell: cell.column)
             contents = [
                 cls._format_cell_content(cell_elements[cell])
@@ -274,6 +274,10 @@ class OcrExtractor:
                         if confidences
                         else None
                     ),
+                    element_type="TABLE_HEADER" if table_row == 0 else "TABLE_ROW",
+                    element_type_source="AUTO",
+                    table_id=table_id,
+                    table_row=table_row,
                 )
             )
 

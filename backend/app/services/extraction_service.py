@@ -139,7 +139,7 @@ class ExtractionService:
                         content_end = item.content_end if item.content_end is not None else content_start + len(item.text) if content_start >= 0 else None
                         if content_end is not None:
                             content_cursor = content_end
-                        page.elements.append(OcrElement(original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height, confidence=item.confidence, source=item.source, reading_order=index, content_start=content_start if content_start >= 0 else None, content_end=content_end, is_in_content=True))
+                        page.elements.append(OcrElement(original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height, confidence=item.confidence, source=item.source, element_type=item.element_type, element_type_source=item.element_type_source, is_paragraph_start=item.is_paragraph_start, table_id=item.table_id, table_row=item.table_row, reading_order=index, content_start=content_start if content_start >= 0 else None, content_end=content_end, is_in_content=True))
                     document.review_pages.append(page)
 
             return document

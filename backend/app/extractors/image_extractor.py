@@ -33,6 +33,11 @@ class ImageExtractor(TextExtractor):
                     confidence=element.confidence,
                     content_start=content_cursor,
                     content_end=content_cursor + len(element.content),
+                    element_type=element.element_type,
+                    element_type_source=element.element_type_source,
+                    is_paragraph_start=element.is_paragraph_start,
+                    table_id=element.table_id,
+                    table_row=element.table_row,
                 ))
             content_cursor += len(element.content) + 1
 

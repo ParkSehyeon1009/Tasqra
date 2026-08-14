@@ -26,6 +26,11 @@ class ExtractedElement:
     source: str = "OCR"
     content_start: int | None = None
     content_end: int | None = None
+    element_type: str = "TEXT_LINE"
+    element_type_source: str = "AUTO"
+    is_paragraph_start: bool = False
+    table_id: int | None = None
+    table_row: int | None = None
 
 
 @dataclass(frozen=True)

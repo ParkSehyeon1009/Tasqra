@@ -124,6 +124,11 @@ class PdfExtractor(TextExtractor):
                 text=element.content, confidence=element.confidence,
                 content_start=element_start,
                 content_end=element_start + len(element.content),
+                element_type=element.element_type,
+                element_type_source=element.element_type_source,
+                is_paragraph_start=element.is_paragraph_start,
+                table_id=element.table_id,
+                table_row=element.table_row,
             ))
         return ExtractedPage(page_number, pixmap.width, pixmap.height, pixmap.tobytes("png"), tuple(review_elements))
 
