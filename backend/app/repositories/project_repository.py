@@ -22,7 +22,7 @@ class ProjectRepository:
         row = (
             self._db.query(Project, ProjectMember)
             .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .filter(Project.id == project_id, ProjectMember.user_id == user_id, Project.status == "ACTIVE")
+            .filter(Project.id == project_id, ProjectMember.user_id == user_id)
             .one_or_none()
         )
         return row
@@ -31,8 +31,8 @@ class ProjectRepository:
         return (
             self._db.query(Project, ProjectMember)
             .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .filter(ProjectMember.user_id == user_id, Project.status == "ACTIVE")
-            .order_by(Project.created_at.desc())
+            .filter(ProjectMember.user_id == user_id)
+            .order_by(Project.status.asc(), Project.created_at.desc())
             .all()
         )
 

@@ -11,7 +11,7 @@
 .settings-section{margin-top:22px}
 .project-info-form{display:grid;gap:14px;margin-top:20px}
 .project-info-form label{display:grid;gap:7px;color:#344054;font-weight:700}
-.project-info-form input,.project-info-form textarea{padding:12px;border:1px solid #d5deeb;border-radius:10px;background:white}
+.project-info-form input,.project-info-form textarea,.project-info-form select{padding:12px;border:1px solid #d5deeb;border-radius:10px;background:white}
 .project-info-form button{justify-self:end}
 .invitation-list{list-style:none;margin:12px 0 0;padding:0}
 .invitation-list li{display:flex;align-items:center;gap:12px;padding:14px 0;border-top:1px solid #e5eaf1}

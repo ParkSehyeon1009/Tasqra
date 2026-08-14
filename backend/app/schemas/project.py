@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import MemberRole
+from app.models.enums import MemberRole, ProjectStatus
 
 
 class ProjectCreateRequest(BaseModel):
@@ -17,6 +17,7 @@ class ProjectUpdateRequest(BaseModel):
     description: str | None = None
     started_on: date | None = None
     due_on: date | None = None
+    status: ProjectStatus | None = None
 
 
 class ProjectResponse(BaseModel):

@@ -11,11 +11,11 @@ export default function MembersView({ project, members, invitations, onUpdatePro
   async function updateInfo(event) {
     event.preventDefault()
     const values = Object.fromEntries(new FormData(event.currentTarget))
-    try { await onUpdateProject({ name: values.name, description: values.description || null }) } catch { /* 공통 토스트에서 처리 */ }
+    try { await onUpdateProject({ name: values.name, description: values.description || null, status: values.status }) } catch { /* 공통 토스트에서 처리 */ }
   }
 
   return <><PageHeading eyebrow="PROJECT SETTINGS" title="프로젝트 설정" description="프로젝트 정보, 팀원과 접근 권한을 관리합니다."/>
-    <section className="panel settings-panel"><div className="panel-head"><h2>프로젝트 정보</h2><span>{project.role}</span></div><form className="project-info-form" onSubmit={updateInfo}><label>프로젝트명<input name="name" defaultValue={project.name} required disabled={!canEditProject}/></label><label>설명<textarea name="description" defaultValue={project.description ?? ''} rows="3" disabled={!canEditProject}/></label>{canEditProject && <button className="primary" disabled={updatingProject}>변경사항 저장</button>}</form></section>
+    <section className="panel settings-panel"><div className="panel-head"><h2>프로젝트 정보</h2><span>{project.role}</span></div><form className="project-info-form" onSubmit={updateInfo}><label>프로젝트명<input name="name" defaultValue={project.name} required disabled={!canEditProject}/></label><label>설명<textarea name="description" defaultValue={project.description ?? ''} rows="3" disabled={!canEditProject}/></label><label>프로젝트 상태<select name="status" defaultValue={project.status} disabled={!canEditProject}><option value="ACTIVE">진행 중</option><option value="ARCHIVED">보관됨</option></select></label>{canEditProject && <button className="primary" disabled={updatingProject}>변경사항 저장</button>}</form></section>
     <section className="panel settings-panel settings-section"><div className="panel-head"><h2>팀원</h2><span>{members.length}명</span></div>{isOwner && <InviteForm onSubmit={onInvite}/>}<MemberList members={members} role={project.role} onRole={onRole} onRemove={setRemoveTarget}/></section>
     {isOwner && <InvitationList invitations={invitations} onCancel={onCancelInvitation}/>}
     {isOwner && <section className="panel danger-zone"><div><h2>프로젝트 영구 삭제</h2><p>프로젝트와 모든 문서, 분석 결과, 멤버 및 초대 정보가 영구적으로 삭제됩니다.</p></div><button className="danger-button" onClick={() => setDeleteOpen(true)} disabled={deleting}>프로젝트 영구 삭제</button></section>}
