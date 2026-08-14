@@ -43,6 +43,7 @@ class Document(Base):
     extracted_text = relationship("ExtractedText", back_populates="document", uselist=False, cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="document", cascade="all, delete-orphan")
     review_pages = relationship("DocumentPage", back_populates="document", cascade="all, delete-orphan", order_by="DocumentPage.page_number")
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan", order_by="DocumentChunk.seq")
 
     @property
     def stored_path(self) -> str:

@@ -13,6 +13,7 @@ PyYAML==6.0.2
 sqlalchemy==2.0.48
 psycopg2-binary==2.9.11
 alembic==1.18.4
+pgvector==0.4.1
 
 # --- Authentication ---
 PyJWT==2.11.0
