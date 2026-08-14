@@ -46,6 +46,23 @@ class DocumentRepository:
     def get_ocr_element_for_update(self, project_id: int, document_id: int, element_id: int) -> OcrElement | None:
         return self._db.query(OcrElement).join(DocumentPage).join(Document).filter(Document.project_id == project_id, Document.id == document_id, OcrElement.id == element_id).with_for_update(of=OcrElement).one_or_none()
 
+    def get_ocr_elements_for_update(self, project_id: int, document_id: int, element_ids: list[int]) -> list[OcrElement]:
+        if not element_ids:
+            return []
+        return (
+            self._db.query(OcrElement)
+            .join(DocumentPage)
+            .join(Document)
+            .filter(
+                Document.project_id == project_id,
+                Document.id == document_id,
+                OcrElement.id.in_(element_ids),
+                OcrElement.is_deleted.is_(False),
+            )
+            .with_for_update(of=OcrElement)
+            .all()
+        )
+
     def list_ocr_revisions(self, project_id: int, document_id: int) -> list[tuple[OcrElementRevision, str | None]]:
         return (
             self._db.query(OcrElementRevision, User.name)

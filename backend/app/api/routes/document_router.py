@@ -5,8 +5,8 @@ from fastapi.responses import FileResponse
 
 from app.dependencies import ProjectAccess, get_document_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
-from app.services.document_service import DocumentService
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
+from app.services.document_service import DocumentService, OcrElementBatchChange
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
 
@@ -45,6 +45,20 @@ def get_ocr_page_image(document_id: int, page_id: int, access: ProjectAccess = D
 @router.patch("/documents/{document_id}/ocr-elements/{element_id}", response_model=OcrElementResponse)
 def update_ocr_element(document_id: int, element_id: int, payload: OcrElementUpdateRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     return OcrElementResponse.model_validate(service.update_ocr_element(access.project.id, document_id, element_id, payload.text, payload.version, access.member.user_id))
+
+@router.patch("/documents/{document_id}/ocr-elements", response_model=OcrElementBatchUpdateResponse)
+def update_ocr_elements_batch(document_id: int, payload: OcrElementBatchUpdateRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
+    document, elements = service.update_ocr_elements_batch(
+        access.project.id,
+        document_id,
+        [OcrElementBatchChange(**item.model_dump()) for item in payload.items],
+        access.member.user_id,
+    )
+    return OcrElementBatchUpdateResponse(
+        ocr_revision=document.ocr_revision,
+        text_version=document.extracted_text.text_version if document.extracted_text else None,
+        items=[OcrElementResponse.model_validate(element) for element in elements],
+    )
 
 @router.patch("/documents/{document_id}/ocr-elements/{element_id}/exclusion", response_model=OcrElementResponse)
 def set_ocr_element_exclusion(document_id: int, element_id: int, payload: OcrElementExclusionRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
