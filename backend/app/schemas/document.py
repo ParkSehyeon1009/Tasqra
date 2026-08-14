@@ -40,6 +40,12 @@ class DocumentUploadResponse(BaseModel):
     created_at: datetime
 
 
+class DocumentProcessingResponse(BaseModel):
+    document_id: int
+    status: str
+    processing_error: str | None = None
+
+
 class AnalyzeRequest(BaseModel):
     # 생략 시(None) 서비스 레이어가 기본으로 summary/category 둘 다 실행한다.
     analyzer_types: list[str] | None = None

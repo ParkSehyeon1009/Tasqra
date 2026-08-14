@@ -6,7 +6,7 @@ import { formatNumber } from '../../utils/format'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
-export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName }) {
+export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName, onRetry, retryingDocumentId }) {
   const [dragging, setDragging] = useState(false)
   const navigate = useNavigate()
   const openDocument = documentId => navigate('/projects/' + projectId + '/documents/' + documentId)
@@ -39,13 +39,13 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
       {dragging && <div className='drop-overlay'>여기에 파일을 놓아 업로드하세요.</div>}
       <div className='panel-head'><div><h2>전체 문서</h2><p>상태 배지와 설명은 현재 서버가 제공한 값에 따라 표시됩니다.</p></div><span>{documents.length}건</span></div>
       {uploading && <ProcessingDocument filename={uploadingFileName}/>}
-      {documents.length ? <DocumentList documents={documents} onOpen={openDocument} onPrimaryAction={openPrimaryAction}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+      {documents.length ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
   </>
 }
 
-function DocumentList({ documents, onOpen, onPrimaryAction }) {
+function DocumentList({ documents, canEdit, onOpen, onPrimaryAction, onRetry, retryingDocumentId }) {
   return <ul className='document-list'>{documents.map(document => {
     const processing = ['PENDING', 'EXTRACTING', 'ANALYZING'].includes(document.status)
     const documentStatus = getDocumentStatus(document.status)
@@ -61,7 +61,7 @@ function DocumentList({ documents, onOpen, onPrimaryAction }) {
       </div>
       <div className='document-secondary-meta'><span className='type-pill'>{document.document_type || '미분류'}</span><time dateTime={document.created_at}>{new Date(document.created_at).toLocaleDateString()}</time></div>
       <div className='document-actions'>
-        {document.review_status === 'COMPLETED' ? <><button className='document-open' onClick={() => onPrimaryAction(document)}>재검수하기</button><button className='document-open' onClick={() => onOpen(document.id)}>상세보기</button></> : <button className='document-open' onClick={() => onPrimaryAction(document)}>{getDocumentPrimaryAction(document)}</button>}
+        {document.status === 'FAILED' && canEdit ? <button className='document-open' disabled={retryingDocumentId === document.id} onClick={() => onRetry(document)}>{retryingDocumentId === document.id ? '재처리 요청 중' : '다시 처리'}</button> : document.review_status === 'COMPLETED' ? <><button className='document-open' onClick={() => onPrimaryAction(document)}>재검수하기</button><button className='document-open' onClick={() => onOpen(document.id)}>상세보기</button></> : <button className='document-open' onClick={() => onPrimaryAction(document)}>{getDocumentPrimaryAction(document)}</button>}
       </div>
       {(processing || document.status === 'FAILED') && <p className='document-state-note' role='status'>{document.processing_error || documentStatus.description}</p>}
     </li>

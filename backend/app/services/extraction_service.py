@@ -124,6 +124,24 @@ class ExtractionService:
         if os.path.exists(stored_path):
             os.remove(stored_path)
 
+    def prepare_retry(self, project_id: int, document_id: int) -> Document:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            if document.status != DocumentStatus.FAILED.value:
+                raise BusinessError(ErrorCode.DOCUMENT_RETRY_NOT_ALLOWED)
+            document.status = DocumentStatus.PENDING.value
+            document.processing_error = None
+        return document
+
+    def mark_queue_failure(self, project_id: int, document_id: int) -> None:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is not None:
+                document.status = DocumentStatus.FAILED.value
+                document.processing_error = ErrorCode.PROCESS_QUEUE_UNAVAILABLE.message
+
     def upload_and_extract(
         self,
         project_id: int,

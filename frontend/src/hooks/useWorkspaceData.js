@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cancelProjectInvitation, inviteMember, listMembers, listProjectDocuments, listProjectInvitations, removeMember, updateMember, updateProject, uploadProjectDocument } from '../api/project'
+import { retryDocumentProcessing } from '../api/document'
 
 const FALLBACK_ERROR = '요청 처리 중 오류가 발생했습니다.'
 
@@ -72,6 +73,14 @@ export function useWorkspaceData(project, notify) {
     },
     onError: error => notify('error', '문서 업로드 실패', error.message || FALLBACK_ERROR),
   })
+  const retryDocumentMutation = useMutation({
+    mutationFn: document => retryDocumentProcessing(project.id, document.id),
+    onSuccess: (_, document) => {
+      queryClient.setQueryData(documentsKey, current => ({ ...current, items: current?.items?.map(item => item.id === document.id ? { ...item, status: 'PENDING', processing_error: null } : item) ?? [] }))
+      notify('success', '문서 재처리 접수', `${document.filename} 처리를 다시 시작했습니다.`)
+    },
+    onError: error => notify('error', '문서 재처리 실패', error.message || FALLBACK_ERROR),
+  })
 
   async function invite(event) {
     event.preventDefault()
@@ -88,6 +97,8 @@ export function useWorkspaceData(project, notify) {
     changeRole: (member, role) => roleMutation.mutate({ member, role }),
     excludeMember: member => removeMutation.mutate(member),
     uploadFile: (file, extractionStrategy = 'AUTO', documentType = null) => uploadMutation.mutateAsync({ file, extractionStrategy, documentType }),
+    retryDocument: document => retryDocumentMutation.mutate(document),
+    retryingDocumentId: retryDocumentMutation.variables?.id ?? null,
     uploading: uploadMutation.isPending,
     uploadingFileName: uploadMutation.variables?.file?.name ?? null,
   }

@@ -3,10 +3,14 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import FileResponse
 
-from app.dependencies import ProjectAccess, get_document_service, get_project_access, get_project_editor_access
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
+from app.services.extraction_service import ExtractionService
+from app.worker import extract_document_task
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
 
@@ -21,6 +25,16 @@ def get_document(document_id: int, access: ProjectAccess = Depends(get_project_a
     document = service.get_document(access.project.id, document_id)
     extracted = document.extracted_text
     return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, processing_error=document.processing_error, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+
+@router.post("/documents/{document_id}/retry", response_model=DocumentProcessingResponse)
+def retry_document_processing(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: ExtractionService = Depends(get_extraction_service)):
+    document = service.prepare_retry(access.project.id, document_id)
+    try:
+        extract_document_task.delay(access.project.id, document.id)
+    except Exception as exc:
+        service.mark_queue_failure(access.project.id, document.id)
+        raise BusinessError(ErrorCode.PROCESS_QUEUE_UNAVAILABLE) from exc
+    return DocumentProcessingResponse(document_id=document.id, status=document.status)
 
 @router.get("/documents/{document_id}/source")
 def download_source(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):

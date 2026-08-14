@@ -131,3 +131,5 @@
 .document-header-statuses { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .document-page-actions { align-items: center; }
 @media (max-width: 760px) { .document-header-statuses { width: 100%; } .document-page-actions { align-items: stretch; } }
+.document-processing-error { color: #b32f40 !important; font-weight: 650; }
+.document-page-actions .retry-processing { border-color: #8ba2dc; background: #edf2ff; color: #3654a5; font-weight: 750; }

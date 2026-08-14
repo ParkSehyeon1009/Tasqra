@@ -119,3 +119,7 @@ export async function analyzeDocument(projectId, documentId, analyzerTypes = nul
 export async function deleteDocument(projectId, documentId) {
   await http.delete(`/api/projects/${projectId}/documents/${documentId}`)
 }
+
+export async function retryDocumentProcessing(projectId, documentId) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/retry`)).data
+}
