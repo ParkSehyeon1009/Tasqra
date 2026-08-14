@@ -6,7 +6,7 @@ import pytest
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.models.enums import ReviewStatus
-from app.services.document_service import DocumentService
+from app.services.document_service import DocumentService, OcrElementBatchChange
 
 
 def build_service(*, document=None, element=None):
@@ -123,3 +123,126 @@ def test_complete_review_restores_previously_excluded_element_at_saved_range():
     assert restored.is_in_content is True
     assert restored.content_end == 12
     assert last.content_start == 13
+
+
+def batch_element(element_id, text, start, end, *, version=1, element_type="TEXT_LINE"):
+    return SimpleNamespace(
+        id=element_id,
+        text=text,
+        version=version,
+        is_in_content=True,
+        is_deleted=False,
+        is_excluded=False,
+        is_paragraph_start=False,
+        element_type=element_type,
+        element_type_source="AUTO",
+        content_start=start,
+        content_end=end,
+    )
+
+
+def test_batch_update_rebuilds_content_and_increments_document_versions_once():
+    document = editable_document()
+    document.review_status = ReviewStatus.COMPLETED.value
+    document.extracted_text = SimpleNamespace(
+        content="first\nsecond\nthird",
+        char_count=18,
+        ocr_char_count=16,
+        text_version=4,
+        is_confirmed=True,
+        confirmed_by=7,
+        confirmed_at=object(),
+    )
+    first = batch_element(30, "first", 0, 5)
+    second = batch_element(31, "second", 6, 12)
+    third = batch_element(32, "third", 13, 18)
+    document.review_pages = [SimpleNamespace(elements=[first, second, third])]
+    service, db, repository = build_service(document=document)
+    repository.get_ocr_elements_for_update.return_value = [first, second]
+
+    updated_document, updated = service.update_ocr_elements_batch(
+        10,
+        20,
+        [
+            OcrElementBatchChange(id=30, version=1, text="FIRST"),
+            OcrElementBatchChange(id=31, version=1, text="second expanded"),
+        ],
+        7,
+    )
+
+    assert updated == [first, second]
+    assert updated_document.extracted_text.content == "FIRST\nsecond expanded\nthird"
+    assert (first.content_start, first.content_end) == (0, 5)
+    assert (second.content_start, second.content_end) == (6, 21)
+    assert (third.content_start, third.content_end) == (22, 27)
+    assert first.version == 2
+    assert second.version == 2
+    assert document.ocr_revision == 4
+    assert document.extracted_text.text_version == 5
+    assert document.review_status == ReviewStatus.IN_PROGRESS.value
+    assert document.extracted_text.is_confirmed is False
+    assert db.add.call_count == 2
+    db.commit.assert_called_once()
+
+
+def test_batch_update_rolls_back_all_items_on_stale_version():
+    document = editable_document()
+    first = batch_element(30, "first", 0, 5, version=2)
+    second = batch_element(31, "second", 6, 12, version=3)
+    document.review_pages = [SimpleNamespace(elements=[first, second])]
+    service, db, repository = build_service(document=document)
+    repository.get_ocr_elements_for_update.return_value = [first, second]
+
+    with pytest.raises(BusinessError) as error:
+        service.update_ocr_elements_batch(
+            10,
+            20,
+            [
+                OcrElementBatchChange(id=30, version=2, text="changed"),
+                OcrElementBatchChange(id=31, version=2, is_excluded=True),
+            ],
+            7,
+        )
+
+    assert error.value.error_code is ErrorCode.OCR_EDIT_CONFLICT
+    assert first.text == "first"
+    assert second.is_excluded is False
+    assert document.ocr_revision == 3
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+    db.rollback.assert_called_once()
+
+
+def test_batch_paragraph_change_marks_chunks_stale_once():
+    document = editable_document()
+    document.extracted_text = SimpleNamespace(
+        content="heading\nbody",
+        char_count=12,
+        ocr_char_count=11,
+        text_version=2,
+        is_confirmed=False,
+        confirmed_by=None,
+        confirmed_at=None,
+    )
+    heading = batch_element(30, "heading", 0, 7)
+    body = batch_element(31, "body", 8, 12)
+    document.review_pages = [SimpleNamespace(elements=[heading, body])]
+    service, _, repository = build_service(document=document)
+    repository.get_ocr_elements_for_update.return_value = [heading, body]
+
+    service.update_ocr_elements_batch(
+        10,
+        20,
+        [
+            OcrElementBatchChange(id=30, version=1, element_type="HEADING"),
+            OcrElementBatchChange(id=31, version=1, is_paragraph_start=True),
+        ],
+        7,
+    )
+
+    assert heading.element_type == "HEADING"
+    assert heading.element_type_source == "USER_CORRECTED"
+    assert heading.is_paragraph_start is True
+    assert body.is_paragraph_start is True
+    assert document.ocr_revision == 4
+    assert document.extracted_text.text_version == 3

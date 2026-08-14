@@ -44,6 +44,16 @@ class DocumentListRow:
     category: str | None
     summary_preview: str | None
 
+
+@dataclass(frozen=True)
+class OcrElementBatchChange:
+    id: int
+    version: int
+    text: str | None = None
+    is_excluded: bool | None = None
+    is_paragraph_start: bool | None = None
+    element_type: str | None = None
+
 class DocumentService:
     def __init__(
         self,
@@ -161,6 +171,166 @@ class DocumentService:
 
         extracted.char_count = len(extracted.content)
         return True
+
+    def _replace_ocr_contents(self, document: Document, replacements: list[tuple[OcrElement, str]]) -> bool:
+        extracted = document.extracted_text
+        if extracted is None or not replacements:
+            return False
+
+        ordered = self._ordered_ocr_elements(document)
+        order_by_id = {element.id: index for index, element in enumerate(ordered)}
+        original_ranges = {element.id: (element.content_start, element.content_end) for element in ordered}
+        prepared: list[tuple[OcrElement, int, int, str, int, int]] = []
+        for element, replacement in replacements:
+            start = element.content_start
+            end = element.content_end
+            if start is None or end is None:
+                raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+            if start > end or end > len(extracted.content) or extracted.content[start:end] != element.text:
+                raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+            if replacement == element.text:
+                continue
+            prepared.append((element, start, end, replacement, len(replacement) - (end - start), order_by_id[element.id]))
+
+        if not prepared:
+            return False
+
+        content = extracted.content
+        for _, start, end, replacement, _, _ in sorted(prepared, key=lambda item: (item[1], item[5]), reverse=True):
+            content = content[:start] + replacement + content[end:]
+        extracted.content = content
+
+        replacement_by_id = {item[0].id: item for item in prepared}
+        for candidate_order, candidate in enumerate(ordered):
+            original_start, original_end = original_ranges[candidate.id]
+            if original_start is None or original_end is None:
+                continue
+            shift = sum(
+                delta
+                for _, _, replacement_end, _, delta, replacement_order in prepared
+                if original_start > replacement_end
+                or (original_start == replacement_end and candidate_order > replacement_order)
+            )
+            candidate.content_start = original_start + shift
+            own_replacement = replacement_by_id.get(candidate.id)
+            candidate.content_end = (
+                candidate.content_start + len(own_replacement[3])
+                if own_replacement is not None
+                else original_end + shift
+            )
+
+        extracted.char_count = len(extracted.content)
+        return True
+
+    @staticmethod
+    def _mark_review_in_progress(document: Document) -> None:
+        if document.review_status not in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
+            return
+        document.review_status = ReviewStatus.IN_PROGRESS.value
+        document.reviewed_by = None
+        document.reviewed_at = None
+        if document.extracted_text:
+            document.extracted_text.is_confirmed = False
+            document.extracted_text.confirmed_by = None
+            document.extracted_text.confirmed_at = None
+
+    def update_ocr_elements_batch(
+        self,
+        project_id: int,
+        document_id: int,
+        changes: list[OcrElementBatchChange],
+        user_id: int,
+    ) -> tuple[Document, list[OcrElement]]:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+
+            ids = [change.id for change in changes]
+            elements = self._document_repository.get_ocr_elements_for_update(project_id, document_id, ids)
+            elements_by_id = {element.id: element for element in elements}
+            if len(elements_by_id) != len(ids):
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+
+            for change in changes:
+                if elements_by_id[change.id].version != change.version:
+                    raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+
+            paragraph_updates: dict[int, bool | None] = {}
+            for change in changes:
+                element = elements_by_id[change.id]
+                resulting_type = change.element_type or element.element_type
+                requested_paragraph_start = change.is_paragraph_start
+                if resulting_type == "HEADING":
+                    requested_paragraph_start = True
+                elif resulting_type in {"TABLE_ROW", "TABLE_HEADER"}:
+                    if requested_paragraph_start is True:
+                        raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+                    requested_paragraph_start = False
+                paragraph_updates[change.id] = requested_paragraph_start
+
+            text_replacements = [
+                (elements_by_id[change.id], change.text)
+                for change in changes
+                if change.text is not None
+                and change.text != elements_by_id[change.id].text
+                and elements_by_id[change.id].is_in_content
+            ]
+            content_changed = self._replace_ocr_contents(document, text_replacements)
+            chunk_structure_changed = False
+            any_changed = False
+
+            for change in changes:
+                element = elements_by_id[change.id]
+                before_text = element.text
+                item_changed = False
+
+                if change.text is not None and change.text != element.text:
+                    self._db.add(OcrElementRevision(
+                        element_id=element.id,
+                        changed_by=user_id,
+                        before_text=before_text,
+                        after_text=change.text,
+                        from_version=change.version,
+                        to_version=change.version + 1,
+                    ))
+                    element.text = change.text
+                    item_changed = True
+
+                if change.is_excluded is not None and change.is_excluded != element.is_excluded:
+                    element.is_excluded = change.is_excluded
+                    item_changed = True
+
+                if change.element_type is not None and change.element_type != element.element_type:
+                    element.element_type = change.element_type
+                    element.element_type_source = "USER_CORRECTED"
+                    chunk_structure_changed = True
+                    item_changed = True
+
+                requested_paragraph_start = paragraph_updates[change.id]
+
+                if requested_paragraph_start is not None and requested_paragraph_start != element.is_paragraph_start:
+                    element.is_paragraph_start = requested_paragraph_start
+                    chunk_structure_changed = True
+                    item_changed = True
+
+                if item_changed:
+                    element.version += 1
+                    any_changed = True
+
+            if any_changed:
+                document.ocr_revision += 1
+                if document.extracted_text:
+                    if content_changed or chunk_structure_changed:
+                        document.extracted_text.text_version += 1
+                    document.extracted_text.ocr_char_count = sum(
+                        len(element.text)
+                        for element in self._ordered_ocr_elements(document)
+                        if not element.is_excluded
+                    )
+                self._mark_review_in_progress(document)
+
+        return document, [elements_by_id[change.id] for change in changes]
 
     def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
         with transactional(self._db):

@@ -16,7 +16,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DocumentUploadResponse(BaseModel):
@@ -166,3 +166,38 @@ class OcrElementUpdateRequest(BaseModel):
 class OcrElementExclusionRequest(BaseModel):
     is_excluded: bool
     version: int = Field(ge=1)
+
+
+class OcrElementBatchUpdateItem(BaseModel):
+    id: int = Field(ge=1)
+    version: int = Field(ge=1)
+    text: str | None = Field(default=None, max_length=10000)
+    is_excluded: bool | None = None
+    is_paragraph_start: bool | None = None
+    element_type: str | None = Field(
+        default=None,
+        pattern="^(TEXT_LINE|HEADING|TABLE_ROW|TABLE_HEADER|HEADER_FOOTER)$",
+    )
+
+    @model_validator(mode="after")
+    def require_change(self):
+        if all(value is None for value in (self.text, self.is_excluded, self.is_paragraph_start, self.element_type)):
+            raise ValueError("at least one editable field is required")
+        return self
+
+
+class OcrElementBatchUpdateRequest(BaseModel):
+    items: list[OcrElementBatchUpdateItem] = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def require_unique_ids(self):
+        ids = [item.id for item in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate OCR element ids are not allowed")
+        return self
+
+
+class OcrElementBatchUpdateResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    items: list[OcrElementResponse]
