@@ -7,6 +7,8 @@
 #   content_start / content_end 는 extracted_texts.content 문자열 안의 위치이며,
 #   같은 좌표계를 쓰는 ocr_elements(리비전 0010) 와 구간이 겹치는지로 교집합을
 #   구해 원본 페이지 이미지의 x·y·width·height 를 얻는다 -> 검색 근거 하이라이트.
+#   project_id 는 documents 에서 내려온 역정규화 컬럼이다(리비전 0014). 프로젝트
+#   범위 벡터 검색에서 조건이 인덱스 스캔 단계로 내려가야 하기 때문이다.
 #   models/__init__.py 에서 import 되어야 Base.metadata 에 등록된다.
 # Spring 비교: JPA @Entity + @Table(uniqueConstraints=..., indexes=...) 에 대응한다.
 #   Mapped[int] = mapped_column(...) 은 @Column 필드 선언과 같고,
@@ -75,12 +77,23 @@ class DocumentChunk(Base):
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+        # 프로젝트가 아주 작을 때는 HNSW 를 훑는 것보다 이 인덱스로 그 프로젝트의
+        # 청크만 읽어 정확한 거리를 계산하는 편이 빠르다. 계획 선택지를 준다.
+        Index("ix_chunk_project", "project_id", "document_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # documents.project_id 의 역정규화. 프로젝트 범위 벡터 검색을 위한 것이며
+    # 조회할 때 SET LOCAL hnsw.iterative_scan = strict_order 와 함께 쓴다.
+    # 문서를 다른 프로젝트로 옮기는 기능이 생기면 이 값도 같이 갱신해야 한다.
+    project_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
