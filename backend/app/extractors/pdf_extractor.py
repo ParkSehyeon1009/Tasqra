@@ -11,7 +11,7 @@ from app.extractors.layout import LayoutElement
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedElement, ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.reading_order import build_reading_groups
-from app.models.enums import ExtractMethod
+from app.models.enums import ExtractMethod, ExtractionStrategy
 
 
 class PdfExtractor(TextExtractor):
@@ -20,7 +20,14 @@ class PdfExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str) -> ExtractResult:
+    def extract(
+        self,
+        file_path: str,
+        *,
+        extraction_strategy: str = ExtractionStrategy.AUTO.value,
+    ) -> ExtractResult:
+        strategy = ExtractionStrategy(extraction_strategy)
+        include_image_ocr = strategy is not ExtractionStrategy.TEXT_ONLY
         page_contents: list[str] = []
         document_page_elements: list[list[LayoutElement]] = []
         review_pages: list[ExtractedPage] = []
@@ -38,7 +45,10 @@ class PdfExtractor(TextExtractor):
                 )
 
             for page in document:
-                elements, page_has_text, page_has_ocr = self._extract_page(page)
+                elements, page_has_text, page_has_ocr = self._extract_page(
+                    page,
+                    include_image_ocr=include_image_ocr,
+                )
 
                 has_text = has_text or page_has_text
                 has_ocr = has_ocr or page_has_ocr
@@ -135,6 +145,8 @@ class PdfExtractor(TextExtractor):
     def _extract_page(
         self,
         page: fitz.Page,
+        *,
+        include_image_ocr: bool = True,
     ) -> tuple[list[LayoutElement], bool, bool]:
         page_dict: dict[str, Any] = page.get_text("dict")
 
@@ -154,18 +166,19 @@ class PdfExtractor(TextExtractor):
                     elements.extend(text_elements)
                     has_text = True
 
-        for block in blocks:
-            if block.get("type") == 1:
-                if self._image_contains_text_layer(block, elements):
-                    continue
-                image_elements = self._extract_image_block(block)
+        if include_image_ocr:
+            for block in blocks:
+                if block.get("type") == 1:
+                    if self._image_contains_text_layer(block, elements):
+                        continue
+                    image_elements = self._extract_image_block(block)
 
-                if image_elements:
-                    elements.extend(image_elements)
-                    has_ocr = True
+                    if image_elements:
+                        elements.extend(image_elements)
+                        has_ocr = True
 
         # 텍스트와 이미지 OCR 결과가 모두 없으면 페이지 전체를 OCR한다.
-        if not elements:
+        if include_image_ocr and not elements:
             page_ocr_elements = self._extract_full_page_with_ocr(page)
 
             if page_ocr_elements:

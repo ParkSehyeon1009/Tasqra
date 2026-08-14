@@ -7,6 +7,7 @@ import LoadingState from '../components/common/LoadingState'
 import BoardView from '../features/board/BoardView'
 import DashboardView from '../features/dashboard/DashboardView'
 import DocumentsView from '../features/documents/DocumentsView'
+import DocumentUploadModal from '../features/documents/DocumentUploadModal'
 import MembersView from '../features/members/MembersView'
 import ProjectCreateModal from '../features/projects/ProjectCreateModal'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
@@ -40,6 +41,7 @@ export default function WorkspacePage({ user, onLogout, notify }) {
 
 function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLogout, createMutation, deleteMutation, recentInvitees }) {
   const [creating, setCreating] = useState(false)
+  const [uploadFile, setUploadFile] = useState(null)
   const data = useWorkspaceData(project, notify)
   const fileInputRef = useRef(null)
   const canEdit = project.role !== 'VIEWER'
@@ -57,7 +59,13 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   }
   function requestUpload(file) {
     if (!file || !canEdit) return
-    return data.uploadFile(file, 'AUTO')
+    setUploadFile(file)
+  }
+  async function confirmUpload(file, extractionStrategy, documentType) {
+    try {
+      await data.uploadFile(file, extractionStrategy, documentType)
+      setUploadFile(null)
+    } catch { /* 공통 토스트에서 처리 */ }
   }
   async function upload(event) {
     const file = event.target.files?.[0]
@@ -82,6 +90,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
+    {uploadFile && <DocumentUploadModal file={uploadFile} uploading={data.uploading} onClose={() => setUploadFile(null)} onSubmit={confirmUpload}/>}
   </div>
 }
 

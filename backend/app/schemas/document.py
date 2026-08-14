@@ -27,6 +27,8 @@ class DocumentUploadResponse(BaseModel):
     filename: str
     file_type: str
     document_type: str | None
+    document_type_source: str | None
+    extraction_strategy: str
     status: str
     review_status: str
     page_count: int
