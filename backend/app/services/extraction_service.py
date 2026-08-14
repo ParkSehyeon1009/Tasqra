@@ -11,7 +11,7 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.registry import ExtractorRegistry
 from app.models.document import Document, DocumentPage, ExtractedText, OcrElement
-from app.models.enums import DocumentStatus, ExtractionStrategy, ProcessingMode, ReviewStatus
+from app.models.enums import DocumentStatus, DocumentType, DocumentTypeSource, ExtractionStrategy, ProcessingMode, ReviewStatus
 from app.repositories.document_repository import DocumentRepository
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".hwpx", ".png", ".jpg", ".jpeg"}
@@ -28,7 +28,15 @@ class ExtractionService:
         self._document_repository = document_repository
         self._extractor_registry = extractor_registry
 
-    def upload_and_extract(self, project_id: int, uploaded_by: int, filename: str, content: bytes, extraction_strategy: str = "AUTO") -> Document:
+    def upload_and_extract(
+        self,
+        project_id: int,
+        uploaded_by: int,
+        filename: str,
+        content: bytes,
+        extraction_strategy: str = "AUTO",
+        document_type: str | None = None,
+    ) -> Document:
         safe_filename = self._sanitize_filename(filename)
         extension = Path(safe_filename).suffix.lower()
 
@@ -58,19 +66,20 @@ class ExtractionService:
             file_type = extension.lstrip(".")
             extractor = self._extractor_registry.get(file_type)
 
-            try:
-                strategy = ExtractionStrategy(extraction_strategy.upper())
-            except ValueError as exc:
-                raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY) from exc
-            if file_type in {"docx", "hwpx"}:
-                if strategy is ExtractionStrategy.AUTO:
-                    strategy = ExtractionStrategy.TEXT_WITH_IMAGE_OCR
-            elif strategy is not ExtractionStrategy.AUTO:
-                raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY)
+            strategy = self._validate_extraction_strategy(file_type, extraction_strategy)
+            selected_document_type = self._validate_document_type(document_type)
 
             try:
                 if file_type in {"docx", "hwpx"}:
-                    result = extractor.extract(stored_path, include_image_ocr=True)
+                    result = extractor.extract(
+                        stored_path,
+                        include_image_ocr=strategy is not ExtractionStrategy.TEXT_ONLY,
+                    )
+                elif file_type == "pdf":
+                    result = extractor.extract(
+                        stored_path,
+                        extraction_strategy=strategy.value,
+                    )
                 else:
                     result = extractor.extract(stored_path)
 
@@ -114,6 +123,8 @@ class ExtractionService:
                         file_type=file_type,
                         file_size=len(content),
                         content_hash=hashlib.sha256(content).hexdigest(),
+                        document_type=selected_document_type.value if selected_document_type else None,
+                        document_type_source=DocumentTypeSource.USER.value if selected_document_type else None,
                         status=DocumentStatus.EXTRACTED.value,
                         extraction_strategy=strategy.value,
                         processing_mode=ProcessingMode.REVIEW.value if result.review_pages else ProcessingMode.NORMAL.value,
@@ -152,6 +163,26 @@ class ExtractionService:
                 if os.path.exists(path):
                     os.remove(path)
             raise
+
+    @staticmethod
+    def _validate_extraction_strategy(file_type: str, value: str) -> ExtractionStrategy:
+        try:
+            strategy = ExtractionStrategy(value.upper())
+        except (AttributeError, ValueError) as exc:
+            raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY) from exc
+
+        if file_type in {"png", "jpg", "jpeg"} and strategy is not ExtractionStrategy.AUTO:
+            raise BusinessError(ErrorCode.INVALID_EXTRACTION_STRATEGY)
+        return strategy
+
+    @staticmethod
+    def _validate_document_type(value: str | None) -> DocumentType | None:
+        if value is None or not value.strip():
+            return None
+        try:
+            return DocumentType(value.strip().upper())
+        except ValueError as exc:
+            raise BusinessError(ErrorCode.INVALID_DOCUMENT_TYPE) from exc
 
     @staticmethod
     def _sanitize_filename(filename: str) -> str:

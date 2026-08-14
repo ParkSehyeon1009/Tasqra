@@ -61,7 +61,7 @@ export function useWorkspaceData(project, notify) {
     onError: (error, _, context) => { queryClient.setQueryData(membersKey, context?.previous); notify('error', '팀원 제외 실패', error.message || FALLBACK_ERROR) },
   })
   const uploadMutation = useMutation({
-    mutationFn: ({ file, extractionStrategy }) => uploadProjectDocument(project.id, file, extractionStrategy),
+    mutationFn: ({ file, extractionStrategy, documentType }) => uploadProjectDocument(project.id, file, extractionStrategy, documentType),
     onSuccess: document => {
       queryClient.setQueryData(documentsKey, current => ({ ...(current ?? {}), items: [document, ...(current?.items ?? [])], total: (current?.total ?? 0) + 1 }))
       notify('success', '문서 업로드 완료', `${document.filename} 처리가 완료되었습니다.`)
@@ -83,7 +83,7 @@ export function useWorkspaceData(project, notify) {
     updateProject: values => projectMutation.mutateAsync(values), updatingProject: projectMutation.isPending,
     changeRole: (member, role) => roleMutation.mutate({ member, role }),
     excludeMember: member => removeMutation.mutate(member),
-    uploadFile: (file, extractionStrategy = 'AUTO') => uploadMutation.mutateAsync({ file, extractionStrategy }),
+    uploadFile: (file, extractionStrategy = 'AUTO', documentType = null) => uploadMutation.mutateAsync({ file, extractionStrategy, documentType }),
     uploading: uploadMutation.isPending,
     uploadingFileName: uploadMutation.variables?.file?.name ?? null,
   }
