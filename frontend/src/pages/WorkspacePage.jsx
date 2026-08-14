@@ -95,7 +95,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
 }
 
 function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploading, onDeleteProject, deleting }) {
-  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploading={uploading} uploadingFileName={data.uploadingFileName}/>
+  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploading={uploading} uploadingFileName={data.uploadingFileName} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
   return <BoardView/>

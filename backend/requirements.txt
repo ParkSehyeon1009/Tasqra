@@ -2,6 +2,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.0
 python-multipart==0.0.32
+celery[redis]==5.5.3
 
 # --- Data validation / config ---
 pydantic==2.13.4

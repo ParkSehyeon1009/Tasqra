@@ -3,24 +3,38 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import FileResponse
 
-from app.dependencies import ProjectAccess, get_document_service, get_project_access, get_project_editor_access
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
+from app.services.extraction_service import ExtractionService
+from app.worker import extract_document_task
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
 
 @router.get("/documents", response_model=PageResponse[DocumentListItem])
 def list_documents(q: str | None = None, document_type: str | None = None, category: str | None = None, page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100), access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     rows, total, total_pages = service.search_documents(project_id=access.project.id, q=q, document_type=document_type, category=category, page=page, size=size)
-    items = [DocumentListItem(id=row.document.id, filename=row.document.filename, file_type=row.document.file_type, document_type=row.document.document_type, status=row.document.status, review_status=row.document.review_status, page_count=row.document.extracted_text.page_count if row.document.extracted_text else None, char_count=row.document.extracted_text.char_count if row.document.extracted_text else None, text_char_count=row.document.native_text_char_count, ocr_char_count=row.document.active_ocr_char_count, extract_method=row.document.extracted_text.extract_method if row.document.extracted_text else None, category=row.category, summary_preview=row.summary_preview, created_at=row.document.created_at) for row in rows]
+    items = [DocumentListItem(id=row.document.id, filename=row.document.filename, file_type=row.document.file_type, document_type=row.document.document_type, status=row.document.status, processing_error=row.document.processing_error, review_status=row.document.review_status, page_count=row.document.extracted_text.page_count if row.document.extracted_text else None, char_count=row.document.extracted_text.char_count if row.document.extracted_text else None, text_char_count=row.document.native_text_char_count, ocr_char_count=row.document.active_ocr_char_count, extract_method=row.document.extracted_text.extract_method if row.document.extracted_text else None, category=row.category, summary_preview=row.summary_preview, created_at=row.document.created_at) for row in rows]
     return PageResponse(items=items, page=page, size=size, total=total, total_pages=total_pages)
 
 @router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
 def get_document(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document(access.project.id, document_id)
     extracted = document.extracted_text
-    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, processing_error=document.processing_error, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+
+@router.post("/documents/{document_id}/retry", response_model=DocumentProcessingResponse)
+def retry_document_processing(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: ExtractionService = Depends(get_extraction_service)):
+    document = service.prepare_retry(access.project.id, document_id)
+    try:
+        extract_document_task.delay(access.project.id, document.id)
+    except Exception as exc:
+        service.mark_queue_failure(access.project.id, document.id)
+        raise BusinessError(ErrorCode.PROCESS_QUEUE_UNAVAILABLE) from exc
+    return DocumentProcessingResponse(document_id=document.id, status=document.status)
 
 @router.get("/documents/{document_id}/source")
 def download_source(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
