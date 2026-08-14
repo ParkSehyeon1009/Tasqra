@@ -127,9 +127,17 @@ class OcrElementResponse(BaseModel):
     height: float
     confidence: float | None
     source: str
+    element_type: str
+    element_type_source: str
+    is_paragraph_start: bool
+    table_id: int | None
+    table_row: int | None
     reading_order: int
     version: int
     is_excluded: bool
+    content_start: int | None
+    content_end: int | None
+    is_in_content: bool
 
 
 class OcrPageResponse(BaseModel):

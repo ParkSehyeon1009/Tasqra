@@ -70,6 +70,20 @@ class ReviewStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class OcrElementType(str, Enum):
+    TEXT_LINE = "TEXT_LINE"
+    HEADING = "HEADING"
+    TABLE_ROW = "TABLE_ROW"
+    TABLE_HEADER = "TABLE_HEADER"
+    HEADER_FOOTER = "HEADER_FOOTER"
+
+
+class OcrElementTypeSource(str, Enum):
+    AUTO = "AUTO"
+    USER = "USER"
+    USER_CORRECTED = "USER_CORRECTED"
+
+
 class ExtractionStrategy(str, Enum):
     AUTO = "AUTO"
     TEXT_ONLY = "TEXT_ONLY"

@@ -108,6 +108,10 @@ class OcrElement(Base):
         CheckConstraint("version >= 1", name="ck_ocr_element_version"),
         CheckConstraint("content_start IS NULL OR content_start >= 0", name="ck_ocr_element_content_start"),
         CheckConstraint("content_end IS NULL OR content_end >= content_start", name="ck_ocr_element_content_end"),
+        CheckConstraint("element_type IN ('TEXT_LINE', 'HEADING', 'TABLE_ROW', 'TABLE_HEADER', 'HEADER_FOOTER')", name="ck_ocr_element_type"),
+        CheckConstraint("element_type_source IN ('AUTO', 'USER', 'USER_CORRECTED')", name="ck_ocr_element_type_source"),
+        CheckConstraint("table_id IS NULL OR table_id >= 0", name="ck_ocr_element_table_id"),
+        CheckConstraint("table_row IS NULL OR table_row >= 0", name="ck_ocr_element_table_row"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -121,6 +125,10 @@ class OcrElement(Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="OCR")
     element_type: Mapped[str] = mapped_column(String(20), nullable=False, default="TEXT_LINE")
+    element_type_source: Mapped[str] = mapped_column(String(20), nullable=False, default="AUTO")
+    is_paragraph_start: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    table_id: Mapped[int | None] = mapped_column(Integer)
+    table_row: Mapped[int | None] = mapped_column(Integer)
     reading_order: Mapped[int] = mapped_column(Integer, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -51,6 +51,11 @@ def build_image_review_page(image: Image.Image, elements: list[LayoutElement], p
             height=max(0.0, min(1.0, ((item.y2 if item.y2 is not None else item.y) - item.y) / height)),
             text=item.content,
             confidence=item.confidence,
+            element_type=item.element_type,
+            element_type_source=item.element_type_source,
+            is_paragraph_start=item.is_paragraph_start,
+            table_id=item.table_id,
+            table_row=item.table_row,
         )
         for item in elements if item.content.strip()
     )
