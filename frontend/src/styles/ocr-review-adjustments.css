@@ -71,6 +71,71 @@
   width: 100%;
 }
 
+.ocr-element-list-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ocr-element-list-title h3 { margin: 0; }
+.ocr-element-list-title button,
+.paragraph-boundary button {
+  border: 1px solid #cfd8e6;
+  border-radius: 999px;
+  background: #fff;
+  color: #526178;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.ocr-element-list-title button { padding: 7px 10px; }
+.ocr-element-list-title button:disabled,
+.paragraph-boundary button:disabled { cursor: not-allowed; opacity: .5; }
+
+.ocr-element-with-boundary { position: relative; }
+.paragraph-boundary {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0 4px;
+  color: #8995a6;
+  font-size: 11px;
+}
+.paragraph-boundary::before,
+.paragraph-boundary::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #dce3ed;
+}
+.paragraph-boundary button,
+.paragraph-boundary span { margin: 0 8px; white-space: nowrap; }
+.paragraph-boundary button { padding: 3px 9px; }
+.paragraph-boundary.active::before,
+.paragraph-boundary.active::after { height: 2px; background: #6476d8; }
+.paragraph-boundary.active button { border-color: #aeb8ec; color: #4859bd; background: #f5f6ff; }
+.paragraph-boundary.fixed span { color: #4859bd; font-weight: 750; }
+.paragraph-boundary.table span { color: #6f7d90; }
+
+.ocr-element-type { margin-bottom: 14px; }
+.ocr-element-type select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 9px;
+  background: #fff;
+  color: #27344c;
+}
+
+.ocr-box.paragraph-group-0 { box-shadow: 0 0 0 2px #2563eb; }
+.ocr-box.paragraph-group-1 { box-shadow: 0 0 0 2px #7c3aed; }
+.ocr-box.paragraph-group-2 { box-shadow: 0 0 0 2px #0891b2; }
+.ocr-box.paragraph-group-3 { box-shadow: 0 0 0 2px #c2410c; }
+.ocr-box.paragraph-group-4 { box-shadow: 0 0 0 2px #4d7c0f; }
+.ocr-box.paragraph-group-5 { box-shadow: 0 0 0 2px #be185d; }
+.ocr-box.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px #2468e8; }
+
 @media (max-width: 1200px) {
   .ocr-canvas-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
