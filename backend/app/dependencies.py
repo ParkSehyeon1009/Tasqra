@@ -32,6 +32,9 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.embedding.fake_client import FakeEmbeddingClient
+from app.embedding.local_client import LocalEmbeddingClient
+from app.embedding.protocol import EmbeddingClientProtocol
 from app.extractors.docx_extractor import DocxExtractor
 from app.extractors.fake_extractor import FakeExtractor
 from app.extractors.hwpx_extractor import HwpxExtractor
@@ -40,6 +43,7 @@ from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.pdf_extractor import PdfExtractor
 from app.extractors.registry import ExtractorRegistry
 from app.repositories.analysis_repository import AnalysisRepository
+from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
@@ -49,6 +53,7 @@ from app.models.user import User
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
+from app.services.chunking_service import ChunkingService
 from app.services.extraction_service import ExtractionService
 from app.services.document_service import DocumentService
 
@@ -75,6 +80,34 @@ def get_ai_client() -> AIClientProtocol:
     if settings.AI_PROVIDER.lower() == "local":
         return LocalAIClient(settings)
     return OpenAIClient(settings)
+
+
+@lru_cache
+def get_embedding_client() -> EmbeddingClientProtocol:
+    # USE_FAKE_EMBEDDING 기본값은 True — get_ai_client()의 USE_FAKE_AI와 같은
+    # 안전장치인데, 막는 대상이 비용이 아니라 메모리다. 실제 임베딩 모델
+    # (BGE-M3 float32)은 약 2.3GB를 잡는다. lru_cache로 프로세스당 한 번만
+    # 만드는 것도 그래서다 — uvicorn --reload 환경에서 매번 다시 만들면 못 쓴다.
+    if settings.USE_FAKE_EMBEDDING:
+        return FakeEmbeddingClient(dimension=settings.EMBEDDING_DIM)
+    # 실제 경로는 OpenAI 호환 /v1/embeddings 서버(Ollama 등)를 부른다.
+    # 컨테이너 안에 모델을 올리지 않으므로 이미지와 메모리가 늘지 않는다.
+    return LocalEmbeddingClient(settings)
+
+
+def get_chunk_repository(db: Session = Depends(get_db)) -> ChunkRepository:
+    return ChunkRepository(db)
+
+
+def get_chunking_service(
+    db: Session = Depends(get_db),
+    chunk_repository: ChunkRepository = Depends(get_chunk_repository),
+) -> ChunkingService:
+    return ChunkingService(
+        db=db,
+        chunk_repository=chunk_repository,
+        embedding_client=get_embedding_client(),
+    )
 
 
 @lru_cache

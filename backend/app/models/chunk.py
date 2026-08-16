@@ -32,11 +32,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.constants import EMBEDDING_DIM
 from app.db.base import Base
 
-# 채택 임베딩 모델의 출력 차원. dragonkue/BGE-m3-ko · KURE-v1 ·
-# snowflake-arctic-embed-l-v2.0 이 모두 1024라서 모델을 바꿔도 DB 는 그대로다.
-EMBEDDING_DIM = 1024
+# EMBEDDING_DIM 은 core/constants.py 에 있다. 이 파일에서 계속 import 할 수 있게
+# 이름을 다시 내보낸다 — 기존 코드가 app.models.chunk.EMBEDDING_DIM 을 쓰고 있고,
+# 청크 차원은 이 엔티티의 핵심 제약이라 여기서 보이는 편이 읽기 좋다.
+# 정의를 옮긴 이유: 가짜 임베더가 상수 하나 때문에 ORM 전체를 끌어오지 않게
+# 하려는 것이다 (DB 드라이버 없이 단독 검증이 가능해진다).
+__all__ = ["EMBEDDING_DIM", "DocumentChunk"]
 
 
 class DocumentChunk(Base):
