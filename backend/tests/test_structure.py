@@ -20,9 +20,34 @@ from app.extractors.structure import (
     "Ⅱ. 사업내용",
     "IV. 평가기준",
     "## 산출내역",
+    # 실측(KISA 보고서 17건)에서 확인한 실제 제목
+    "제 1 장",
+    "3. 글로벌 사이버 위협 동향",
+    # 끝 괄호를 떼도 문장 종결이 아니면 제목으로 남는다
+    "1. 사업개요 (총괄)",
 ])
 def test_heading_is_detected(text):
     assert detect_heading(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "5.8%", "9.3%", "38.5%", "3.14", "1.2", "12,345", "- 3 -", "( 3 )",
+])
+def test_numeric_only_lines_are_not_headings(text):
+    """표·차트의 수치가 제목으로 잡히던 실측 오탐.
+
+    _NUMBERED 가 "5.8%" 를 "번호 5 · 내용 8%" 로 읽는다. 숫자·기호만 있는 줄을
+    먼저 걸러낸다.
+    """
+    assert detect_heading(text) is False
+
+
+def test_trailing_parenthesis_does_not_hide_sentence_end():
+    """끝 괄호가 종결 부호를 가리던 실측 오탐."""
+    question = "3. 평소 사이버 보안에 대한 귀하의 관심은 어느 정도입니까? (조회 빈도 기준)"
+    assert detect_heading(question) is False
+    # 반대로 괄호를 떼도 문장이 아니면 제목으로 남는다
+    assert detect_heading("1. 사업개요 (총괄)") is True
 
 
 @pytest.mark.parametrize("text", [

@@ -76,6 +76,16 @@ _SENTENCE_END = re.compile(r"[.。!?]$|(?:다|함|됨|음)$")
 # "1." 만 있는 줄(표 안의 순번 등)을 걸러낸다.
 _MIN_BODY_CHARS = 2
 
+# 숫자·기호만 있는 줄. 제목이 아니다.
+#   실측에서 "5.8%" "9.3%" "38.5%" 가 제목으로 잡혔다. _NUMBERED 가 이것을
+#   "번호 5 · 내용 8%" 로 읽기 때문이다. 표·차트의 수치가 이렇게 들어온다.
+_NUMERIC_ONLY = re.compile(r"^[\d.,%()\-~\s]+$")
+
+# 줄 끝의 괄호 보충 설명. 문장 종결 부호를 가린다.
+#   실측에서 "3. 평소 ... 어느 정도입니까? (보안 관련 ... 기준)" 이 제목으로
+#   잡혔다. "?" 로 끝나는데 뒤에 괄호가 붙어 종결 판정이 빗나갔다.
+_TRAILING_PAREN = re.compile(r"\s*[(（][^)）]*[)）]\s*$")
+
 
 def detect_heading(text: str, *, max_chars: int = HEADING_MAX_CHARS) -> bool:
     """이 텍스트가 제목인가.
@@ -95,11 +105,18 @@ def detect_heading(text: str, *, max_chars: int = HEADING_MAX_CHARS) -> bool:
     if not stripped or len(stripped) > max_chars:
         return False
 
-    # 마크다운 제목은 표기 자체가 제목이므로 문장 종결을 보지 않는다.
+    # 마크다운 제목은 표기 자체가 제목이므로 아래 검사를 건너뛴다.
     if _MARKDOWN.match(stripped):
         return True
 
-    if _SENTENCE_END.search(stripped):
+    # 숫자·기호만 있는 줄은 표·차트의 수치다. "5.8%" 같은 것.
+    if _NUMERIC_ONLY.match(stripped):
+        return False
+
+    # 끝의 괄호 보충 설명을 떼고 문장 종결을 본다.
+    # "3. ...입니까? (기준)" 처럼 괄호가 종결 부호를 가리는 경우가 있다.
+    without_paren = _TRAILING_PAREN.sub("", stripped)
+    if _SENTENCE_END.search(without_paren or stripped):
         return False
 
     for pattern in (_CLAUSE, _NUMBERED, _HANGUL_ITEM, _ROMAN):
