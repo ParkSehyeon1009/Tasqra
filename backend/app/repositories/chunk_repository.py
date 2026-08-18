@@ -106,6 +106,30 @@ class ChunkRepository:
         )
         return list(self._db.execute(stmt).scalars())
 
+    def is_current_for_document(self, document_id: int, *, text_version: int, model: str) -> bool:
+        """이 문서의 청크가 이미 이 본문 판과 이 모델로 만들어져 있는가.
+
+        재청킹을 건너뛸지 판단하는 데 쓴다 (RAG-09). 검수 확정은 본문이 하나도
+        바뀌지 않아도 일어난다 — 요소를 제외했다 되돌린 경우가 그렇다. 그때
+        수백 청크를 다시 임베딩하는 것은 낭비다. 문서 임베딩이 건당 244~519ms 였다.
+
+        판정 방법: (text_version, embedding_model) 쌍을 중복 없이 뽑아, 그것이
+        정확히 찾는 쌍 하나인지 본다. 세 경우가 한 번에 걸러진다.
+          · 쌍이 없다      -> 청크가 아예 없다. 만들어야 한다.
+          · 쌍이 여러 개다 -> 이전 재청킹이 중간에 끊겨 섞여 있다. 다시 만든다.
+          · 쌍이 하나인데 다르다 -> 낡았거나 다른 모델이다. 다시 만든다.
+
+        "하나라도 낡으면 낡은 것"으로 보는 이유는, 일부만 최신인 상태로 두면
+        검색이 조용히 반쪽 결과를 주기 때문이다.
+        """
+        stmt = (
+            select(DocumentChunk.text_version, DocumentChunk.embedding_model)
+            .where(DocumentChunk.document_id == document_id)
+            .distinct()
+        )
+        pairs = [tuple(row) for row in self._db.execute(stmt).all()]
+        return pairs == [(text_version, model)]
+
     def stale_document_ids(self, project_id: int) -> list[int]:
         """본문이 수정됐는데 재청킹이 안 된 문서를 찾는다.
 
