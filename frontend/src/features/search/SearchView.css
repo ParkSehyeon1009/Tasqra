@@ -175,6 +175,77 @@
   font-size: 11px;
 }
 
+/* 문서별 묶음. 긴 문서 하나가 목록을 독점하지 않게 조각을 접어 둔다. */
+.search-doc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.search-doc {
+  padding-top: 2px;
+}
+
+.search-doc + .search-doc {
+  border-top: 1px solid #e5eaf1;
+  padding-top: 18px;
+}
+
+.search-doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.search-doc-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #151d2e;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-doc-title:hover {
+  color: #355ad9;
+  text-decoration: underline;
+}
+
+.search-doc-title:focus-visible {
+  outline: 3px solid #355ad93d;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.search-doc-count {
+  margin-left: auto;
+  color: #8190a6;
+  font-size: 12px;
+}
+
+.search-doc-more {
+  margin-top: 8px;
+  padding: 7px 13px;
+  border: 1px solid #d5deeb;
+  border-radius: 8px;
+  background: white;
+  color: #4c5d76;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-doc-more:hover {
+  border-color: #b9c4d6;
+  background: #f8faff;
+}
+
 .search-result-list {
   list-style: none;
   margin: 0;
