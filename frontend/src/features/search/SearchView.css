@@ -1,0 +1,275 @@
+/* =============================================================================
+   이 파일의 책임: 검색 화면(SearchView.jsx)의 스타일.
+   다른 파일과의 관계: DocumentsView.css 와 같은 방식으로 기능 폴더에 함께 둔다.
+     .panel · .panel-head · .primary · .page-heading 은 styles/app.css 에 이미
+     있는 공통 클래스라 여기서 다시 정의하지 않는다.
+
+   색을 하드코딩하는 이유: 이 프로젝트는 styles/tokens.css 의 --c-* 변수를 거의
+     쓰지 않고 색상 리터럴을 직접 쓴다(app.css · workspace.css · DocumentsView.css
+     전부 그렇다). 혼자 변수를 쓰면 톤이 어긋나므로 기존 값을 그대로 따른다.
+       강조 #355ad9 (.primary · .tabs button.active · .eyebrow)
+       테두리 #dce3ee · #d7e0ec (.panel)
+       약한 글자 #718097 · #758197
+       둥근 정도 .panel 17px · .primary 10px · pill 99px
+   ============================================================================= */
+
+/* ── 검색 입력 ─────────────────────────────────────────────────────────── */
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.search-form {
+  display: flex;
+  gap: 10px;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #d5deeb;
+  border-radius: 10px;
+  background: white;
+  color: #151d2e;
+}
+
+.search-input::placeholder {
+  color: #97a3b5;
+}
+
+.search-input:focus {
+  border-color: #355ad9;
+  outline: 3px solid #355ad91f;
+  outline-offset: 0;
+}
+
+/* ── 범위 토글 ─────────────────────────────────────────────────────────── */
+
+.search-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-scope button {
+  padding: 8px 15px;
+  border: 1px solid #d5deeb;
+  border-radius: 99px;
+  background: white;
+  color: #4c5d76;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-scope button:hover:not(:disabled):not(.active) {
+  border-color: #b9c4d6;
+  background: #f8faff;
+}
+
+/* 선택된 범위는 .primary 와 같은 강조 채움으로 표시한다. */
+.search-scope button.active {
+  border-color: #355ad9;
+  background: #355ad9;
+  color: white;
+}
+
+.search-scope button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 힌트는 줄을 내려 전체 너비를 쓴다. */
+.search-scope-hint {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+  color: #758197;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ── 안내 · 오류 · 빈 상태 ─────────────────────────────────────────────── */
+
+.search-notice,
+.search-error,
+.search-empty {
+  margin-top: 20px;
+}
+
+.search-notice p,
+.search-error p,
+.search-empty p {
+  margin: 0 0 8px;
+  color: #4c5d76;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.search-notice p:last-child,
+.search-error p:last-child,
+.search-empty p:last-child {
+  margin-bottom: 0;
+}
+
+.search-notice strong,
+.search-error strong,
+.search-empty strong {
+  color: #151d2e;
+}
+
+/* 개발용 가짜 임베딩 안내. 왼쪽 굵은 선 하나로 눈에 띄게 한다. */
+.search-notice {
+  border-left: 4px solid #db9b09;
+  background: #fffaf0;
+}
+
+.search-error {
+  border-left: 4px solid #d33b3b;
+  background: #fff7f7;
+}
+
+.search-notice code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f0f3f8;
+  color: #4c5d76;
+  font-size: 12px;
+}
+
+.search-notice-how,
+.search-error-code {
+  color: #758197;
+  font-size: 12px;
+}
+
+/* ── 결과 목록 ─────────────────────────────────────────────────────────── */
+
+.search-results {
+  margin-top: 20px;
+}
+
+.search-results .panel-head {
+  margin-bottom: 6px;
+}
+
+.search-results .panel-head p {
+  margin: 5px 0 0;
+  color: #758197;
+  font-size: 13px;
+}
+
+.search-meta {
+  margin: 0 0 16px;
+  color: #8190a6;
+  font-size: 12px;
+}
+
+.search-meta code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #f0f3f8;
+  font-size: 11px;
+}
+
+.search-result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 줄 전체가 버튼이다 — 키보드로도 열 수 있어야 하므로 div + onClick 대신
+   button 을 쓴다. */
+.search-result-body {
+  display: block;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid #dce3ee;
+  border-radius: 13px;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result-body:hover {
+  border-color: #b9c4d6;
+  background: #f8faff;
+}
+
+.search-result-body:focus-visible {
+  outline: 3px solid #355ad93d;
+  outline-offset: 1px;
+  border-color: #355ad9;
+}
+
+.search-result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.search-result-file {
+  overflow: hidden;
+  color: #151d2e;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 전체 검색일 때만 보인다. 현재 프로젝트는 옅게, 다른 프로젝트는 강조 채움으로
+   구분해 "남의 사업 문서가 섞여 나왔다"를 한눈에 알 수 있게 한다. */
+.search-result-project {
+  padding: 5px 10px;
+  border-radius: 99px;
+  background: #f0f3f8;
+  color: #6c788b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.search-result-project.is-other {
+  background: #edf1ff;
+  color: #355ad9;
+}
+
+.search-result-snippet {
+  /* 서버가 220자로 자르지만, 좁은 화면에서 세 줄을 넘지 않게 한다. */
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0 0 10px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: #3f4b60;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.search-result-more {
+  color: #8190a6;
+}
+
+.search-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #8190a6;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .search-form {
+    flex-direction: column;
+  }
+
+  .search-result-file {
+    white-space: normal;
+  }
+}
