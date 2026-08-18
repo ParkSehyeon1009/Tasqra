@@ -1,7 +1,11 @@
+import logging
+
 from celery import Celery
 
 from app.core.config import settings
 from app.db.session import SessionLocal
+
+logger = logging.getLogger(__name__)
 
 celery_app = Celery(
     "tasqra",
@@ -33,6 +37,27 @@ def extract_document_task(self, project_id: int, document_id: int) -> int:
     with SessionLocal() as db:
         service = ExtractionService(db, DocumentRepository(db), get_extractor_registry())
         service.process_document(project_id, document_id)
+
+    # 추출이 끝나면 청킹·임베딩을 이어서 큐에 넣는다 (RAG-01 · RAG-02).
+    #
+    # ExtractionService.process_document 안에 넣지 않고 여기 둔 이유가 두 개다.
+    #   1. 문서 추출은 DOC 영역이라 그쪽 서비스 코드를 건드리지 않는다.
+    #   2. 이 태스크에 autoretry_for=(Exception,) 이 걸려 있다. 큐 넣기가 실패해
+    #      예외가 올라가면 OCR 추출 전체가 다시 돈다 — 가장 비싼 작업이다.
+    #      그래서 try/except 로 감싸 추출 결과를 지킨다.
+    #
+    # 실패해도 청크는 나중에 복구할 수 있다. chunks.build 를 직접 호출하거나,
+    # ChunkRepository.stale_document_ids() 로 빠진 문서를 찾아 다시 돌린다.
+    try:
+        build_chunks_task.delay(project_id, document_id)
+    except Exception:  # noqa: BLE001 - 추출 성공을 되돌리지 않는 것이 우선이다
+        logger.exception(
+            "청킹 큐 등록에 실패했다. 추출은 성공했다. "
+            "document_id=%s project_id=%s — chunks.build 를 직접 실행해 복구한다",
+            document_id,
+            project_id,
+        )
+
     return document_id
 
 
