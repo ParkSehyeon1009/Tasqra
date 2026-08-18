@@ -84,9 +84,20 @@ class Settings(BaseSettings):
     # --- 청킹 규칙 (services/chunking.py 의 기본값을 환경에서 덮어쓴다) --------
     # 임베딩 모델에 넣는 청크 하나의 최대 토큰 수. 우리 정확도 측정을
     # max_seq_length=1024 로 했으므로 그 안에 들어와야 측정값을 그대로 쓸 수 있다.
+    #
+    # 이 값은 chunking.py 의 CHARS_PER_TOKEN(1.89, 실측) 과 짝이다. 둘을 곱한
+    # 값이 청크의 최대 글자 수(480 x 1.89 = 907자)이고, 그것이 실제 토큰으로
+    # max_seq_length 를 넘으면 모델이 뒤를 조용히 잘라낸다. 에러가 없어서
+    # 알아채기 어렵다. 그래서 이 값을 올릴 때는 CHARS_PER_TOKEN 과
+    # embed_server.py 의 max_seq 를 함께 봐야 한다.
     CHUNK_MAX_TOKENS: int = 480
     # 이보다 짧은 청크는 다음 청크와 합친다. 제목 한 줄만 든 청크를 막는다.
-    CHUNK_MIN_TOKENS: int = 48
+    #
+    # CHARS_PER_TOKEN 과 곱해져 실제로는 "몇 자 미만을 흡수하는가"로 동작한다
+    # (30 x 1.89 = 57자). 그래서 비율을 고치면 이 값도 같이 봐야 한다. 이전 값
+    # 48 은 잘못된 비율 1.2 를 전제로 맞춰진 것이어서, 비율만 고쳤을 때 흡수
+    # 기준이 91자로 넓어져 짧은 절이 삼켜지는 회귀가 났다.
+    CHUNK_MIN_TOKENS: int = 30
     # 앞 청크의 끝을 다음 청크에 얼마나 겹쳐 넣을지. 0 이면 겹치지 않는다.
     CHUNK_OVERLAP_TOKENS: int = 48
 
