@@ -90,7 +90,34 @@ class ChunkingService:
                 "본문이 없어 청킹을 건너뛴다 document_id=%s (추출 전이거나 빈 문서)",
                 document_id,
             )
+            # 기존 청크는 지운다. RAG-09 로 검수 확정에서도 이 경로가 닿게 되면서
+            # 필요해졌다 — 검수에서 요소를 전부 제외하면 본문이 비는데, 청크를
+            # 남겨두면 지워진 내용이 검색에 계속 나온다. 아래 "청크가 만들어지지
+            # 않았다" 분기도 같은 이유로 지우고 있어서 두 경로를 맞췄다.
+            if self._chunks.delete_for_document(document_id):
+                self._db.commit()
             return 0
+
+        # 이미 이 본문 판과 이 모델로 만든 청크가 있으면 건너뛴다 (RAG-09).
+        # 검수 확정은 본문이 하나도 바뀌지 않아도 일어나므로, 그때마다 수백
+        # 청크를 다시 임베딩하면 낭비다 (건당 244~519ms).
+        #
+        # 모델 이름을 임베딩 결과가 아니라 클라이언트에게 미리 묻는 것이 핵심이다.
+        # result.model 은 임베딩을 실제로 돌린 뒤에야 알 수 있어서, 돌릴지 말지
+        # 판단하는 데는 쓸 수 없다. Protocol 에 model_name 이 있는 이유가 이것이다.
+        if self._chunks.is_current_for_document(
+            document_id,
+            text_version=extracted.text_version,
+            model=self._embedder.model_name,
+        ):
+            count = self._chunks.count_for_document(document_id)
+            logger.info(
+                "청크가 이미 최신이라 재청킹을 건너뛴다 document_id=%s text_version=%d 청크=%d",
+                document_id,
+                extracted.text_version,
+                count,
+            )
+            return count
 
         units = self._build_units(document, extracted)
         chunks = chunk_units(
