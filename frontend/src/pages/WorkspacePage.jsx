@@ -11,13 +11,17 @@ import DocumentUploadModal from '../features/documents/DocumentUploadModal'
 import MembersView from '../features/members/MembersView'
 import ProjectCreateModal from '../features/projects/ProjectCreateModal'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
+import SearchView from '../features/search/SearchView'
 import { useInvitationsQuery } from '../hooks/useInvitationsQuery'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
 import { clearRecentProjectId, setRecentProjectId } from '../utils/recentProject'
 import '../styles/workspace.css'
 
-const TABS = [['dashboard','대시보드'],['documents','문서'],['board','보드'],['settings','설정']]
+// 탭을 추가할 때는 이 배열과 아래 TabContent 를 **함께** 고쳐야 한다.
+// TabContent 마지막이 return <BoardView/> 로 떨어지므로, 여기만 추가하면
+// 새 탭에서 보드가 나온다 — 에러가 나지 않아 찾기 어렵다.
+const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['board','보드'],['settings','설정']]
 
 export default function WorkspacePage({ user, onLogout, notify }) {
   const { projectId, tab } = useParams()
@@ -98,5 +102,8 @@ function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploadi
   if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploading={uploading} uploadingFileName={data.uploadingFileName} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
+  // 검색은 워크스페이스 데이터(문서 목록 · 멤버)를 쓰지 않는다. 자기 상태만
+  // 들고 api/search.js 를 부른다. 범위 토글에 쓸 프로젝트 이름만 넘긴다.
+  if (tab === 'search') return <SearchView projectId={project.id} projectName={project.name}/>
   return <BoardView/>
 }
