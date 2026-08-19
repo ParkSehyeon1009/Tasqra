@@ -5,11 +5,32 @@
 .document-upload-dialog { width: min(560px, 100%); }
 .document-upload-dialog label small { color: #758197; font-weight: 500; }
 .document-upload-dialog label > small:last-child { margin-top: -2px; font-size: 12px; }
-.upload-file-summary { display: flex; align-items: center; gap: 13px; margin: 4px 0 20px; padding: 14px; border: 1px solid #dce3ee; border-radius: 12px; background: #f8faff; }
+.upload-file-list { display: grid; max-height: 280px; margin: 4px 0 20px; gap: 8px; overflow-y: auto; }
+.upload-file-summary { display: flex; align-items: center; gap: 13px; padding: 12px 14px; border: 1px solid #dce3ee; border-radius: 12px; background: #f8faff; }
 .upload-file-summary > div { min-width: 0; }
 .upload-file-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-file-summary small { display: block; margin-top: 4px; color: #758197; }
+.upload-file-summary > button { margin-left: auto; border: 0; background: transparent; color: #69778c; cursor: pointer; }
+.upload-file-summary.is-invalid { border-color: #efb9c1; background: #fff4f5; }
+.upload-file-summary.is-invalid small { color: #a53648; }
 .document-upload-dialog button:disabled, .document-upload-dialog select:disabled { cursor: not-allowed; opacity: .6; }
+
+.upload-queue { border-bottom: 1px solid #d8e1ee; background: #f8faff; }
+.upload-queue > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; }
+.upload-queue > header > div { display: flex; align-items: baseline; gap: 10px; }
+.upload-queue > header span { color: #68768b; font-size: 12px; }
+.upload-queue > header button { border: 0; background: transparent; color: #5148c8; cursor: pointer; font-size: 12px; font-weight: 700; }
+.upload-queue ul { max-height: 240px; margin: 0; padding: 0 24px 14px; overflow-y: auto; list-style: none; }
+.upload-queue li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid #e2e8f1; }
+.upload-queue li > div { min-width: 0; }
+.upload-queue li > div { flex: 1; }
+.upload-queue li strong, .upload-queue li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-queue li small { margin-top: 3px; color: #68768b; font-size: 12px; }
+.upload-queue-state { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; color: #5d55db; font-weight: 800; }
+.upload-queue-completed .upload-queue-state { color: #237248; }
+.upload-queue-failed .upload-queue-state, .upload-queue-failed small { color: #aa3445; }
+.upload-queue .processing-spinner { width: 20px; height: 20px; }
+.upload-queue-retry { flex: 0 0 auto; padding: 6px 10px; border: 1px solid #d2d9e6; border-radius: 7px; background: #fff; color: #5148c8; cursor: pointer; font-size: 12px; font-weight: 700; }
 
 .document-drop-target.is-dragging {
   outline: 3px solid #6b63e8;

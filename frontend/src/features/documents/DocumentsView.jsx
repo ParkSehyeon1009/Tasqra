@@ -6,7 +6,7 @@ import { formatNumber } from '../../utils/format'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
-export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploading, uploadingFileName, onRetry, retryingDocumentId }) {
+export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
   const [dragging, setDragging] = useState(false)
   const navigate = useNavigate()
   const openDocument = documentId => navigate('/projects/' + projectId + '/documents/' + documentId)
@@ -17,7 +17,7 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
     }
     openDocument(document.id)
   }
-  const action = canEdit ? <button className='primary' disabled={uploading} onClick={onUpload}>문서 업로드</button> : null
+  const action = canEdit ? <button className='primary' onClick={onUpload}>문서 업로드</button> : null
 
   function handleDragOver(event) {
     if (!canEdit) return
@@ -30,16 +30,16 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
     if (!canEdit) return
     event.preventDefault()
     setDragging(false)
-    const file = event.dataTransfer.files?.[0]
-    if (file) onFileDrop(file)?.catch?.(() => {})
+    const files = event.dataTransfer.files
+    if (files?.length) onFileDrop(files)?.catch?.(() => {})
   }
 
   return <><PageHeading eyebrow='PROJECT DOCUMENTS' title='문서' description='문서의 처리와 OCR 검수 상태를 확인하고 다음 작업을 이어가세요.' action={action}/>
     <section className={'panel table-panel document-drop-target' + (dragging ? ' is-dragging' : '')} onDragEnter={handleDragOver} onDragOver={handleDragOver} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false) }} onDrop={handleDrop}>
       {dragging && <div className='drop-overlay'>여기에 파일을 놓아 업로드하세요.</div>}
       <div className='panel-head'><div><h2>전체 문서</h2><p>상태 배지와 설명은 현재 서버가 제공한 값에 따라 표시됩니다.</p></div><span>{documents.length}건</span></div>
-      {uploading && <ProcessingDocument filename={uploadingFileName}/>}
-      {documents.length ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/> : !uploading && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+      {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onRetry={onRetryUpload} onClear={onClearUploadQueue}/>}
+      {documents.length ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/> : !uploadQueue.some(item => ['QUEUED', 'UPLOADING'].includes(item.status)) && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
   </>
@@ -77,8 +77,24 @@ function DocumentCharacterCounts({ document }) {
   return <small className='document-character-counts'>{counts.length ? counts.map(item => <span key={item.label}>{item.label} {formatNumber(item.value)}자</span>) : '문자 수 정보 없음'}</small>
 }
 
-function ProcessingDocument({ filename }) {
-  return <div className='processing-document' role='status'><span className='processing-spinner'/><div><strong>{filename ?? '문서'} 업로드 중</strong><p>파일을 서버에 전송하고 있습니다. 완료되면 실제 처리 상태가 표시됩니다.</p></div></div>
+function UploadQueue({ items, onRetry, onClear }) {
+  const activeCount = items.filter(item => ['QUEUED', 'UPLOADING'].includes(item.status)).length
+  const hasFinished = items.some(item => ['COMPLETED', 'FAILED'].includes(item.status))
+  return <section className='upload-queue' aria-label='문서 업로드 진행 상황' aria-live='polite'>
+    <header><div><strong>업로드 대기열</strong><span>{activeCount ? `${activeCount}개 진행 중` : '모든 파일 접수 완료'}</span></div>{hasFinished && <button type='button' onClick={onClear}>완료 항목 지우기</button>}</header>
+    <ul>{items.map(item => <li key={item.id} className={`upload-queue-${item.status.toLowerCase()}`}>
+      <span className='upload-queue-state' aria-hidden='true'>{item.status === 'UPLOADING' ? <span className='processing-spinner'/> : uploadState(item.status).icon}</span>
+      <div><strong>{item.file.name}</strong><small>{item.error || uploadState(item.status).label}</small></div>
+      {item.status === 'FAILED' && <button type='button' className='upload-queue-retry' onClick={() => onRetry(item)}>다시 시도</button>}
+    </li>)}</ul>
+  </section>
+}
+
+function uploadState(status) {
+  if (status === 'UPLOADING') return { icon: '↑', label: '서버로 전송 중' }
+  if (status === 'COMPLETED') return { icon: '✓', label: '접수 완료 · 문서 처리는 백그라운드에서 계속됩니다.' }
+  if (status === 'FAILED') return { icon: '!', label: '업로드 실패' }
+  return { icon: '…', label: '업로드 대기 중' }
 }
 
 function EmptyDocuments({ onUpload, canEdit }) {
