@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.extractors.protocol import ExtractResult
+from app.extractors.protocol import ExtractedElement, ExtractedPage, ExtractResult
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.models.enums import DocumentStatus
@@ -102,3 +102,39 @@ def test_processing_document_cannot_be_queued_twice():
         ExtractionService(MagicMock(), documents, MagicMock()).prepare_retry(10, 30)
 
     assert caught.value.error_code is ErrorCode.DOCUMENT_RETRY_NOT_ALLOWED
+
+
+def test_review_elements_receive_automatic_document_structure(monkeypatch):
+    service = ExtractionService(MagicMock(), MagicMock(), MagicMock())
+    monkeypatch.setattr(service, "_save_review_image", lambda document_id, page_number, content: f"review/{document_id}/{page_number}.png")
+    repeated_header = "한국인터넷진흥원 사업보고서"
+    pages = tuple(
+        ExtractedPage(
+            page_number=page_number,
+            width=1000,
+            height=1400,
+            image_bytes=b"image",
+            elements=(
+                ExtractedElement(0.1, 0.03, 0.8, 0.02, repeated_header),
+                ExtractedElement(0.1, 0.2, 0.8, 0.03, "1. 사업 개요"),
+                ExtractedElement(0.1, 0.3, 0.8, 0.03, "본문 내용입니다."),
+                ExtractedElement(0.1, 0.4, 0.8, 0.03, "항목 | 금액", element_type="TABLE_HEADER", table_id=1, table_row=0),
+            ),
+        )
+        for page_number in range(1, 5)
+    )
+    result = ExtractResult("content", 4, 7, 0, 7, "OCR", pages)
+    document = SimpleNamespace(id=30, review_pages=[])
+    review_paths = []
+
+    service._attach_review_pages(document, result, review_paths)
+
+    first_page = document.review_pages[0]
+    assert first_page.elements[0].element_type == "HEADER_FOOTER"
+    assert first_page.elements[0].element_type_source == "AUTO"
+    assert first_page.elements[1].element_type == "HEADING"
+    assert first_page.elements[1].is_paragraph_start is True
+    assert first_page.elements[2].element_type == "TEXT_LINE"
+    assert first_page.elements[3].element_type == "TABLE_HEADER"
+    assert first_page.elements[3].table_id == 1
+    assert len(review_paths) == 4

@@ -11,8 +11,9 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.protocol import ExtractResult
 from app.extractors.registry import ExtractorRegistry
+from app.extractors.structure import detect_header_footer, detect_heading
 from app.models.document import Document, DocumentPage, ExtractedText, OcrElement
-from app.models.enums import DocumentStatus, DocumentType, DocumentTypeSource, ExtractionStrategy, ProcessingMode, ReviewStatus
+from app.models.enums import DocumentStatus, DocumentType, DocumentTypeSource, ExtractionStrategy, OcrElementType, OcrElementTypeSource, ProcessingMode, ReviewStatus
 from app.repositories.document_repository import DocumentRepository
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".hwpx", ".png", ".jpg", ".jpeg"}
@@ -181,20 +182,35 @@ class ExtractionService:
             raise BusinessError(ErrorCode.CONTENT_TOO_LARGE, detail=f"DOCX와 HWPX는 추출 텍스트를 최대 {settings.MAX_EXTRACTED_CHARS:,}자까지 허용합니다.")
 
     def _attach_review_pages(self, document: Document, result: ExtractResult, review_paths: list[str]) -> None:
+        header_footer_elements = detect_header_footer([
+            [(element.text, element.y) for element in page.elements]
+            for page in result.review_pages
+        ])
         content_cursor = 0
-        for page_result in result.review_pages:
+        for page_index, page_result in enumerate(result.review_pages):
             page_path = self._save_review_image(document.id, page_result.page_number, page_result.image_bytes)
             review_paths.append(page_path)
             page = DocumentPage(page_number=page_result.page_number, page_kind=page_result.page_kind, image_path=page_path, width=page_result.width, height=page_result.height)
             for index, item in enumerate(page_result.elements):
+                element_type = item.element_type
+                element_type_source = item.element_type_source
+                is_paragraph_start = item.is_paragraph_start
+                if element_type == OcrElementType.TEXT_LINE.value:
+                    element_type_source = OcrElementTypeSource.AUTO.value
+                    if (page_index, index) in header_footer_elements:
+                        element_type = OcrElementType.HEADER_FOOTER.value
+                        is_paragraph_start = False
+                    elif detect_heading(item.text):
+                        element_type = OcrElementType.HEADING.value
+                        is_paragraph_start = True
                 content_start = item.content_start if item.content_start is not None else result.content.find(item.text, content_cursor)
                 content_end = item.content_end if item.content_end is not None else content_start + len(item.text) if content_start >= 0 else None
                 if content_end is not None:
                     content_cursor = content_end
                 page.elements.append(OcrElement(
                     original_text=item.text, text=item.text, x=item.x, y=item.y, width=item.width, height=item.height,
-                    confidence=item.confidence, source=item.source, element_type=item.element_type,
-                    element_type_source=item.element_type_source, is_paragraph_start=item.is_paragraph_start,
+                    confidence=item.confidence, source=item.source, element_type=element_type,
+                    element_type_source=element_type_source, is_paragraph_start=is_paragraph_start,
                     table_id=item.table_id, table_row=item.table_row, reading_order=index,
                     content_start=content_start if content_start >= 0 else None, content_end=content_end, is_in_content=True,
                 ))
