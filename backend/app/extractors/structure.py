@@ -136,7 +136,7 @@ _DIGITS = re.compile(r"\d+")
 _SPACES = re.compile(r"\s+")
 
 
-def normalize_repeated_text(text: str) -> str:
+def normalize_repeated_text(text: str, *, mask_digits: bool = True) -> str:
     """반복 비교용으로 텍스트를 정규화한다.
 
     쪽번호는 페이지마다 달라진다. "- 3 -" 와 "- 4 -" 를 같은 것으로 봐야 하므로
@@ -148,8 +148,15 @@ def normalize_repeated_text(text: str) -> str:
     대가로 본문에서는 숫자만 다른 서로 다른 줄이 같은 것으로 묶인다. 그래서
     use_position=True 로 상·하단 대역만 보는 것이 기본값이다.
     좌표 없이(use_position=False) 쓰면 오탐이 늘어난다.
+
+    mask_digits=False 로 숫자 치환을 끌 수 있다. 좌표가 없어서 상·하단 대역으로
+    걸러낼 수 없을 때 쓴다. 실측으로 확인한 오탐이다 — 숫자만 다른 본문 네 줄
+    ("본문 1 입니다", "본문 2 입니다", ...)이 같은 줄로 묶여 문서 전체가
+    노이즈로 판정됐다. 쪽번호를 놓치는 대신 본문을 지키는 쪽이다.
     """
     collapsed = _SPACES.sub(" ", text).strip()
+    if not mask_digits:
+        return collapsed
     return _DIGITS.sub("#", collapsed)
 
 
@@ -160,6 +167,8 @@ def detect_header_footer(
     min_pages: int = HEADER_FOOTER_MIN_PAGES,
     min_ratio: float = HEADER_FOOTER_MIN_RATIO,
     use_position: bool = True,
+    mask_digits: bool = True,
+    max_chars: int | None = None,
 ) -> set[tuple[int, int]]:
     """머리글·바닥글인 요소의 (페이지 index, 요소 index) 집합을 돌려준다.
 
@@ -173,6 +182,12 @@ def detect_header_footer(
     한 페이지 안에 같은 텍스트가 여러 번 나와도 그 페이지는 1회로 센다.
     같은 줄이 두 번 인식된 경우에 값이 부풀지 않게 한다.
 
+    좌표가 없을 때(use_position=False) 쓰는 안전장치 두 개가 있다.
+      mask_digits=False  숫자 치환을 끈다. 숫자만 다른 본문이 묶이는 것을 막는다.
+      max_chars=N        N 자보다 긴 줄은 후보에서 뺀다. 머리글·바닥글은 짧다.
+    둘 다 기본값은 기존 동작 그대로다(치환 켬 · 길이 제한 없음). 좌표가 있으면
+    상·하단 대역이 이미 걸러 주므로 바꿀 필요가 없다.
+
     이 함수는 요소 순서를 바꾸지 않는다. 호출한 쪽이 element_type 만 바꿔 넣는다.
     """
     if not pages:
@@ -185,14 +200,25 @@ def detect_header_footer(
             return False
         return y <= band or y >= 1.0 - band
 
+    def candidate(text: str, y: float | None) -> bool:
+        """이 줄을 머리글·바닥글 후보로 볼지."""
+        if not in_band(y):
+            return False
+        if max_chars is not None and len(text.strip()) > max_chars:
+            return False
+        return True
+
+    def key_of(text: str) -> str:
+        return normalize_repeated_text(text, mask_digits=mask_digits)
+
     # 정규화 텍스트가 몇 개 페이지에 나오는지 센다.
     page_count: dict[str, int] = defaultdict(int)
     for page in pages:
         seen: set[str] = set()
         for text, y in page:
-            if not in_band(y):
+            if not candidate(text, y):
                 continue
-            key = normalize_repeated_text(text)
+            key = key_of(text)
             if key:
                 seen.add(key)
         for key in seen:
@@ -206,8 +232,8 @@ def detect_header_footer(
     found: set[tuple[int, int]] = set()
     for page_index, page in enumerate(pages):
         for element_index, (text, y) in enumerate(page):
-            if not in_band(y):
+            if not candidate(text, y):
                 continue
-            if normalize_repeated_text(text) in repeated:
+            if key_of(text) in repeated:
                 found.add((page_index, element_index))
     return found
