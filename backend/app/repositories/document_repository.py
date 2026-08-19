@@ -13,7 +13,7 @@
 import re
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
 from app.models.user import User
@@ -30,6 +30,22 @@ class DocumentRepository:
 
     def get_by_id(self, project_id: int, document_id: int) -> Document | None:
         return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).one_or_none()
+
+    def get_by_id_with_review(self, project_id: int, document_id: int) -> Document | None:
+        """OCR 검수 페이지와 요소를 컬렉션별 일괄 조회한다."""
+        return (
+            self._db.query(Document)
+            .options(
+                selectinload(Document.review_pages).selectinload(
+                    DocumentPage.elements
+                )
+            )
+            .filter(
+                Document.project_id == project_id,
+                Document.id == document_id,
+            )
+            .one_or_none()
+        )
 
     def get_by_id_for_update(self, project_id: int, document_id: int) -> Document | None:
         return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).with_for_update().one_or_none()
