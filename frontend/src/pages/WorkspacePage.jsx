@@ -68,12 +68,15 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
     if (files.length) setUploadFiles(files)
   }
   async function confirmUpload(files, extractionStrategy, documentType) {
-    for (const file of files) {
+    // 업로드 창은 파일 전송 완료를 기다리지 않고 즉시 닫는다. 이후 처리는
+    // 별도로 보관한 목록을 사용하므로 사용자는 다른 화면에서 작업할 수 있다.
+    const queuedFiles = [...files]
+    setUploadFiles([])
+    for (const file of queuedFiles) {
       try {
         await data.uploadFile(file, isImageUpload(file) ? 'AUTO' : extractionStrategy, documentType)
       } catch { /* 파일별 오류는 공통 토스트에서 처리하고 다음 파일을 계속 접수한다. */ }
     }
-    setUploadFiles([])
   }
   async function upload(event) {
     const files = event.target.files
