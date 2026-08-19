@@ -24,5 +24,8 @@ from app.models.user import RefreshToken, User
 from app.models.project import Project, ProjectInvitation, ProjectMember
 from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
 from app.models.chunk import DocumentChunk
+# amount 는 document 뒤에 온다. relationship("Document") 을 문자열로 쓰므로
+# import 순서가 강제되지는 않지만, 참조하는 쪽을 뒤에 두는 편이 읽기 좋다.
+from app.models.amount import AmountItem
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk", "AmountItem"]
