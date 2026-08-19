@@ -5,10 +5,14 @@
 .document-upload-dialog { width: min(560px, 100%); }
 .document-upload-dialog label small { color: #758197; font-weight: 500; }
 .document-upload-dialog label > small:last-child { margin-top: -2px; font-size: 12px; }
-.upload-file-summary { display: flex; align-items: center; gap: 13px; margin: 4px 0 20px; padding: 14px; border: 1px solid #dce3ee; border-radius: 12px; background: #f8faff; }
+.upload-file-list { display: grid; max-height: 280px; margin: 4px 0 20px; gap: 8px; overflow-y: auto; }
+.upload-file-summary { display: flex; align-items: center; gap: 13px; padding: 12px 14px; border: 1px solid #dce3ee; border-radius: 12px; background: #f8faff; }
 .upload-file-summary > div { min-width: 0; }
 .upload-file-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-file-summary small { display: block; margin-top: 4px; color: #758197; }
+.upload-file-summary > button { margin-left: auto; border: 0; background: transparent; color: #69778c; cursor: pointer; }
+.upload-file-summary.is-invalid { border-color: #efb9c1; background: #fff4f5; }
+.upload-file-summary.is-invalid small { color: #a53648; }
 .document-upload-dialog button:disabled, .document-upload-dialog select:disabled { cursor: not-allowed; opacity: .6; }
 
 .document-drop-target.is-dragging {

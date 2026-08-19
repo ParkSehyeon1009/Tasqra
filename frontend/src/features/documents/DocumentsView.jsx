@@ -30,8 +30,8 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
     if (!canEdit) return
     event.preventDefault()
     setDragging(false)
-    const file = event.dataTransfer.files?.[0]
-    if (file) onFileDrop(file)?.catch?.(() => {})
+    const files = event.dataTransfer.files
+    if (files?.length) onFileDrop(files)?.catch?.(() => {})
   }
 
   return <><PageHeading eyebrow='PROJECT DOCUMENTS' title='문서' description='문서의 처리와 OCR 검수 상태를 확인하고 다음 작업을 이어가세요.' action={action}/>

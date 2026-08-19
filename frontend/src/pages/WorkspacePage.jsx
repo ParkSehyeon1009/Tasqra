@@ -12,6 +12,7 @@ import MembersView from '../features/members/MembersView'
 import ProjectCreateModal from '../features/projects/ProjectCreateModal'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import SearchView from '../features/search/SearchView'
+import { isImageUpload } from '../features/document-upload/uploadValidation'
 import { useInvitationsQuery } from '../hooks/useInvitationsQuery'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
@@ -45,7 +46,7 @@ export default function WorkspacePage({ user, onLogout, notify }) {
 
 function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLogout, createMutation, deleteMutation, recentInvitees }) {
   const [creating, setCreating] = useState(false)
-  const [uploadFile, setUploadFile] = useState(null)
+  const [uploadFiles, setUploadFiles] = useState([])
   const data = useWorkspaceData(project, notify)
   const fileInputRef = useRef(null)
   const canEdit = project.role !== 'VIEWER'
@@ -61,20 +62,23 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       navigate(`/projects/${created.id}/dashboard`)
     } catch { /* 공통 토스트에서 처리 */ }
   }
-  function requestUpload(file) {
-    if (!file || !canEdit) return
-    setUploadFile(file)
+  function requestUpload(selectedFiles) {
+    if (!selectedFiles || !canEdit) return
+    const files = selectedFiles instanceof File ? [selectedFiles] : Array.from(selectedFiles)
+    if (files.length) setUploadFiles(files)
   }
-  async function confirmUpload(file, extractionStrategy, documentType) {
-    try {
-      await data.uploadFile(file, extractionStrategy, documentType)
-      setUploadFile(null)
-    } catch { /* 공통 토스트에서 처리 */ }
+  async function confirmUpload(files, extractionStrategy, documentType) {
+    for (const file of files) {
+      try {
+        await data.uploadFile(file, isImageUpload(file) ? 'AUTO' : extractionStrategy, documentType)
+      } catch { /* 파일별 오류는 공통 토스트에서 처리하고 다음 파일을 계속 접수한다. */ }
+    }
+    setUploadFiles([])
   }
   async function upload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    try { await requestUpload(file) } catch { /* 공통 토스트에서 처리 */ }
+    const files = event.target.files
+    if (!files?.length) return
+    try { await requestUpload(files) } catch { /* 공통 토스트에서 처리 */ }
     finally { event.target.value = '' }
   }
   async function deleteCurrentProject() {
@@ -85,7 +89,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
     } catch { /* 공통 토스트에서 처리 */ }
   }
 
-  return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
+  return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" multiple accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
     <div className="workspace-shell">
       <ProjectSidebar projects={projects} activeProjectId={project.id} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
@@ -94,7 +98,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
-    {uploadFile && <DocumentUploadModal file={uploadFile} uploading={data.uploading} onClose={() => setUploadFile(null)} onSubmit={confirmUpload}/>}
+    {uploadFiles.length > 0 && <DocumentUploadModal files={uploadFiles} uploading={data.uploading} onClose={() => setUploadFiles([])} onRemove={index => setUploadFiles(current => current.filter((_, currentIndex) => currentIndex !== index))} onSubmit={confirmUpload}/>}
   </div>
 }
 
