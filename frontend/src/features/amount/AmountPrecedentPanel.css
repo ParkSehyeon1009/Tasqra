@@ -1,0 +1,98 @@
+/* =============================================================================
+   과거 단가 선례 패널 (SRH-002-3)
+
+   색을 하드코딩한다. 이 파일 주변(SearchView.css · workspace.css)이 모두
+   하드코딩이라 지금 tokens.css 변수를 쓰면 팔레트가 달라 얼룩덜룩해진다
+   (tokens.css 의 --c-accent 는 #3157d5, 검색 화면은 #355ad9 계열이다).
+   UI 시안이 확정되면 화면 단위로 함께 토큰으로 바꾼다.
+
+   금액은 tabular-nums 로 자리를 맞춘다. 단가를 위아래로 비교하는 화면이라
+   숫자 폭이 흔들리면 자릿수를 눈으로 세기 어렵다.
+   ============================================================================= */
+
+.precedent { display: block; }
+
+.precedent-form { display: flex; gap: 10px; margin-bottom: 10px; }
+.precedent-input {
+  flex: 1; min-width: 0; min-height: 46px; padding: 12px 14px;
+  border: 1px solid #d5deeb; border-radius: 11px; background: #fff;
+  color: #1b2435; font-size: 15px;
+}
+.precedent-input:focus { border-color: #355ad9; outline: 3px solid rgba(53, 90, 217, .14); outline-offset: 1px; }
+.precedent-submit {
+  flex: 0 0 auto; min-height: 46px; padding: 12px 20px; border: 0; border-radius: 11px;
+  background: #355ad9; color: #fff; font-size: 15px; font-weight: 750; cursor: pointer;
+}
+.precedent-submit:hover:not(:disabled) { background: #2743ad; }
+.precedent-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+.precedent-hint { margin: 0 0 16px; color: #68768b; font-size: 13px; line-height: 1.6; }
+
+/* 상태 안내 (첫 화면 · 결과 없음 · 오류) */
+.precedent-box {
+  padding: 20px; border: 1px solid #dce3ee; border-radius: 14px; background: #fff;
+}
+.precedent-box strong { display: block; color: #1b2435; font-size: 15px; }
+.precedent-box p { margin: 7px 0 0; color: #68768b; font-size: 13px; line-height: 1.65; }
+.precedent-box--error { border-color: #e8c9c9; background: #fdf6f6; }
+.precedent-box--error strong { color: #8a3d3d; }
+.precedent-code { color: #8a96a6; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+/* 요약 — 최저 · 중앙값 · 최고 */
+.precedent-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.precedent-stat { padding: 14px 15px; border: 1px solid #dce3ee; border-radius: 12px; background: #fff; }
+.precedent-stat > span { display: block; color: #68768b; font-size: 12px; font-weight: 700; }
+.precedent-stat > strong {
+  display: block; margin-top: 8px; color: #2c326b; font-size: 19px; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+/* 중앙값이 판단의 기준값이라 하나만 강조한다 */
+.precedent-stat.is-emphasis { border-color: #b9c4f0; background: #f5f4ff; }
+.precedent-stat.is-emphasis > strong { color: #2743ad; }
+
+.precedent-meta { margin: 10px 0 0; color: #8a96a6; font-size: 12px; line-height: 1.6; }
+
+/* 선례 목록 */
+.precedent-list { margin: 14px 0 0; padding: 0; list-style: none; }
+.precedent-item {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 15px 0; border-top: 1px solid #e5eaf1;
+}
+.precedent-item:first-child { border-top: 0; }
+.precedent-item__main { min-width: 0; flex: 1; }
+.precedent-item__main strong { display: block; color: #151d2e; font-size: 14px; }
+.precedent-item__where { margin: 4px 0 0; color: #78859a; font-size: 12px; overflow-wrap: anywhere; }
+/* 원문 인용. 완료 판정이 "출처와 함께 표시된다" 이므로 이 줄이 기능의 핵심이다 */
+.precedent-item__quote {
+  margin: 8px 0 0; padding: 8px 11px; border-left: 3px solid #d5deeb; border-radius: 0 8px 8px 0;
+  background: #f7f9fc; color: #4a5768; font-size: 12.5px; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.precedent-item__figures { flex: 0 0 auto; text-align: right; }
+.precedent-item__unit {
+  display: block; color: #1b2435; font-size: 17px; font-weight: 750;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.precedent-item__unit small { margin-left: 2px; color: #8a96a6; font-size: 12px; font-weight: 600; }
+/* nowrap 을 쓰지 않는다. 총액을 함께 내면서 "수량 3인월 · 총액 26,400,000" 처럼
+   길어져 좁은 칸에서 넘친다. 오른쪽 정렬이라 줄바꿈이 자연스럽다. */
+.precedent-item__meta {
+  display: block; margin-top: 5px; color: #78859a; font-size: 12px; line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.precedent-item__meta + .precedent-item__meta { margin-top: 2px; }
+.precedent-item__none { color: #a6b0bf; font-style: italic; }
+.precedent-item__decision {
+  display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 99px;
+  background: #ecfdf3; color: #15803d; font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .precedent-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .precedent-form { flex-direction: column; }
+  .precedent-submit { width: 100%; }
+  .precedent-item { flex-direction: column; gap: 10px; }
+  .precedent-item__figures { text-align: left; }
+}

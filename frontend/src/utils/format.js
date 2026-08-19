@@ -37,3 +37,33 @@ export function formatLatency(ms) {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}초`
 }
+
+
+/** Numeric 문자열에 천 단위 구분을 넣고 뜻 없는 소수점 뒤 0 을 뗀다.
+ *
+ *   "9500000.00" -> "9,500,000"      (금액 · Numeric(18,2))
+ *   "3.0000"     -> "3"              (수량 · Numeric(18,4))
+ *   "2.5000"     -> "2.5"
+ *
+ * 금액만이 아니라 **수량에도 쓴다.** 수량을 그대로 뿌리면 "3.0000" 이 화면에서
+ * 3000 으로 읽힌다 — 실제로 그렇게 읽은 일이 있었다.
+ *
+ * formatNumber 를 쓰지 않는 이유
+ *   서버가 금액을 **문자열**로 보낸다(Numeric = Decimal). 문자열에
+ *   toLocaleString 을 부르면 그 문자열이 그대로 돌아와 쉼표가 붙지 않는다.
+ *   Number 로 바꾸면 쉼표는 붙지만 조달 금액 크기에서 정밀도가 깨질 수 있다
+ *   (백엔드가 float 대신 Numeric 을 쓰는 것과 같은 이유다).
+ *   그래서 숫자로 바꾸지 않고 문자열을 직접 자른다.
+ *
+ * 소수부가 .00 이면 떼고, 값이 있으면 남긴다. 조달 금액은 원 단위라 보통 .00 이다.
+ */
+export function formatMoney(value) {
+  if (value === null || value === undefined || value === '') return '-'
+  const text = String(value).trim()
+  const negative = text.startsWith('-')
+  const [whole, fraction] = text.replace(/^-/, '').split('.')
+  if (!/^\d+$/.test(whole)) return text
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const tail = fraction && /[1-9]/.test(fraction) ? '.' + fraction.replace(/0+$/, '') : ''
+  return (negative ? '-' : '') + grouped + tail
+}

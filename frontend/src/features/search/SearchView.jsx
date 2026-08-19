@@ -26,6 +26,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import PageHeading from '../../components/common/PageHeading'
 import LoadingState from '../../components/common/LoadingState'
 import { FAKE_EMBEDDING_MODEL, searchDocuments } from '../../api/search'
+import AmountPrecedentPanel from '../amount/AmountPrecedentPanel'
 import './SearchView.css'
 
 // 한 번에 가져올 결과 수. 서버 상한은 50 이다(schemas/search.py MAX_SEARCH_LIMIT).
@@ -46,6 +47,10 @@ export default function SearchView({ projectId, projectName }) {
   // 입력창은 로컬 상태다. 글자를 칠 때마다 URL 이 바뀌면 뒤로가기 이력이
   // 한 글자마다 쌓인다.
   const [draft, setDraft] = useState(query)
+  // 무엇을 찾는지에 따라 화면이 갈린다. 문서 내용은 문장으로 찾고(의미 검색),
+  // 단가 선례는 항목명으로 찾는다(SRH-002-3). 질의 형태와 결과 모양이 서로
+  // 달라서 한 입력창에 합치면 둘 다 어색해진다.
+  const [mode, setMode] = useState('content')
   const navigate = useNavigate()
 
   // 뒤로가기로 URL 이 바뀌면 입력창도 따라가게 한다.
@@ -106,8 +111,24 @@ export default function SearchView({ projectId, projectName }) {
     <PageHeading
       eyebrow='SEMANTIC SEARCH'
       title='검색'
-      description='글자가 정확히 겹치지 않아도 뜻이 비슷한 내용을 찾습니다. 결과마다 출처 문서와 원문 인용이 함께 나옵니다.'/>
+      description='문서 내용은 뜻이 비슷한 것을 찾고, 단가는 과거 사업의 선례를 찾습니다. 결과마다 출처 문서와 원문 인용이 함께 나옵니다.'/>
 
+    <div className='search-modes' role='tablist' aria-label='찾는 대상'>
+      <button type='button' role='tab' aria-selected={mode === 'content'}
+        className={mode === 'content' ? 'is-active' : ''} onClick={() => setMode('content')}>
+        문서 내용
+      </button>
+      <button type='button' role='tab' aria-selected={mode === 'precedent'}
+        className={mode === 'precedent' ? 'is-active' : ''} onClick={() => setMode('precedent')}>
+        과거 단가 선례
+      </button>
+    </div>
+
+    {mode === 'precedent' && <section className='panel search-panel'>
+      <AmountPrecedentPanel projectId={projectId}/>
+    </section>}
+
+    {mode === 'content' && <>
     <section className='panel search-panel'>
       <form className='search-form' onSubmit={submit}>
         <input
@@ -141,6 +162,7 @@ export default function SearchView({ projectId, projectName }) {
       lastQuery={query}
       currentProjectId={Number(projectId)}
       onOpen={openChunk}/>}
+    </>}
   </>
 }
 
