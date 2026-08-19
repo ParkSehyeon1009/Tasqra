@@ -14,3 +14,5 @@ class LayoutElement:
     is_paragraph_start: bool = False
     table_id: int | None = None
     table_row: int | None = None
+    # PDF 안의 같은 이미지에서 나온 OCR 요소를 페이지 배치 시 한 영역으로 다룬다.
+    ocr_group_id: int | None = None
