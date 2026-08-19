@@ -42,6 +42,7 @@ from app.extractors.image_extractor import ImageExtractor
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.pdf_extractor import PdfExtractor
 from app.extractors.registry import ExtractorRegistry
+from app.repositories.amount_repository import AmountRepository
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.document_repository import DocumentRepository
@@ -50,6 +51,7 @@ from app.repositories.user_repository import UserRepository
 from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.services.amount_precedent_service import AmountPrecedentService
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
@@ -182,6 +184,21 @@ def get_search_service(
         project_repository=project_repository,
         embedding_client=get_embedding_client(),
     )
+
+
+def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
+    return AmountRepository(db)
+
+
+# get_search_service 와 같은 이유로 get_project_repository · get_amount_repository
+# 아래에 두어야 한다. Depends(...) 는 기본값이라 함수를 정의하는 순간 평가된다.
+def get_amount_precedent_service(
+    db: Session = Depends(get_db),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+    project_repository: ProjectRepository = Depends(get_project_repository),
+) -> AmountPrecedentService:
+    # ProjectRepository 는 "내 멤버십 − 현재 프로젝트" 범위를 계산하는 데 쓴다.
+    return AmountPrecedentService(db, amount_repository, project_repository)
 
 
 def get_auth_service(db: Session = Depends(get_db), users: UserRepository = Depends(get_user_repository)) -> AuthService:
