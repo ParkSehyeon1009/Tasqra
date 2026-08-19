@@ -8,6 +8,7 @@
 #   동일한 위치. findByDocumentId 같은 메서드를 여기서는 명시적으로 작성한다.
 # =============================================================================
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.document import Analysis
@@ -40,3 +41,40 @@ class AnalysisRepository:
             .order_by(Analysis.created_at.desc())
             .first()
         )
+
+    def get_latest_by_types(
+        self,
+        document_ids: list[int],
+        analyzer_types: list[str],
+    ) -> dict[tuple[int, str], Analysis]:
+        """문서 목록에 필요한 유형별 최신 분석 결과를 한 번에 조회한다."""
+        if not document_ids or not analyzer_types:
+            return {}
+
+        ranked = (
+            self._db.query(
+                Analysis.id.label("analysis_id"),
+                func.row_number()
+                .over(
+                    partition_by=(Analysis.document_id, Analysis.analyzer_type),
+                    order_by=(Analysis.created_at.desc(), Analysis.id.desc()),
+                )
+                .label("position"),
+            )
+            .filter(
+                Analysis.document_id.in_(document_ids),
+                Analysis.analyzer_type.in_(analyzer_types),
+            )
+            .subquery()
+        )
+        analyses = (
+            self._db.query(Analysis)
+            .join(ranked, ranked.c.analysis_id == Analysis.id)
+            .filter(ranked.c.position == 1)
+            .all()
+        )
+
+        return {
+            (analysis.document_id, analysis.analyzer_type): analysis
+            for analysis in analyses
+        }

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
-from app.models.document import Document, OcrElement, OcrElementRevision
+from app.models.document import Analysis, Document, OcrElement, OcrElementRevision
 from app.models.enums import AnalyzerType, ReviewStatus
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
@@ -85,23 +85,31 @@ class DocumentService:
             size=size,
         )
 
-        rows = [self._build_list_row(document) for document in documents]
+        analyses = self._analysis_repository.get_latest_by_types(
+            [document.id for document in documents],
+            [AnalyzerType.CATEGORY.value, AnalyzerType.SUMMARY.value],
+        )
+        rows = [self._build_list_row(document, analyses) for document in documents]
 
         # 올림 나눗셈. total이 0이면 total_pages도 0으로 둔다.
         total_pages = (total + size - 1) // size if total else 0
         return rows, total, total_pages
 
-    def _build_list_row(self, document: Document) -> DocumentListRow:
+    def _build_list_row(
+        self,
+        document: Document,
+        analyses: dict[tuple[int, str], Analysis],
+    ) -> DocumentListRow:
         category = None
-        latest_category = self._analysis_repository.get_latest_by_type(
-            document.id, AnalyzerType.CATEGORY.value
+        latest_category = analyses.get(
+            (document.id, AnalyzerType.CATEGORY.value)
         )
         if latest_category is not None:
             category = latest_category.result_json.get("category")
 
         summary_preview = None
-        latest_summary = self._analysis_repository.get_latest_by_type(
-            document.id, AnalyzerType.SUMMARY.value
+        latest_summary = analyses.get(
+            (document.id, AnalyzerType.SUMMARY.value)
         )
         if latest_summary is not None:
             summary = latest_summary.result_json.get("summary")
@@ -117,6 +125,14 @@ class DocumentService:
     # ------------------------------------------------------------------ 상세
     def get_document(self, project_id: int, document_id: int) -> Document:
         document = self._document_repository.get_by_id(project_id, document_id)
+        if document is None:
+            raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+        return document
+
+    def get_document_for_review(self, project_id: int, document_id: int) -> Document:
+        document = self._document_repository.get_by_id_with_review(
+            project_id, document_id
+        )
         if document is None:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
         return document
@@ -242,7 +258,9 @@ class DocumentService:
         user_id: int,
     ) -> tuple[Document, list[OcrElement]]:
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
 
@@ -334,7 +352,9 @@ class DocumentService:
 
     def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
@@ -388,7 +408,9 @@ class DocumentService:
 
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             if document.extracted_text:
