@@ -24,10 +24,16 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, replace
 from typing import Iterable, Protocol, Sequence
 
-from app.extractors.structure import detect_heading
+from app.extractors.structure import (
+    HEADER_FOOTER_MIN_PAGES,
+    detect_header_footer,
+    detect_heading,
+    normalize_repeated_text,
+)
 
 # --- 청킹 기본값 -------------------------------------------------------------
 # 임베딩 모델에 넣는 최대 토큰 수. BGE-M3 는 8192 까지 받지만 우리 정확도 측정을
@@ -190,6 +196,41 @@ class Chunk:
 
 
 # =============================================================================
+# 0단계: 정규화 — 구조 판정과 임베딩 앞에 반드시 온다
+# =============================================================================
+
+
+def normalize_text(text: str) -> str:
+    """임베딩과 구조 판정에 쓸 형태로 문자열을 고른다 (유니코드 NFC).
+
+    한글은 같은 글자를 두 가지로 적을 수 있다. "가" 가 완성형 한 글자(NFC)일 수도
+    있고 ㄱ+ㅏ 두 글자(NFD)일 수도 있다. 눈으로는 같지만 바이트가 달라서
+    토크나이저가 다르게 자르고 임베딩이 아예 달라진다. macOS 에서 만든 파일이나
+    일부 PDF 추출 결과가 NFD 로 온다.
+
+    **구조 판정보다 먼저 해야 한다.** 실측으로 확인했다.
+        detect_heading("제 3 장 계약 및 대금")   -> True   (13자)
+        같은 문장을 NFD 로 적으면            -> False  (24자)
+    NFD 로 들어오면 정규식이 "제" 를 못 찾아 제목을 전부 놓친다. 제목을 놓치면
+    청크가 제목에서 끊기지 않고 접두어도 붙지 않는다.
+
+    좌표에는 적용하지 않는다. content_start · content_end 는
+    extracted_texts.content 안의 위치이고, DB 에 저장된 그 문자열은 정규화하지
+    않은 원본이다. 정규화한 길이로 좌표를 매기면 검색 결과에서 원문을 강조할 때
+    엉뚱한 구간을 잡는다(NFD 면 길이가 두 배 가까이 차이난다). 그래서
+    "임베딩·판정에 쓰는 텍스트"만 정규화하고 좌표는 원본 기준으로 둔다.
+
+    대부분의 문서는 이미 NFC 라서 이 함수가 아무것도 바꾸지 않는다. 그때는
+    char_count 와 (content_end - content_start) 가 같다. NFD 가 섞여 들어온
+    문서에서만 둘이 달라지고, 그때도 좌표는 원본 기준이라 정확하다.
+
+    Spring 비교: 입력을 저장·비교 전에 한 형태로 모으는 것이라 JPA 의
+    @Converter 나 Bean Validation 앞단의 정규화 필터와 같은 자리다.
+    """
+    return unicodedata.normalize("NFC", text)
+
+
+# =============================================================================
 # 1단계: 입력을 TextUnit 목록으로 만든다
 # =============================================================================
 
@@ -207,21 +248,29 @@ def units_from_plain_text(
     content_start / content_end 에 넣으므로 좌표계가 유지된다.
 
     detect_structure=True 면 structure.py 의 detect_heading() 으로 제목을 찾아
-    element_type 을 HEADING 으로 올린다. 머리글·바닥글 판정은 페이지 좌표가
-    필요해서 여기서는 못 한다 (detect_header_footer 는 x·y 를 받는다).
+    element_type 을 HEADING 으로 올린다.
+
+    머리글·바닥글은 여기서 판정하지 않는다. 문서 하나만 보고는 "페이지마다
+    반복되는지" 를 알 수 없기 때문이다. 여러 문서(또는 페이지)를 모아
+    mark_repeated_as_noise() 에 넘기면 된다.
     """
     units: list[TextUnit] = []
     cursor = 0
     for raw_line in content.split("\n"):
         start = cursor
         cursor += len(raw_line) + 1  # +1 은 split 으로 사라진 "\n"
-        line = raw_line.strip()
-        if not line:
+        raw_stripped = raw_line.strip()
+        if not raw_stripped:
             continue
         # strip 으로 앞에서 깎인 만큼 시작 위치를 밀어 준다. 그래야 content 의
         # 실제 문자 위치와 맞는다.
         lead = len(raw_line) - len(raw_line.lstrip())
         unit_start = start + lead
+        # 좌표는 정규화 **전** 길이로 잡고, 텍스트는 정규화한 것을 담는다.
+        # 이유는 normalize_text() 의 주석에 있다 — NFD 면 길이가 두 배 가까이
+        # 달라져서, 정규화한 길이로 좌표를 매기면 원문 강조가 어긋난다.
+        unit_end = unit_start + len(raw_stripped)
+        line = normalize_text(raw_stripped)
         is_heading = detect_structure and is_strong_heading(line)
         units.append(
             TextUnit(
@@ -231,10 +280,121 @@ def units_from_plain_text(
                 # 제목은 항상 새 단락의 시작이다.
                 is_paragraph_start=is_heading,
                 content_start=unit_start,
-                content_end=unit_start + len(line),
+                content_end=unit_end,
             )
         )
     return units
+
+
+# 좌표 없이 "반복되는가" 만으로 노이즈를 판정할 때 쓰는 기본값.
+# structure.py 의 기본값(0.5)보다 보수적이다. 좌표가 없으면 상·하단 대역으로
+# 걸러낼 수 없어서, 실패했을 때 "아무것도 안 지움" 이 되도록 세게 잡았다.
+NOISE_MIN_RATIO = 0.9
+# 이보다 긴 줄은 후보에서 뺀다. 머리글·바닥글·쪽번호는 짧다. 긴 상용구까지
+# 잡으려면 호출하는 쪽이 max_chars=None 으로 풀고, 반드시 목록을 확인해야 한다.
+NOISE_MAX_CHARS = 80
+
+
+def mark_repeated_as_noise(
+    groups: Sequence[Sequence[TextUnit]],
+    *,
+    min_pages: int = HEADER_FOOTER_MIN_PAGES,
+    min_ratio: float = NOISE_MIN_RATIO,
+    mask_digits: bool = False,
+    max_chars: int | None = NOISE_MAX_CHARS,
+) -> list[list[TextUnit]]:
+    """여러 묶음에 반복되는 줄을 HEADER_FOOTER 로 표시한다. 청킹이 그걸 버린다.
+
+    groups 는 "묶음의 목록" 이고 두 가지로 쓸 수 있다.
+      · 한 문서의 페이지들   -> 페이지마다 반복되는 머리글·바닥글
+      · 여러 문서           -> 문서마다 반복되는 상용구 (조달공고의 공통 법령 문구)
+
+    좌표를 쓰지 않는다. TextUnit 에 y 값이 없기 때문이다. 좌표까지 보는 판정은
+    ocr_elements 를 가진 추출 경로에서 detect_header_footer 를 직접 부르는 쪽이
+    정확하고, 이 함수는 평문용 대안이다.
+
+    !! 좌표가 없으면 오탐이 실제로 난다. 실측으로 확인했다.
+       structure.py 기본값(숫자를 # 으로 치환 · min_ratio 0.5 · 길이 제한 없음)으로
+       숫자만 다른 문서 4건을 넣으니 **본문과 제목까지 노이즈로 판정돼 청크가
+       0개가 됐다.** 그래서 이 함수는 기본값을 세 군데 바꿔 둔다.
+         mask_digits=False        "본문 1 입니다" 와 "본문 2 입니다" 를 다르게 본다
+         min_ratio=0.9            거의 모든 묶음에 나와야 노이즈로 본다
+         max_chars=80            긴 줄은 본문으로 보고 건드리지 않는다
+       실패하면 "아무것도 안 지움" 이 되도록 한 것이다. 덜 지우는 쪽이 안전하다.
+
+    긴 상용구를 잡으려면 max_chars=None 으로 풀어야 하는데, 그때는 본문이 함께
+    지워질 수 있다. **반드시 repeated_noise_report() 로 목록을 먼저 보라.**
+    """
+    if not groups:
+        return []
+    # y 를 모르므로 None 을 넣고 위치 판정을 끈다.
+    #
+    # 제목(HEADING)은 후보에서 뺀다. 빈 문자열을 넣으면 비교키가 ""가 되어
+    # detect_header_footer 가 건너뛴다.
+    #
+    # 왜 빼는가: 제목은 노이즈가 아니라 구조다. 조달공고는 서식이 같아서
+    # "제 1 장 총칙" 같은 제목이 거의 모든 문서에 나오고, 그러면 반복으로 잡혀
+    # 전부 지워진다. 그런데 청킹은 제목에서 조각을 끊고 제목을 조각 맨 앞에
+    # 붙인다(BGE-M3 가 CLS 풀링이라 앞쪽 토큰이 주제 신호다). 제목을 지우면
+    # 그 설계가 무너지고, 조각이 무슨 절에 속했는지 알 수 없게 된다.
+    #
+    # 반복되는 쪽번호·머리글은 detect_heading 이 제목으로 보지 않으므로
+    # (조항·번호 형식만 제목으로 판정한다) 이 제외 때문에 놓치지 않는다.
+    pages = [
+        [("" if u.element_type == "HEADING" else u.text, None) for u in group]
+        for group in groups
+    ]
+    found = detect_header_footer(
+        pages,
+        min_pages=min_pages,
+        min_ratio=min_ratio,
+        use_position=False,
+        mask_digits=mask_digits,
+        max_chars=max_chars,
+    )
+    return [
+        [
+            replace(unit, element_type="HEADER_FOOTER") if (gi, ui) in found else unit
+            for ui, unit in enumerate(group)
+        ]
+        for gi, group in enumerate(groups)
+    ]
+
+
+def repeated_noise_report(
+    groups: Sequence[Sequence[TextUnit]],
+    *,
+    min_pages: int = HEADER_FOOTER_MIN_PAGES,
+    min_ratio: float = NOISE_MIN_RATIO,
+    mask_digits: bool = False,
+    max_chars: int | None = NOISE_MAX_CHARS,
+) -> list[tuple[str, int, str]]:
+    """mark_repeated_as_noise() 가 무엇을 지울지 미리 보여준다.
+
+    (비교키, 몇 묶음에 나왔는지, 실제 줄 예시) 를 많이 나온 순서로 돌려준다.
+    지우기 전에 이걸 보고 본문이 섞여 있지 않은지 확인한다. 인자는
+    mark_repeated_as_noise() 와 같아야 의미가 있다 — 같은 값으로 부를 것.
+    """
+    marked = mark_repeated_as_noise(
+        groups, min_pages=min_pages, min_ratio=min_ratio,
+        mask_digits=mask_digits, max_chars=max_chars,
+    )
+    counts: dict[str, int] = {}
+    samples: dict[str, str] = {}
+    for group in marked:
+        seen: set[str] = set()
+        for unit in group:
+            if unit.element_type != "HEADER_FOOTER":
+                continue
+            key = normalize_repeated_text(unit.text, mask_digits=mask_digits)
+            seen.add(key)
+            samples.setdefault(key, unit.text)
+        for key in seen:
+            counts[key] = counts.get(key, 0) + 1
+    return sorted(
+        ((key, count, samples[key]) for key, count in counts.items()),
+        key=lambda row: (-row[1], row[0]),
+    )
 
 
 def units_from_elements(elements: Iterable[TextUnit]) -> list[TextUnit]:
@@ -245,7 +405,10 @@ def units_from_elements(elements: Iterable[TextUnit]) -> list[TextUnit]:
     "구조 정보가 하나도 없어 보이면" detect_heading() 으로 직접 채운다.
     나중에 호출부가 붙어 값이 들어오면 그 값을 그대로 존중한다.
     """
-    items = list(elements)
+    # 텍스트를 먼저 정규화한다. 아래 is_strong_heading 판정이 이 값을 보고,
+    # NFD 로 들어오면 제목을 전부 놓친다 (normalize_text 주석 참고).
+    # 좌표(content_start·content_end)는 ocr_elements 가 준 값을 그대로 둔다.
+    items = [replace(unit, text=normalize_text(unit.text)) for unit in elements]
     if not items:
         return []
 
