@@ -188,10 +188,13 @@ function PrecedentRow({ item }) {
         {item.amount ? <b> {formatMoney(item.amount)}</b> : <i className="precedent-item__none"> 총액 없음</i>}
       </span>}
 
-      <span className="precedent-item__meta">
+      {/* 원가구분과 승인 상태를 한 줄에 둔다. 둘 다 "이 항목이 어떤 성격인가" 를
+          알려주는 딱지라 성격이 같고, 따로 두면 줄만 늘어난다.
+          앞서 오른쪽 칸이 5줄이어서 목록이 성겼다 — 3줄로 줄였다. */}
+      <span className="precedent-item__tags">
         {category ? category : <i className="precedent-item__none">원가구분 미판별</i>}
+        <span className="precedent-item__decision">{DECISION_LABELS[item.decision] ?? item.decision}</span>
       </span>
-      <span className="precedent-item__decision">{DECISION_LABELS[item.decision] ?? item.decision}</span>
     </div>
   </li>
 }

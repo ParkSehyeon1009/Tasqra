@@ -60,12 +60,19 @@
 
 /* 선례 목록 */
 .precedent-list { margin: 14px 0 0; padding: 0; list-style: none; }
+/* flex 가 아니라 grid 다. flex 로 두면 오른쪽 폭이 내용에 따라 줄마다 달라져
+   **단가 숫자가 세로로 맞지 않는다.** 선례를 위아래로 비교하는 화면이라 자릿수가
+   어긋나면 큰 값과 작은 값을 눈으로 가릴 수 없다. 폭을 고정해 정렬한다.
+
+   왼쪽을 좁히고 오른쪽을 넓혔다 — 왼쪽은 줄바꿈이 되는 글(항목명·출처·인용)이고
+   오른쪽은 줄바꿈하면 안 되는 숫자다. 좁혀서 손해가 적은 쪽이 왼쪽이다. */
 .precedent-item {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 230px;
+  align-items: start; gap: 20px;
   padding: 15px 0; border-top: 1px solid #e5eaf1;
 }
 .precedent-item:first-child { border-top: 0; }
-.precedent-item__main { min-width: 0; flex: 1; }
+.precedent-item__main { min-width: 0; }
 .precedent-item__main strong { display: block; color: #151d2e; font-size: 14px; }
 .precedent-item__where { margin: 4px 0 0; color: #78859a; font-size: 12px; overflow-wrap: anywhere; }
 /* 원문 인용. 완료 판정이 "출처와 함께 표시된다" 이므로 이 줄이 기능의 핵심이다 */
@@ -74,15 +81,16 @@
   background: #f7f9fc; color: #4a5768; font-size: 12.5px; line-height: 1.6;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.precedent-item__figures { flex: 0 0 auto; text-align: right; }
+.precedent-item__figures { text-align: right; }
 .precedent-item__unit {
   display: block; color: #1b2435; font-size: 17px; font-weight: 750;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-/* "(1인월 단가)" — 무엇 하나의 값인지 밝히는 부분. 굵기를 낮춰 금액이 먼저
-   읽히게 한다. 이것이 금액과 같은 무게면 둘 다 안 읽힌다. */
+/* "(1인월 단가)" 를 금액과 **같은 줄**에 둔다. 앞서 block 으로 내렸더니 오른쪽
+   칸이 5줄이 되어 목록이 성겼다. 폭을 230px 로 넓혔으므로 한 줄에 들어간다.
+   굵기를 낮춰 금액이 먼저 읽히게 한다 — 같은 무게면 둘 다 안 읽힌다. */
 .precedent-item__unit small {
-  display: block; margin-top: 2px; color: #8a96a6; font-size: 11.5px; font-weight: 600;
+  margin-left: 5px; color: #8a96a6; font-size: 11.5px; font-weight: 600; white-space: nowrap;
 }
 
 /* "3인월 기준 26,400,000" — 총액. 단가보다 작게 두어 단가가 주값임을 보인다 */
@@ -93,23 +101,28 @@
 .precedent-item__total b { color: #1b2435; font-weight: 750; }
 /* nowrap 을 쓰지 않는다. 총액을 함께 내면서 "수량 3인월 · 총액 26,400,000" 처럼
    길어져 좁은 칸에서 넘친다. 오른쪽 정렬이라 줄바꿈이 자연스럽다. */
-.precedent-item__meta {
-  display: block; margin-top: 5px; color: #78859a; font-size: 12px; line-height: 1.5;
-  font-variant-numeric: tabular-nums;
+/* 원가구분과 승인 배지를 한 줄에 둔다. 둘 다 그 항목이 어떤 성격인지 알려주는
+   딱지라서 성격이 같고, 따로 두면 줄만 늘어난다. */
+.precedent-item__tags {
+  display: flex; align-items: center; justify-content: flex-end; gap: 7px;
+  margin-top: 7px; color: #78859a; font-size: 12px;
 }
-.precedent-item__meta + .precedent-item__meta { margin-top: 2px; }
 .precedent-item__none { color: #a6b0bf; font-style: italic; }
 .precedent-item__decision {
-  display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 99px;
+  flex: 0 0 auto; padding: 2px 8px; border-radius: 99px;
   background: #ecfdf3; color: #15803d; font-size: 11px; font-weight: 700; white-space: nowrap;
 }
 
 @media (max-width: 900px) {
   .precedent-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 760px) {
+  /* 좁아지면 한 칸으로. 숫자를 왼쪽 정렬로 돌려 글과 시작선을 맞춘다 */
+  .precedent-item { grid-template-columns: 1fr; gap: 10px; }
+  .precedent-item__figures { text-align: left; }
+  .precedent-item__tags { justify-content: flex-start; }
+}
 @media (max-width: 640px) {
   .precedent-form { flex-direction: column; }
   .precedent-submit { width: 100%; }
-  .precedent-item { flex-direction: column; gap: 10px; }
-  .precedent-item__figures { text-align: left; }
 }
