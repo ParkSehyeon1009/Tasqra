@@ -27,6 +27,12 @@
 .precedent-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 .precedent-hint { margin: 0 0 16px; color: #68768b; font-size: 13px; line-height: 1.6; }
+/* 용어 설명. 결과 위에 한 번만 나오므로 배경을 옅게 줘서 결과와 구별한다 */
+.precedent-hint--term {
+  margin: 0 0 12px; padding: 10px 13px; border-radius: 10px;
+  background: #f4f7fc; color: #536077; font-size: 12.5px;
+}
+.precedent-hint--term b { color: #2c326b; }
 
 /* 상태 안내 (첫 화면 · 결과 없음 · 오류) */
 .precedent-box {
@@ -73,7 +79,18 @@
   display: block; color: #1b2435; font-size: 17px; font-weight: 750;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.precedent-item__unit small { margin-left: 2px; color: #8a96a6; font-size: 12px; font-weight: 600; }
+/* "(1인월 단가)" — 무엇 하나의 값인지 밝히는 부분. 굵기를 낮춰 금액이 먼저
+   읽히게 한다. 이것이 금액과 같은 무게면 둘 다 안 읽힌다. */
+.precedent-item__unit small {
+  display: block; margin-top: 2px; color: #8a96a6; font-size: 11.5px; font-weight: 600;
+}
+
+/* "3인월 기준 26,400,000" — 총액. 단가보다 작게 두어 단가가 주값임을 보인다 */
+.precedent-item__total {
+  display: block; margin-top: 6px; color: #4a5768; font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.precedent-item__total b { color: #1b2435; font-weight: 750; }
 /* nowrap 을 쓰지 않는다. 총액을 함께 내면서 "수량 3인월 · 총액 26,400,000" 처럼
    길어져 좁은 칸에서 넘친다. 오른쪽 정렬이라 줄바꿈이 자연스럽다. */
 .precedent-item__meta {

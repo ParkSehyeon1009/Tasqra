@@ -36,6 +36,15 @@ const CATEGORY_LABELS = {
 
 const DECISION_LABELS = { APPROVED: '승인됨', EDITED: '수정 후 승인' }
 
+// 결과에 인월 항목이 있는지. 있을 때만 용어 설명을 띄운다.
+//
+// 단위를 목록으로 두지 않고 '인월' 하나만 본다. 식·건·개·㎡ 는 따로 설명할 것이
+// 없고, 설명이 필요한 단위가 더 생기면 그때 표로 만든다 — 지금 표를 만들면
+// 값이 하나뿐인 표가 된다.
+function hasManMonth(data) {
+  return (data?.precedents ?? []).some(item => item.unit === '인월')
+}
+
 export default function AmountPrecedentPanel({ projectId }) {
   const [draft, setDraft] = useState('')
   const [state, setState] = useState({ status: 'idle', data: null, error: null, asked: '' })
@@ -81,6 +90,14 @@ export default function AmountPrecedentPanel({ projectId }) {
       <p>{state.error?.message}</p>
       {state.error?.code && <p className="precedent-code">코드 {state.error.code}</p>}
     </div>}
+
+    {/* 「인월」 설명을 여기 한 번만 둔다. 줄마다 붙이면 선례 20건에서 스무 번
+        반복돼 오히려 안 읽힌다. 결과에 인월 항목이 있을 때만 보여 준다 —
+        식·건·개 단위만 나온 결과에는 필요 없는 설명이다. */}
+    {state.status === 'done' && hasManMonth(state.data) && <p className="precedent-hint precedent-hint--term">
+      <b>인월</b>은 1명이 1개월 일하는 양입니다. <b>3인월</b>은 3명이 1개월일 수도, 1명이 3개월일 수도 있어
+      사람 수는 알 수 없습니다.
+    </p>}
 
     {state.status === 'done' && <Result data={state.data} asked={state.asked}/>}
 
@@ -149,18 +166,28 @@ function PrecedentRow({ item }) {
       {item.source_quote && <p className="precedent-item__quote">{item.source_quote}</p>}
     </div>
     <div className="precedent-item__figures">
-      <span className="precedent-item__unit">{formatMoney(item.unit_price)}<small>/{item.unit || '단위 없음'}</small></span>
-      {/* 수량을 그대로 뿌리면 안 된다. quantity 가 Numeric(18,4) 라서 서버가
-          "3.0000" 을 보내는데, 화면에 그대로 나오면 **3000 으로 읽힌다**
-          (실제로 그렇게 읽었다). formatMoney 가 뜻 없는 소수점 뒤 0 을 떼므로
-          "3" 이 된다. 단위를 붙여 "3인월" 로 보이게 했다.
-          총액(amount)도 함께 낸다 — 응답에 있는데 안 보여 주고 있었다.
-          "3인월 규모의 사업이었다" 가 단가 적정성 판단에 필요하다. */}
-      <span className="precedent-item__meta">
-        {item.quantity && `수량 ${formatMoney(item.quantity)}${item.unit ?? ''}`}
-        {item.quantity && item.amount && ' · '}
-        {item.amount && `총액 ${formatMoney(item.amount)}`}
+      {/* 단가에 "무엇 하나의 값인지" 를 붙인다. 8,800,000 만 있으면 사업 전체
+          금액으로 읽힐 수 있다.
+          단위를 하드코딩하지 않는다 — amount_items.unit 은 String(30) 이라
+          인월 말고 식·건·개·㎡·월 도 온다. "(1인/한달)" 로 박아 두면 식 항목에서
+          거짓이 된다. 데이터의 단위를 그대로 넣는다. */}
+      <span className="precedent-item__unit">
+        {formatMoney(item.unit_price)} 원
+        {item.unit && <small>(1{item.unit} 단가)</small>}
       </span>
+
+      {/* 수량을 그대로 뿌리면 안 된다. quantity 가 Numeric(18,4) 라서 서버가
+          "3.0000" 을 보내는데 화면에 그대로 나오면 **3000 으로 읽힌다**
+          (실제로 그렇게 읽었다). formatMoney 가 뜻 없는 소수점 뒤 0 을 뗀다.
+
+          "3인 기준" 이라고 쓰지 않는다. 3인월은 3명x1개월 일 수도 1명x3개월 일
+          수도 있어서 **사람 수를 알 수 없다.** 단위를 그대로 두어 "3인월 기준"
+          으로 쓴다 — 모르는 것을 단정하지 않는다. */}
+      {item.quantity && <span className="precedent-item__total">
+        {formatMoney(item.quantity)}{item.unit ?? ''} 기준
+        {item.amount ? <b> {formatMoney(item.amount)}</b> : <i className="precedent-item__none"> 총액 없음</i>}
+      </span>}
+
       <span className="precedent-item__meta">
         {category ? category : <i className="precedent-item__none">원가구분 미판별</i>}
       </span>
