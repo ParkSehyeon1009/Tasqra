@@ -13,7 +13,7 @@
 import re
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
 from app.models.user import User
@@ -140,7 +140,8 @@ class DocumentRepository:
 
         total = query.count()
         items = (
-            query.order_by(Document.created_at.desc())
+            query.options(joinedload(Document.extracted_text))
+            .order_by(Document.created_at.desc())
             .offset((page - 1) * size)
             .limit(size)
             .all()

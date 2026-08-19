@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
-from app.models.document import Document, OcrElement, OcrElementRevision
+from app.models.document import Analysis, Document, OcrElement, OcrElementRevision
 from app.models.enums import AnalyzerType, ReviewStatus
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
@@ -85,23 +85,31 @@ class DocumentService:
             size=size,
         )
 
-        rows = [self._build_list_row(document) for document in documents]
+        analyses = self._analysis_repository.get_latest_by_types(
+            [document.id for document in documents],
+            [AnalyzerType.CATEGORY.value, AnalyzerType.SUMMARY.value],
+        )
+        rows = [self._build_list_row(document, analyses) for document in documents]
 
         # 올림 나눗셈. total이 0이면 total_pages도 0으로 둔다.
         total_pages = (total + size - 1) // size if total else 0
         return rows, total, total_pages
 
-    def _build_list_row(self, document: Document) -> DocumentListRow:
+    def _build_list_row(
+        self,
+        document: Document,
+        analyses: dict[tuple[int, str], Analysis],
+    ) -> DocumentListRow:
         category = None
-        latest_category = self._analysis_repository.get_latest_by_type(
-            document.id, AnalyzerType.CATEGORY.value
+        latest_category = analyses.get(
+            (document.id, AnalyzerType.CATEGORY.value)
         )
         if latest_category is not None:
             category = latest_category.result_json.get("category")
 
         summary_preview = None
-        latest_summary = self._analysis_repository.get_latest_by_type(
-            document.id, AnalyzerType.SUMMARY.value
+        latest_summary = analyses.get(
+            (document.id, AnalyzerType.SUMMARY.value)
         )
         if latest_summary is not None:
             summary = latest_summary.result_json.get("summary")
