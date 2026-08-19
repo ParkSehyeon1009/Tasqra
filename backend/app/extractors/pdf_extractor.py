@@ -65,6 +65,12 @@ class PdfExtractor(TextExtractor):
                         page_width=float(page.rect.width),
                         page_left=float(page.rect.x0),
                     )
+                elif page_has_ocr:
+                    elements = self._order_image_blocks(
+                        elements,
+                        page_width=float(page.rect.width),
+                        page_left=float(page.rect.x0),
+                    )
 
                 document_page_elements.append(elements)
 
@@ -167,15 +173,19 @@ class PdfExtractor(TextExtractor):
                     has_text = True
 
         if include_image_ocr:
+            image_group_id = 0
             for block in blocks:
                 if block.get("type") == 1:
                     if self._image_contains_text_layer(block, elements):
                         continue
-                    image_elements = self._extract_image_block(block)
+                    image_elements = self._extract_image_block(
+                        block, ocr_group_id=image_group_id
+                    )
 
                     if image_elements:
                         elements.extend(image_elements)
                         has_ocr = True
+                        image_group_id += 1
 
         # 텍스트와 이미지 OCR 결과가 모두 없으면 페이지 전체를 OCR한다.
         if include_image_ocr and not elements:
@@ -277,9 +287,12 @@ class PdfExtractor(TextExtractor):
         text_elements = [
             element for element in elements if element.source == "text"
         ]
-        image_ocr_blocks = [
+        image_ocr_elements = [
             element for element in elements if element.source == "ocr"
         ]
+        image_ocr_blocks, block_elements = cls._ocr_block_proxies(
+            image_ocr_elements
+        )
         groups = build_reading_groups(
             text_elements,
             image_ocr_blocks,
@@ -290,15 +303,92 @@ class PdfExtractor(TextExtractor):
             merged = cls._merge_text_layer_elements(text_elements)
             merged.extend(image_ocr_blocks)
             merged.sort(key=lambda element: (element.y, element.x))
-            return merged
+            return cls._expand_ocr_block_proxies(merged, block_elements)
 
         ordered: list[LayoutElement] = []
         for group in groups:
             if group.atomic:
-                ordered.extend(group.elements)
+                ordered.extend(
+                    cls._expand_ocr_block_proxies(
+                        group.elements, block_elements
+                    )
+                )
             else:
                 ordered.extend(cls._merge_text_layer_elements(group.elements))
         return ordered
+
+    @classmethod
+    def _order_image_blocks(
+        cls,
+        elements: list[LayoutElement],
+        *,
+        page_width: float,
+        page_left: float,
+    ) -> list[LayoutElement]:
+        """이미지 내부 순서는 유지하고 여러 이미지 영역만 페이지에 배치한다."""
+        if not elements or all(
+            element.ocr_group_id is None for element in elements
+        ):
+            return elements
+
+        proxies, block_elements = cls._ocr_block_proxies(elements)
+        groups = build_reading_groups(
+            [], proxies, page_width=page_width, page_left=page_left
+        )
+        if groups is None:
+            proxies.sort(key=lambda element: (element.y, element.x))
+            return cls._expand_ocr_block_proxies(proxies, block_elements)
+
+        ordered: list[LayoutElement] = []
+        for group in groups:
+            ordered.extend(
+                cls._expand_ocr_block_proxies(group.elements, block_elements)
+            )
+        return ordered
+
+    @staticmethod
+    def _ocr_block_proxies(
+        elements: list[LayoutElement],
+    ) -> tuple[list[LayoutElement], dict[int, list[LayoutElement]]]:
+        grouped: dict[tuple[str, int], list[LayoutElement]] = {}
+        for index, element in enumerate(elements):
+            key = (
+                ("group", element.ocr_group_id)
+                if element.ocr_group_id is not None
+                else ("element", index)
+            )
+            grouped.setdefault(key, []).append(element)
+
+        proxies: list[LayoutElement] = []
+        block_elements: dict[int, list[LayoutElement]] = {}
+        for block in grouped.values():
+            proxy = LayoutElement(
+                x=min(element.x for element in block),
+                y=min(element.y for element in block),
+                x2=max(
+                    element.x2 if element.x2 is not None else element.x
+                    for element in block
+                ),
+                y2=max(
+                    element.y2 if element.y2 is not None else element.y
+                    for element in block
+                ),
+                content="",
+                source="ocr",
+            )
+            proxies.append(proxy)
+            block_elements[id(proxy)] = block
+        return proxies, block_elements
+
+    @staticmethod
+    def _expand_ocr_block_proxies(
+        elements: list[LayoutElement],
+        block_elements: dict[int, list[LayoutElement]],
+    ) -> list[LayoutElement]:
+        expanded: list[LayoutElement] = []
+        for element in elements:
+            expanded.extend(block_elements.get(id(element), [element]))
+        return expanded
 
     @classmethod
     def _merge_text_layer_elements(
@@ -371,6 +461,8 @@ class PdfExtractor(TextExtractor):
     def _extract_image_block(
         self,
         block: dict[str, Any],
+        *,
+        ocr_group_id: int,
     ) -> list[LayoutElement]:
         image_bytes = block.get("image")
         bbox = block.get("bbox", (0, 0, 0, 0))
@@ -413,6 +505,7 @@ class PdfExtractor(TextExtractor):
             image_width=image_width,
             image_height=image_height,
             image_bbox=bbox,
+            ocr_group_id=ocr_group_id,
         )
 
     @staticmethod
@@ -422,6 +515,7 @@ class PdfExtractor(TextExtractor):
         image_width: int,
         image_height: int,
         image_bbox: tuple[float, float, float, float],
+        ocr_group_id: int | None = None,
     ) -> list[LayoutElement]:
         """Map image-pixel OCR boxes into the image's PDF page rectangle."""
         x0, y0, x1, y1 = (float(value) for value in image_bbox)
@@ -455,10 +549,15 @@ class PdfExtractor(TextExtractor):
                     content=text,
                     source="ocr",
                     confidence=element.confidence,
+                    element_type=element.element_type,
+                    element_type_source=element.element_type_source,
+                    is_paragraph_start=element.is_paragraph_start,
+                    table_id=element.table_id,
+                    table_row=element.table_row,
+                    ocr_group_id=ocr_group_id,
                 )
             )
 
-        mapped.sort(key=lambda element: (element.y, element.x))
         return mapped
 
     def _extract_full_page_with_ocr(
