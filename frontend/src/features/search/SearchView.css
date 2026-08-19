@@ -344,3 +344,20 @@
     white-space: normal;
   }
 }
+
+
+/* ── 찾는 대상 탭 (문서 내용 / 과거 단가 선례) ────────────────────────────
+   두 기능을 한 입력창에 합치지 않은 이유는 질의 형태가 다르기 때문이다.
+   문서 내용은 문장으로 찾고(의미 검색 SRH-001), 단가 선례는 항목명으로
+   찾는다(SRH-002-3). 결과 모양도 조각 목록 대 단가 표로 다르다. */
+.search-modes { display: flex; gap: 8px; margin-bottom: 14px; }
+.search-modes button {
+  min-height: 38px; padding: 9px 16px; border: 1px solid #d5deeb; border-radius: 99px;
+  background: #fff; color: #536077; font-size: 13.5px; font-weight: 700; cursor: pointer;
+}
+.search-modes button:hover { border-color: #b9c4d6; background: #f7f9fc; }
+.search-modes button.is-active { border-color: #355ad9; background: #355ad9; color: #fff; }
+@media (max-width: 560px) {
+  .search-modes { flex-direction: column; }
+  .search-modes button { width: 100%; }
+}
