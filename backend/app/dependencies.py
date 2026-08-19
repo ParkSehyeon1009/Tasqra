@@ -45,6 +45,7 @@ from app.extractors.registry import ExtractorRegistry
 from app.repositories.amount_repository import AmountRepository
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
@@ -56,6 +57,7 @@ from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
 from app.services.chunking_service import ChunkingService
+from app.services.dashboard_service import DashboardService
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
@@ -199,6 +201,25 @@ def get_amount_precedent_service(
 ) -> AmountPrecedentService:
     # ProjectRepository 는 "내 멤버십 − 현재 프로젝트" 범위를 계산하는 데 쓴다.
     return AmountPrecedentService(db, amount_repository, project_repository)
+
+
+def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardRepository:
+    return DashboardRepository(db)
+
+
+# get_search_service 와 같은 이유로 get_dashboard_repository **아래에** 두어야
+# 한다. Depends(...) 는 기본값이라 함수를 정의하는 순간 평가된다.
+def get_dashboard_service(
+    dashboard_repository: DashboardRepository = Depends(get_dashboard_repository),
+) -> DashboardService:
+    # 세션을 넘기지 않는다. 대시보드는 읽기만 해서 commit 할 것이 없고, 조회는
+    # 전부 리포지토리를 거친다. 쓰지 않을 의존성을 받아 두면 나중에 읽는 사람이
+    # "여기서 직접 쿼리를 날리기도 하나" 를 확인해야 한다.
+    #
+    # ProjectRepository 도 넘기지 않는다. 조회 범위가 현재 프로젝트 하나로
+    # 정해져 있어서 멤버십으로 범위를 계산할 필요가 없다 —
+    # get_amount_precedent_service 가 그것을 받는 이유와 대비된다.
+    return DashboardService(dashboard_repository)
 
 
 def get_auth_service(db: Session = Depends(get_db), users: UserRepository = Depends(get_user_repository)) -> AuthService:
