@@ -13,6 +13,7 @@ def build_service(*, document=None, element=None):
     db = MagicMock()
     repository = MagicMock()
     repository.get_by_id_for_update.return_value = document
+    repository.get_by_id_for_update_with_review.return_value = document
     repository.get_ocr_element_for_update.return_value = element
     service = DocumentService(db, repository, MagicMock())
     return service, db, repository
@@ -37,7 +38,7 @@ def test_update_ocr_element_checks_version_after_loading_locked_rows():
 
     updated = service.update_ocr_element(10, 20, 30, "after", 2, 7)
 
-    repository.get_by_id_for_update.assert_called_once_with(10, 20)
+    repository.get_by_id_for_update_with_review.assert_called_once_with(10, 20)
     repository.get_ocr_element_for_update.assert_called_once_with(10, 20, 30)
     assert updated is element
     assert element.text == "after"
@@ -85,7 +86,7 @@ def test_complete_review_locks_document_before_updating_completion_state():
 
     completed = service.complete_ocr_review(10, 20, 7)
 
-    repository.get_by_id_for_update.assert_called_once_with(10, 20)
+    repository.get_by_id_for_update_with_review.assert_called_once_with(10, 20)
     assert completed.review_status == ReviewStatus.COMPLETED.value
     assert completed.reviewed_by == 7
     assert completed.reviewed_at is not None
@@ -170,6 +171,8 @@ def test_batch_update_rebuilds_content_and_increments_document_versions_once():
         7,
     )
 
+    repository.get_by_id_for_update_with_review.assert_called_once_with(10, 20)
+    repository.get_by_id_for_update.assert_not_called()
     assert updated == [first, second]
     assert updated_document.extracted_text.content == "FIRST\nsecond expanded\nthird"
     assert (first.content_start, first.content_end) == (0, 5)

@@ -50,6 +50,26 @@ class DocumentRepository:
     def get_by_id_for_update(self, project_id: int, document_id: int) -> Document | None:
         return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).with_for_update().one_or_none()
 
+    def get_by_id_for_update_with_review(
+        self, project_id: int, document_id: int
+    ) -> Document | None:
+        """문서를 잠그면서 OCR 전체 순서를 계산할 관계를 일괄 조회한다."""
+        return (
+            self._db.query(Document)
+            .options(
+                joinedload(Document.extracted_text),
+                selectinload(Document.review_pages).selectinload(
+                    DocumentPage.elements
+                ),
+            )
+            .filter(
+                Document.project_id == project_id,
+                Document.id == document_id,
+            )
+            .with_for_update(of=Document)
+            .one_or_none()
+        )
+
     def get_by_content_hash(self, project_id: int, content_hash: str) -> Document | None:
         return (
             self._db.query(Document)

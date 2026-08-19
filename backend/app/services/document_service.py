@@ -258,7 +258,9 @@ class DocumentService:
         user_id: int,
     ) -> tuple[Document, list[OcrElement]]:
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
 
@@ -350,7 +352,9 @@ class DocumentService:
 
     def update_ocr_element(self, project_id: int, document_id: int, element_id: int, text: str, version: int, user_id: int):
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
@@ -404,7 +408,9 @@ class DocumentService:
 
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
         with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update(project_id, document_id)
+            document = self._document_repository.get_by_id_for_update_with_review(
+                project_id, document_id
+            )
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
             if document.extracted_text:
