@@ -51,6 +51,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   const data = useWorkspaceData(project, notify)
   const fileInputRef = useRef(null)
   const uploadSequenceRef = useRef(Promise.resolve())
+  const scheduledUploadIdsRef = useRef(new Set())
   const nextUploadIdRef = useRef(1)
   const canEdit = project.role !== 'VIEWER'
   const openUpload = () => fileInputRef.current?.click()
@@ -75,23 +76,31 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       id: nextUploadIdRef.current++,
       projectId: project.id,
       file,
+      extractionStrategy,
+      documentType,
       status: 'QUEUED',
       error: null,
     }))
     setUploadFiles([])
     setUploadQueue(current => [...current, ...queuedItems])
+    queuedItems.forEach(scheduleUpload)
+  }
 
-    for (const item of queuedItems) {
-      uploadSequenceRef.current = uploadSequenceRef.current.then(async () => {
-        setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'UPLOADING' } : queued))
-        try {
-          await data.uploadFile(item.file, isImageUpload(item.file) ? 'AUTO' : extractionStrategy, documentType)
-          setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'COMPLETED' } : queued))
-        } catch (error) {
-          setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'FAILED', error: error.message || '업로드에 실패했습니다.' } : queued))
-        }
-      })
-    }
+  function scheduleUpload(item) {
+    if (scheduledUploadIdsRef.current.has(item.id)) return
+    scheduledUploadIdsRef.current.add(item.id)
+    setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'QUEUED', error: null } : queued))
+    uploadSequenceRef.current = uploadSequenceRef.current.then(async () => {
+      setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'UPLOADING' } : queued))
+      try {
+        await data.uploadFile(item.file, isImageUpload(item.file) ? 'AUTO' : item.extractionStrategy, item.documentType)
+        setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'COMPLETED' } : queued))
+      } catch (error) {
+        setUploadQueue(current => current.map(queued => queued.id === item.id ? { ...queued, status: 'FAILED', error: error.message || '업로드에 실패했습니다.' } : queued))
+      } finally {
+        scheduledUploadIdsRef.current.delete(item.id)
+      }
+    })
   }
   async function upload(event) {
     const files = event.target.files
@@ -112,7 +121,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       <ProjectSidebar projects={projects} activeProjectId={project.id} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
         <nav className="tabs" aria-label="프로젝트 메뉴">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
-        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
@@ -120,8 +129,8 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   </div>
 }
 
-function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploadQueue, onClearUploadQueue, onDeleteProject, deleting }) {
-  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
+function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
+  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onRetryUpload={onRetryUpload} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
   // 검색은 워크스페이스 데이터(문서 목록 · 멤버)를 쓰지 않는다. 자기 상태만

@@ -6,7 +6,7 @@ import { formatNumber } from '../../utils/format'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
-export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploadQueue, onClearUploadQueue, onRetry, retryingDocumentId }) {
+export default function DocumentsView({ projectId, documents, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
   const [dragging, setDragging] = useState(false)
   const navigate = useNavigate()
   const openDocument = documentId => navigate('/projects/' + projectId + '/documents/' + documentId)
@@ -38,7 +38,7 @@ export default function DocumentsView({ projectId, documents, canEdit, onUpload,
     <section className={'panel table-panel document-drop-target' + (dragging ? ' is-dragging' : '')} onDragEnter={handleDragOver} onDragOver={handleDragOver} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false) }} onDrop={handleDrop}>
       {dragging && <div className='drop-overlay'>여기에 파일을 놓아 업로드하세요.</div>}
       <div className='panel-head'><div><h2>전체 문서</h2><p>상태 배지와 설명은 현재 서버가 제공한 값에 따라 표시됩니다.</p></div><span>{documents.length}건</span></div>
-      {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onClear={onClearUploadQueue}/>}
+      {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onRetry={onRetryUpload} onClear={onClearUploadQueue}/>}
       {documents.length ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/> : !uploadQueue.some(item => ['QUEUED', 'UPLOADING'].includes(item.status)) && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
@@ -77,7 +77,7 @@ function DocumentCharacterCounts({ document }) {
   return <small className='document-character-counts'>{counts.length ? counts.map(item => <span key={item.label}>{item.label} {formatNumber(item.value)}자</span>) : '문자 수 정보 없음'}</small>
 }
 
-function UploadQueue({ items, onClear }) {
+function UploadQueue({ items, onRetry, onClear }) {
   const activeCount = items.filter(item => ['QUEUED', 'UPLOADING'].includes(item.status)).length
   const hasFinished = items.some(item => ['COMPLETED', 'FAILED'].includes(item.status))
   return <section className='upload-queue' aria-label='문서 업로드 진행 상황' aria-live='polite'>
@@ -85,6 +85,7 @@ function UploadQueue({ items, onClear }) {
     <ul>{items.map(item => <li key={item.id} className={`upload-queue-${item.status.toLowerCase()}`}>
       <span className='upload-queue-state' aria-hidden='true'>{item.status === 'UPLOADING' ? <span className='processing-spinner'/> : uploadState(item.status).icon}</span>
       <div><strong>{item.file.name}</strong><small>{item.error || uploadState(item.status).label}</small></div>
+      {item.status === 'FAILED' && <button type='button' className='upload-queue-retry' onClick={() => onRetry(item)}>다시 시도</button>}
     </li>)}</ul>
   </section>
 }

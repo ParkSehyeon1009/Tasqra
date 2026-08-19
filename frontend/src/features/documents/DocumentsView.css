@@ -23,12 +23,14 @@
 .upload-queue ul { max-height: 240px; margin: 0; padding: 0 24px 14px; overflow-y: auto; list-style: none; }
 .upload-queue li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid #e2e8f1; }
 .upload-queue li > div { min-width: 0; }
+.upload-queue li > div { flex: 1; }
 .upload-queue li strong, .upload-queue li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-queue li small { margin-top: 3px; color: #68768b; font-size: 12px; }
 .upload-queue-state { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; color: #5d55db; font-weight: 800; }
 .upload-queue-completed .upload-queue-state { color: #237248; }
 .upload-queue-failed .upload-queue-state, .upload-queue-failed small { color: #aa3445; }
 .upload-queue .processing-spinner { width: 20px; height: 20px; }
+.upload-queue-retry { flex: 0 0 auto; padding: 6px 10px; border: 1px solid #d2d9e6; border-radius: 7px; background: #fff; color: #5148c8; cursor: pointer; font-size: 12px; font-weight: 700; }
 
 .document-drop-target.is-dragging {
   outline: 3px solid #6b63e8;
