@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import '../../styles/dialog.css'
 import './DocumentsView.css'
-
-const DOCUMENT_TYPES = [
-  ['RFP', '제안요청서·입찰공고'],
-  ['PROPOSAL', '제안서·기술제안서'],
-  ['COST_SHEET', '산출내역서·견적서'],
-  ['CONTRACT', '계약서·과업지시서'],
-  ['CONTRACT_CHANGE', '변경계약서·과업변경합의서'],
-  ['REPORT', '보고서·검사조서'],
-  ['MEETING_NOTES', '회의록'],
-  ['BILLING', '대가지급청구서·세금계산서'],
-  ['ETC', '기타'],
-]
+// 목록을 utils/documentType.js 로 옮겼다. 대시보드 유형 분포도 같은 표기를
+// 써야 해서다 — 복사해 두면 한쪽만 고쳐져 같은 유형이 다르게 불린다.
+import { DOCUMENT_TYPES } from '../../utils/documentType'
 
 export default function DocumentUploadModal({ file, uploading, onClose, onSubmit }) {
   const [documentType, setDocumentType] = useState('')

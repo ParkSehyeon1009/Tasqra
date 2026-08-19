@@ -75,3 +75,37 @@
 @media (max-width: 680px) { .dashboard-summary-grid--compact, .dashboard-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .dashboard-recent-list { grid-template-columns: 1fr; } }
 @media (max-width: 440px) { .dashboard-summary-grid--compact, .dashboard-task-grid { grid-template-columns: 1fr; } }
+
+
+/* 대시보드 지표(DSH-001): 서버 집계 연결에 따라 추가된 부분 */
+
+/* 이동할 화면이 있는 지표 카드는 button 으로 그린다. button 기본 스타일(가운데
+   정렬 · 폰트 상속 안 함)을 section 과 같아 보이게 되돌린다. 그러지 않으면
+   클릭 가능한 카드만 글자가 가운데로 몰려 카드끼리 어긋난다. */
+.dashboard-summary-card.is-clickable { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+.dashboard-summary-card.is-clickable:hover, .dashboard-summary-card.is-clickable:focus-visible { border-color: #756de8; background: #f7f6ff; }
+
+/* 집계를 못 받았을 때. 화면 전체를 막지 않고 이 줄만 띄운다 — 나머지 목록은
+   여전히 볼 수 있어야 한다. */
+.dashboard-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; border-color: #e8c9c9; background: #fdf6f6; }
+.dashboard-notice strong { display: block; color: #8a3d3d; }
+.dashboard-notice p { margin: 6px 0 0; color: #7d6a6a; font-size: 13px; }
+.dashboard-notice button { flex: 0 0 auto; min-height: 36px; padding: 8px 12px; border: 1px solid #d9bcbc; border-radius: 8px; background: #fff; color: #8a3d3d; font-weight: 750; cursor: pointer; }
+
+.dashboard-type-panel { margin-top: 18px; }
+.dashboard-type-list { margin: 0; padding: 0; list-style: none; }
+/* 이름 · 막대 · 건수 세 칸. 막대만 남는 폭을 먹는다. */
+.dashboard-type-item { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 11px 0; border-top: 1px solid #e8edf4; }
+.dashboard-type-item:first-child { border-top: 0; }
+.dashboard-type-name { overflow: hidden; color: #36435a; font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+/* 미분류는 유형 이름이 아니라 유형이 없는 상태다. 흐리게 둬서 구별한다. */
+.dashboard-type-name.is-unclassified { color: #8a96a6; font-weight: 600; font-style: italic; }
+.dashboard-type-bar { display: block; height: 8px; border-radius: 99px; background: #eef1f7; }
+.dashboard-type-bar > i { display: block; height: 100%; min-width: 3px; border-radius: 99px; background: #756de8; }
+.dashboard-type-count { color: #65748a; font-size: 12px; font-weight: 700; white-space: nowrap; }
+@media (max-width: 640px) {
+  .dashboard-type-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .dashboard-type-bar { display: none; }
+  .dashboard-notice { align-items: flex-start; flex-direction: column; }
+  .dashboard-notice button { width: 100%; }
+}
