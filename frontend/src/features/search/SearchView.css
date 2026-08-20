@@ -361,3 +361,35 @@
   .search-modes { flex-direction: column; }
   .search-modes button { width: 100%; }
 }
+
+
+/* --- 하이브리드 검색 (SRH-004) ------------------------------------------- */
+
+/* "어떻게 찾았는지" 배지. 검증용 표시이므로 눈에 먼저 들어오지 않게 둔다 —
+   사용자가 판단할 정보가 아니다. SearchView.jsx 의 SHOW_MATCH_KIND 로 끈다.
+   모양은 .search-result-project 와 같은 알약으로 맞춰 새 형태를 늘리지 않는다. */
+.search-result-kind {
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: #f0f3f8;
+  color: #6c788b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 두 방식에 모두 걸린 것은 가장 믿을 만한 신호다. 이미 쓰는 강조색을 재사용해
+   색을 새로 늘리지 않는다(.search-result-project.is-other 와 같은 값). */
+.search-result-kind.is-both {
+  background: #edf1ff;
+  color: #355ad9;
+}
+
+/* 검색어가 나온 자리. 서버가 준 match_offset 으로 감싼다.
+   <mark> 의 브라우저 기본값은 노란 배경이라 팔레트에서 튄다. 같은 계열로 덮는다. */
+.search-result-hit {
+  background: #dfe7ff;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 700;
+}

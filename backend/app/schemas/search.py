@@ -1,10 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색 API(SRH-001 = SRH-001)의 요청·응답 스키마를 정의한다.
+# 이 파일의 책임: 의미 검색 API(SRH-001)의 요청·응답 스키마를 정의한다.
 #   필드명은 snake_case 그대로 둔다 — schemas/document.py 와 같은 규칙이고
 #   프론트(React)도 snake_case 를 그대로 쓴다.
 # 다른 파일과의 관계: api/routes/search_router.py 가 이 스키마로 주고받고,
 #   services/search_service.py 가 ORM(DocumentChunk) -> 이 스키마로 옮긴다.
-#   근거 스니펫(SRH-002-2 = SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
+#   근거 스니펫(SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
 #   처음부터 함께 담는다. 나중에 붙이면 프론트 계약을 두 번 고쳐야 한다.
 # Spring 비교: @RestController 가 주고받는 Request/Response DTO 다.
 #   ConfigDict(from_attributes=True) 는 Entity -> DTO 정적 팩토리를
@@ -151,6 +151,16 @@ class SearchResultItem(BaseModel):
     match_count: int | None = None
     # 검색어가 snippet 안에서 시작하는 위치(0부터). 프론트가 이 자리를
     # 강조 표시한다.
+    #
+    # ⚠ **파이썬의 코드포인트 기준이다.** JavaScript 처럼 문자열을 UTF-16
+    # 코드유닛으로 세는 클라이언트에서는, BMP 밖 문자(이모지 · 확장 한자 𠀋 등)가
+    # 검색어 앞에 있으면 그 개수만큼 어긋난다. 파이썬 1글자 = JS 2글자이기 때문이다.
+    # 어긋나면 서로게이트 반쪽이 잘려 깨진 글자가 표시된다 — 실제로 재현했다.
+    #
+    # 클라이언트는 **이 값을 쓰기 전에 그 자리에 검색어가 있는지 확인하고,
+    # 어긋나면 스니펫에서 직접 찾아야 한다.** 스니펫 안의 첫 매치가 곧 이 자리이므로
+    # 직접 찾아도 결과는 같다(서버가 본문의 첫 매치를 창에 담는다).
+    # frontend/src/features/search/SearchView.jsx 의 usableOffset 이 그 처리다.
     #
     # ⚠ content_start 에 더해서 원문 좌표로 쓸 수 없다. snippet 은 줄바꿈·연속
     # 공백을 한 칸으로 눌러서 만들기 때문에 원문과 글자 수가 다르다. 원문 위
