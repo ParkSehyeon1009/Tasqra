@@ -1,5 +1,5 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색 API(SRH-001 = SRH-001)의 HTTP 경계를 정의한다.
+# 이 파일의 책임: 의미 검색 API(SRH-001)의 HTTP 경계를 정의한다.
 #   요청을 받아 서비스에 넘기고 응답 스키마로 돌려준다. 검색 로직은 두지 않는다.
 #
 # 왜 /api/projects/{project_id}/search 가 아니라 /api/search 인가
@@ -35,7 +35,12 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import get_current_user, get_search_service
 from app.models.user import User
-from app.schemas.search import KeywordSearchRequest, SearchRequest, SearchResponse
+from app.schemas.search import (
+    HybridSearchRequest,
+    KeywordSearchRequest,
+    SearchRequest,
+    SearchResponse,
+)
 from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/api", tags=["search"])
@@ -80,6 +85,34 @@ def search_keyword(
     검색어가 너무 짧으면 400 `KEYWORD_TOO_SHORT` 다.
     """
     return service.search_keyword(user.id, request)
+
+
+@router.post("/search/hybrid", response_model=SearchResponse)
+def search_hybrid(
+    request: HybridSearchRequest,
+    user: User = Depends(get_current_user),
+    service: SearchService = Depends(get_search_service),
+) -> SearchResponse:
+    """의미 검색과 키워드 검색을 한 순위로 합친다 (SRH-004).
+
+    **화면이 쓰는 것은 이 엔드포인트다.** `/api/search` 와 `/api/search/keyword` 는
+    각각을 따로 재보거나 비교할 때 쓴다.
+
+    사용자는 방식을 고르지 않는다 — 검색창이 하나이고, 어느 쪽으로 걸렸는지는
+    결과의 `match_kind`(`"vector"`·`"keyword"`·`"both"`)로만 드러난다.
+
+    순서는 RRF(`Σ 1/(k + 순위)`)로 정한다. 두 점수는 스케일이 달라 직접 더할 수
+    없다 — 코사인 유사도 `0.8` 과 트라이그램 유사도 `0.8` 은 다른 뜻이다.
+    순서의 근거는 `fused_score`·`vector_rank`·`keyword_rank` 로 응답에 담는다.
+
+    검색어가 짧으면 **키워드 쪽만 건너뛰고 의미 검색으로 답한다.** 오류를 내지
+    않는다 — 검색창 하나에 무엇을 넣어도 결과가 나와야 한다.
+
+    `candidates` 는 두 방식에서 각각 가져올 후보 수다. 이 값이
+    **재순위(SRH-002-1)의 상한을 정한다** — 리랭커는 받은 후보 안에서 순서만
+    바꾸므로 후보에 없는 정답은 올릴 수 없다.
+    """
+    return service.search_hybrid(user.id, request)
 
 
 @router.post("/search/explain", response_model=dict)

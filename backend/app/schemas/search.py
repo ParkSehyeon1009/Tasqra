@@ -1,10 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색 API(SRH-001 = SRH-001)의 요청·응답 스키마를 정의한다.
+# 이 파일의 책임: 의미 검색 API(SRH-001)의 요청·응답 스키마를 정의한다.
 #   필드명은 snake_case 그대로 둔다 — schemas/document.py 와 같은 규칙이고
 #   프론트(React)도 snake_case 를 그대로 쓴다.
 # 다른 파일과의 관계: api/routes/search_router.py 가 이 스키마로 주고받고,
 #   services/search_service.py 가 ORM(DocumentChunk) -> 이 스키마로 옮긴다.
-#   근거 스니펫(SRH-002-2 = SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
+#   근거 스니펫(SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
 #   처음부터 함께 담는다. 나중에 붙이면 프론트 계약을 두 번 고쳐야 한다.
 # Spring 비교: @RestController 가 주고받는 Request/Response DTO 다.
 #   ConfigDict(from_attributes=True) 는 Entity -> DTO 정적 팩토리를
@@ -80,6 +80,32 @@ class KeywordSearchRequest(BaseModel):
     document_id: int | None = None
 
 
+class HybridSearchRequest(BaseModel):
+    """하이브리드 검색(SRH-004) 요청.
+
+    의미 검색과 키워드 검색을 함께 돌려 한 순위로 합친다. **사용자는 방식을
+    고르지 않는다** — 화면에 검색창이 하나이고, 어느 쪽으로 걸렸는지는 결과의
+    match_kind 로만 드러난다.
+
+    query 는 자연어 질문이어도 되고 정확한 문자열이어도 된다. 그래서 길이 상한이
+    SearchRequest 와 같다(1000자). 한쪽에만 맞는 질의여도 다른 쪽이 0건을
+    돌려줄 뿐 오류가 아니다.
+
+    min_similarity 를 두지 않는다. RRF 점수에는 절대적인 뜻이 없어서 임계값을
+    정할 근거가 없다.
+    """
+
+    query: str = Field(min_length=1, max_length=1000)
+    project_ids: list[int] | None = Field(
+        default=None, min_length=1, max_length=MAX_SCOPE_PROJECTS
+    )
+    limit: int = Field(default=10, ge=1, le=MAX_SEARCH_LIMIT)
+    document_id: int | None = None
+    # 두 방식에서 각각 가져올 후보 수. 생략하면 settings 값을 쓴다.
+    # 리랭커(SRH-002-1)의 상한을 정하는 값이라 실험할 수 있게 열어 둔다.
+    candidates: int | None = Field(default=None, ge=1, le=MAX_SEARCH_LIMIT * 4)
+
+
 class SearchResultItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -116,7 +142,9 @@ class SearchResultItem(BaseModel):
     # 합칠 때 같은 모양이어야 섞을 수 있으므로, 스키마를 나누지 않고 필드를
     # 더했다. 어느 방식으로 걸린 결과인지는 match_kind 로 구분한다.
     #
-    # "vector" | "keyword". None 이면 의미 검색이다(기존 응답과 호환).
+    # "vector" | "keyword" | "both". None 이면 의미 검색이다(기존 응답과 호환).
+    # "both" 는 하이브리드(SRH-004)에서 두 방식에 모두 걸린 결과다 — 가장 믿을
+    # 만한 신호이고, RRF 점수도 자연히 높아진다.
     match_kind: str | None = None
     # 검색어가 이 청크에 몇 번 나오는가. 사람이 "많이 언급된 조각" 을 고르는
     # 근거가 되고, 하이브리드에서 가중치 재료로도 쓸 수 있다.
@@ -124,10 +152,34 @@ class SearchResultItem(BaseModel):
     # 검색어가 snippet 안에서 시작하는 위치(0부터). 프론트가 이 자리를
     # 강조 표시한다.
     #
+    # ⚠ **파이썬의 코드포인트 기준이다.** JavaScript 처럼 문자열을 UTF-16
+    # 코드유닛으로 세는 클라이언트에서는, BMP 밖 문자(이모지 · 확장 한자 𠀋 등)가
+    # 검색어 앞에 있으면 그 개수만큼 어긋난다. 파이썬 1글자 = JS 2글자이기 때문이다.
+    # 어긋나면 서로게이트 반쪽이 잘려 깨진 글자가 표시된다 — 실제로 재현했다.
+    #
+    # 클라이언트는 **이 값을 쓰기 전에 그 자리에 검색어가 있는지 확인하고,
+    # 어긋나면 스니펫에서 직접 찾아야 한다.** 스니펫 안의 첫 매치가 곧 이 자리이므로
+    # 직접 찾아도 결과는 같다(서버가 본문의 첫 매치를 창에 담는다).
+    # frontend/src/features/search/SearchView.jsx 의 usableOffset 이 그 처리다.
+    #
     # ⚠ content_start 에 더해서 원문 좌표로 쓸 수 없다. snippet 은 줄바꿈·연속
     # 공백을 한 칸으로 눌러서 만들기 때문에 원문과 글자 수가 다르다. 원문 위
     # 강조는 지금처럼 청크 단위(content_start~content_end)로 한다.
     match_offset: int | None = None
+
+    # --- 하이브리드(SRH-004)에서만 채워지는 필드 ----------------------------
+    # RRF 점수. 결과 순서의 근거다. 두 방식의 점수는 스케일이 달라 직접 더할 수
+    # 없으므로(코사인 유사도 0.8 과 트라이그램 유사도 0.8 은 다른 뜻이다) 순위로
+    # 합친다 — Σ 1/(k + 순위).
+    #
+    # 0~1 이 아니고 유사도가 아니다. **크기 자체에 뜻이 없고 서로 비교할 때만
+    # 뜻이 있다.** 화면에 백분율로 표시하지 말 것. 응답에 담는 이유는 순서가
+    # 왜 그렇게 나왔는지 검증할 수 있어야 하기 때문이다.
+    fused_score: float | None = None
+    # 각 방식에서 몇 등이었나(1부터). 그 방식에 안 걸렸으면 None 이다.
+    # RRF 가 제대로 도는지 눈으로 확인하는 데 쓴다.
+    vector_rank: int | None = None
+    keyword_rank: int | None = None
 
 
 class SearchResponse(BaseModel):

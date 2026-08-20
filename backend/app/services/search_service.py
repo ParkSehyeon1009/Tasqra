@@ -1,10 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색(SRH-001 = SRH-001)을 조립한다. 순서는 이렇다.
+# 이 파일의 책임: 의미 검색(SRH-001)을 조립한다. 순서는 이렇다.
 #     1. 검색 범위를 정한다 — 요청이 준 프로젝트 목록, 또는 내 멤버십 전체
 #     2. 범위의 모든 프로젝트가 내 멤버십에 있는지 확인한다 (권한)
 #     3. 질의를 벡터로 만든다
 #     4. 그 범위 안에서 가까운 청크를 찾는다
-#     5. 결과마다 출처와 원문 인용을 붙인다 (SRH-002-2 = SRH-002-2)
+#     5. 결과마다 출처와 원문 인용을 붙인다 (SRH-002-2)
 #   자르는 규칙도 임베딩 방법도 모른다 — 그 둘은 주입받은 것에 맡긴다.
 #
 # 다른 파일과의 관계:
@@ -49,6 +49,7 @@ from app.embedding.protocol import EmbeddingClientProtocol
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.search import (
+    HybridSearchRequest,
     KeywordSearchRequest,
     SearchRequest,
     SearchResponse,
@@ -228,6 +229,99 @@ class SearchService:
             results=results,
         )
 
+    def search_hybrid(
+        self, user_id: int, request: HybridSearchRequest
+    ) -> SearchResponse:
+        """의미 검색과 키워드 검색을 한 순위로 합친다 (SRH-004).
+
+        **사용자는 방식을 고르지 않는다.** 검색창이 하나이고, 어느 쪽으로 걸렸는지는
+        결과의 match_kind 로만 드러난다. 화면을 방식별로 나누면 사용자가
+        "지금 내가 키워드를 찾나 의미를 찾나" 를 판단해야 하는데, 그 질문은
+        성립하지 않는다.
+
+        왜 점수를 더하지 않고 순위로 합치나 (RRF)
+          두 점수의 **스케일이 다르다.** 코사인 유사도 0.8 은 "벡터 방향이
+          비슷하다" 이고, 트라이그램 낱말 유사도 0.8 은 "조사가 붙었다" 다
+          (실측: 정확일치 1.0 · 조사붙음 0.8 · 불일치 0). 같은 0.8 이 다른 뜻이라
+          더하거나 크기를 비교하면 근거 없는 숫자가 나온다.
+
+          RRF 는 점수를 버리고 **순위만** 쓴다 — `Σ 1/(k + 순위)`. 스케일 문제가
+          사라지고, 정규화 상수를 데이터마다 다시 정할 필요도 없다.
+
+        두 방식에 모두 걸린 결과가 자연히 위로 온다
+          한쪽에서만 1등(`1/61 ≈ 0.0164`)인 것보다 양쪽에서 3등·5등
+          (`1/63 + 1/65 ≈ 0.0313`)인 것이 높다. **두 방식이 동의하는 것이 더
+          믿을 만하다**는 판단이 산수에 들어 있다.
+
+        검색어가 짧으면 키워드 쪽만 건너뛴다
+          키워드 검색은 1글자를 막지만(어느 청크에나 있다) 의미 검색은 짧은
+          질의도 된다. 그래서 오류를 내지 않고 **의미 검색만으로 답한다.**
+          검색창 하나에서 무엇을 입력해도 결과가 나와야 한다.
+
+        후보 수가 리랭커(SRH-002-1)의 상한을 정한다
+          리랭커는 받은 후보 안에서 순서만 바꾼다. 후보에 없는 정답은 어떤
+          리랭커도 1등으로 올릴 수 없다. `candidates` 를 요청에서 열어 둔 것은
+          그 상한을 실험으로 정할 수 있게 하려는 것이다(인수인계 9-G ⑤).
+        """
+        started = time.perf_counter()
+        scope = self._resolve_scope(user_id, request.project_ids)
+        model = self._embedder.model_name
+
+        if not scope:
+            return self._empty_hybrid(request, scope, started, model)
+
+        depth = request.candidates or settings.SEARCH_HYBRID_CANDIDATES
+        term = request.query.strip()
+
+        # --- 다리 ①: 의미 검색 -------------------------------------------
+        vector_rows: list[tuple] = []
+        embedded = self._embedder.embed_query(term)
+        if embedded.vectors:
+            model = embedded.model
+            vector_rows = self._chunks.search_by_vector(
+                project_ids=scope,
+                vector=list(embedded.vectors[0]),
+                embedding_model=embedded.model,
+                limit=depth,
+                document_id=request.document_id,
+                ef_search=settings.SEARCH_EF_SEARCH,
+            )
+        else:
+            logger.warning("하이브리드: 질의 임베딩이 비었다 user_id=%s", user_id)
+
+        # --- 다리 ②: 키워드 검색 -----------------------------------------
+        keyword_rows: list[tuple] = []
+        if len(term) >= settings.SEARCH_KEYWORD_MIN_LENGTH:
+            keyword_rows = self._chunks.search_by_keyword(
+                project_ids=scope,
+                term=term,
+                embedding_model=model,
+                limit=depth,
+                document_id=request.document_id,
+            )
+
+        results = self._fuse(vector_rows, keyword_rows, term, request.limit)
+
+        took_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "하이브리드 검색 user_id=%s 범위=%s 벡터=%d 키워드=%d 합=%d 후보폭=%d %dms",
+            user_id,
+            scope,
+            len(vector_rows),
+            len(keyword_rows),
+            len(results),
+            depth,
+            took_ms,
+        )
+        return SearchResponse(
+            query=request.query,
+            searched_project_ids=scope,
+            embedding_model=model,
+            took_ms=took_ms,
+            total=len(results),
+            results=results,
+        )
+
     def explain(self, user_id: int, request: SearchRequest) -> str:
         """검색 실행계획을 돌려준다. 리비전 0014 검증용이다."""
         scope = self._resolve_scope(user_id, request.project_ids)
@@ -287,6 +381,138 @@ class SearchService:
             query=request.query,
             searched_project_ids=scope,
             embedding_model=model or self._embedder.model_name,
+            took_ms=int((time.perf_counter() - started) * 1000),
+            total=0,
+            results=[],
+        )
+
+    def _fuse(
+        self,
+        vector_rows: list[tuple],
+        keyword_rows: list[tuple],
+        term: str,
+        limit: int,
+    ) -> list[SearchResultItem]:
+        """두 결과를 RRF 로 합친다 (SRH-004).
+
+        `점수 = Σ 1/(k + 순위)` · 순위는 **1부터**다.
+
+        0부터 세면 첫 결과가 `1/(k+0)` 이 되어 k 를 바꿀 때 1등의 가중치가 튄다.
+        논문과 통용 구현이 1부터이므로 맞춰 둔다 — 남의 수치와 견줄 때 정의가
+        같아야 한다(인수인계 9-B 의 3.4배 사고와 같은 종류의 함정이다).
+
+        같은 청크를 두 방식이 모두 물어올 수 있으므로 `chunk_id` 로 묶는다.
+        묶지 않으면 같은 조각이 결과에 두 번 나온다.
+        """
+        k = settings.SEARCH_HYBRID_RRF_K
+        # chunk_id -> 합치는 데 필요한 것들
+        merged: dict[int, dict] = {}
+
+        def collect(rows: list[tuple], kind: str) -> None:
+            for rank, (chunk, filename, project_id, project_name, score) in enumerate(
+                rows, start=1
+            ):
+                entry = merged.get(chunk.id)
+                if entry is None:
+                    entry = {
+                        "chunk": chunk,
+                        "filename": filename,
+                        "project_id": project_id,
+                        "project_name": project_name,
+                        "fused": 0.0,
+                        "vector_rank": None,
+                        "keyword_rank": None,
+                        "vector_score": None,
+                        "keyword_score": None,
+                    }
+                    merged[chunk.id] = entry
+                entry["fused"] += 1.0 / (k + rank)
+                entry[f"{kind}_rank"] = rank
+                entry[f"{kind}_score"] = score
+
+        # 벡터의 score 는 거리(작을수록 가깝다)라 유사도로 바꿔 담는다.
+        collect(
+            [
+                (chunk, filename, pid, pname, 1.0 - distance)
+                for chunk, filename, pid, pname, distance in vector_rows
+            ],
+            "vector",
+        )
+        collect(keyword_rows, "keyword")
+
+        # 점수 내림차순. 같으면 문서·순서로 고정한다 — 같은 질의에 순서가 흔들리면
+        # 회귀 테스트를 쓸 수 없다.
+        ordered = sorted(
+            merged.values(),
+            key=lambda e: (-e["fused"], e["chunk"].document_id, e["chunk"].seq),
+        )[:limit]
+
+        results: list[SearchResultItem] = []
+        for e in ordered:
+            chunk = e["chunk"]
+            has_vector = e["vector_rank"] is not None
+            has_keyword = e["keyword_rank"] is not None
+            kind = "both" if has_vector and has_keyword else (
+                "vector" if has_vector else "keyword"
+            )
+
+            # 키워드로 걸린 것은 매치 자리를 보여준다. 벡터만으로 걸린 것은
+            # 질의 글자가 본문에 없을 수 있으므로 앞부분을 준다.
+            if has_keyword:
+                snippet, offset = self._keyword_snippet(chunk.text, term)
+                match_count = self._count_occurrences(chunk.text, term)
+            else:
+                snippet, offset, match_count = self._snippet(chunk.text), None, None
+
+            # similarity 는 해석 가능한 값을 담는다 — 벡터에 걸렸으면 코사인
+            # 유사도, 키워드만이면 트라이그램 낱말 유사도. 어느 쪽인지는
+            # match_kind 로 안다. RRF 점수는 fused_score 에 따로 담는다.
+            similarity = e["vector_score"] if has_vector else e["keyword_score"]
+
+            results.append(
+                SearchResultItem(
+                    chunk_id=chunk.id,
+                    document_id=chunk.document_id,
+                    document_filename=e["filename"],
+                    project_id=e["project_id"],
+                    project_name=e["project_name"],
+                    seq=chunk.seq,
+                    page_number=chunk.page_number,
+                    similarity=round(float(similarity), 6),
+                    snippet=snippet,
+                    char_count=chunk.char_count,
+                    content_start=chunk.content_start,
+                    content_end=chunk.content_end,
+                    match_kind=kind,
+                    match_count=match_count,
+                    match_offset=offset,
+                    # 8자리에서 끊는다. JSON 에 0.016393442622950818 같은 긴 수를
+                    # 담지 않으려는 것이다.
+                    #
+                    # 8자리로 충분한 근거 — 인접 순위의 점수 차가 훨씬 크다.
+                    #   1/(60+1) - 1/(60+2) = 2.6e-4   (해상도 1e-8 의 26,000배)
+                    # 순위가 뒤바뀔 수 있는 크기가 아니다.
+                    #
+                    # ⚠ **정렬은 위에서 반올림하지 않은 e["fused"] 로 한다.**
+                    # 여기서 끊는 것은 표시용이므로 순서에 영향이 없다.
+                    fused_score=round(e["fused"], 8),
+                    vector_rank=e["vector_rank"],
+                    keyword_rank=e["keyword_rank"],
+                )
+            )
+        return results
+
+    def _empty_hybrid(
+        self,
+        request: HybridSearchRequest,
+        scope: list[int],
+        started: float,
+        model: str,
+    ) -> SearchResponse:
+        return SearchResponse(
+            query=request.query,
+            searched_project_ids=scope,
+            embedding_model=model,
             took_ms=int((time.perf_counter() - started) * 1000),
             total=0,
             results=[],
