@@ -27,5 +27,11 @@ from app.models.chunk import DocumentChunk
 # amount 는 document 뒤에 온다. relationship("Document") 을 문자열로 쓰므로
 # import 순서가 강제되지는 않지만, 참조하는 쪽을 뒤에 두는 편이 읽기 좋다.
 from app.models.amount import AmountItem
+# AI 제안 나머지 둘과 산출물. 테이블은 리비전 0007 이 이미 만들었고 여기서
+# 매핑만 등록한다 — **이 import 를 빠뜨리면 Base.metadata 에 안 잡혀서
+# relationship 이 조용히 실패한다.**
+from app.models.decision import Decision
+from app.models.schedule import ScheduleItem
+from app.models.deliverable import Deliverable
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk", "AmountItem"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable"]
