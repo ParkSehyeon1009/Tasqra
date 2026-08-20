@@ -1,10 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색 API(RAG-04 = SRH-001)의 요청·응답 스키마를 정의한다.
+# 이 파일의 책임: 의미 검색 API(SRH-001 = SRH-001)의 요청·응답 스키마를 정의한다.
 #   필드명은 snake_case 그대로 둔다 — schemas/document.py 와 같은 규칙이고
 #   프론트(React)도 snake_case 를 그대로 쓴다.
 # 다른 파일과의 관계: api/routes/search_router.py 가 이 스키마로 주고받고,
 #   services/search_service.py 가 ORM(DocumentChunk) -> 이 스키마로 옮긴다.
-#   근거 스니펫(RAG-08 = SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
+#   근거 스니펫(SRH-002-2 = SRH-002-2)이 P1 이라 결과마다 출처 문서와 원문 인용을
 #   처음부터 함께 담는다. 나중에 붙이면 프론트 계약을 두 번 고쳐야 한다.
 # Spring 비교: @RestController 가 주고받는 Request/Response DTO 다.
 #   ConfigDict(from_attributes=True) 는 Entity -> DTO 정적 팩토리를
@@ -18,9 +18,9 @@
 #     [3, 7, 11]  -> 골라서 몇 개
 #   토글(2가지)이든 프로젝트별 다중선택(N가지)이든 이 하나로 받는다.
 #
-#   기능명세서의 "다른 프로젝트 문서는 나오지 않는다"(RAG-04)는
+#   기능명세서의 "다른 프로젝트 문서는 나오지 않는다"(SRH-001)는
 #   "내가 멤버가 아닌 프로젝트는 나오지 않는다"로 읽는다. 그렇게 읽어야
-#   RAG-12(SRH-002-3) "과거 유사 사업의 단가를 찾는다"와 모순되지 않는다.
+#   SRH-002-3(SRH-002-3) "과거 유사 사업의 단가를 찾는다"와 모순되지 않는다.
 #   과거 사업은 다른 프로젝트이므로, 앞 문장을 문자 그대로 읽으면 두 P1/P2
 #   기능이 서로를 부정한다.
 # =============================================================================
@@ -38,7 +38,7 @@ MAX_SCOPE_PROJECTS = 100
 
 class SearchRequest(BaseModel):
     # 자연어 질의. "대금은 언제 주나요" 처럼 문서에 그 글자가 없어도 되는 것이
-    # 의미 검색의 목적이다 (RAG-04 판정 기준).
+    # 의미 검색의 목적이다 (SRH-001 판정 기준).
     query: str = Field(min_length=1, max_length=1000)
     # 검색 범위. None 이면 내가 멤버인 모든 프로젝트.
     # 빈 목록([])은 받지 않는다 — "아무것도 검색하지 않겠다"는 뜻이 모호해서,
@@ -54,12 +54,38 @@ class SearchRequest(BaseModel):
     min_similarity: float | None = Field(default=None, ge=-1.0, le=1.0)
 
 
+class KeywordSearchRequest(BaseModel):
+    """키워드 검색(SRH-003) 요청.
+
+    SearchRequest 를 물려받지 않고 따로 둔다. query 의 뜻이 다르기 때문이다 —
+    의미 검색의 query 는 "대금은 언제 주나요" 같은 자연어 질문이고, 여기의
+    query 는 본문에 **그 글자가 그대로 있어야 하는** 문자열이다. 한 클래스로
+    묶으면 필드 설명을 둘 다 만족시킬 수 없다.
+
+    min_similarity 가 없는 것도 그래서다. 트라이그램 점수에 임계값을 두면
+    "찾았는데 안 보여주는" 일이 생긴다. 키워드는 있으면 보여주는 것이 맞다.
+    """
+
+    # 찾을 문자열. 문서번호("제2026-403호") · 고유명사 · 금액처럼 정확히
+    # 일치해야 하는 것을 넣는다. 앞뒤 공백은 서비스가 떼어낸다.
+    #
+    # 최소 길이는 settings.SEARCH_KEYWORD_MIN_LENGTH 로 서비스에서 검사한다.
+    # 여기서 min_length 를 올려 막지 않는 이유: 값을 환경에서 바꿀 수 있어야
+    # 하는데 Field 제약은 클래스 정의 시점에 굳는다.
+    query: str = Field(min_length=1, max_length=200)
+    project_ids: list[int] | None = Field(
+        default=None, min_length=1, max_length=MAX_SCOPE_PROJECTS
+    )
+    limit: int = Field(default=10, ge=1, le=MAX_SEARCH_LIMIT)
+    document_id: int | None = None
+
+
 class SearchResultItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     chunk_id: int
     document_id: int
-    # 출처 표시용. 프론트가 문서 목록을 다시 조회하지 않게 함께 담는다 (RAG-08).
+    # 출처 표시용. 프론트가 문서 목록을 다시 조회하지 않게 함께 담는다 (SRH-002-2).
     document_filename: str
     # 전체 검색이면 결과가 여러 프로젝트에서 온다. 어느 프로젝트 문서인지
     # 모르면 결과를 읽을 수 없다. 조인으로 한 번에 가져온다 — chunk.document.
@@ -84,6 +110,24 @@ class SearchResultItem(BaseModel):
     # extracted_texts.content 안의 구간. 원문 대조에 쓴다. 모르면 null 이다.
     content_start: int | None
     content_end: int | None
+
+    # --- 키워드 검색(SRH-003)에서만 채워지는 필드 ---------------------------
+    # 의미 검색에서는 전부 None 이다. 하이브리드(SRH-004)가 두 결과를 한 순위로
+    # 합칠 때 같은 모양이어야 섞을 수 있으므로, 스키마를 나누지 않고 필드를
+    # 더했다. 어느 방식으로 걸린 결과인지는 match_kind 로 구분한다.
+    #
+    # "vector" | "keyword". None 이면 의미 검색이다(기존 응답과 호환).
+    match_kind: str | None = None
+    # 검색어가 이 청크에 몇 번 나오는가. 사람이 "많이 언급된 조각" 을 고르는
+    # 근거가 되고, 하이브리드에서 가중치 재료로도 쓸 수 있다.
+    match_count: int | None = None
+    # 검색어가 snippet 안에서 시작하는 위치(0부터). 프론트가 이 자리를
+    # 강조 표시한다.
+    #
+    # ⚠ content_start 에 더해서 원문 좌표로 쓸 수 없다. snippet 은 줄바꿈·연속
+    # 공백을 한 칸으로 눌러서 만들기 때문에 원문과 글자 수가 다르다. 원문 위
+    # 강조는 지금처럼 청크 단위(content_start~content_end)로 한다.
+    match_offset: int | None = None
 
 
 class SearchResponse(BaseModel):

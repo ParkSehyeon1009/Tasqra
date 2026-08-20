@@ -86,6 +86,29 @@ def summarize_plan(plan: str) -> str:
     return "\n".join(kept) if kept else plan
 
 
+def like_pattern(term: str) -> str:
+    """검색어를 LIKE 패턴으로 만든다 (SRH-003).
+
+    **와일드카드를 반드시 죽여야 한다.** `%` 는 LIKE 에서 "아무 글자나 몇 개든"
+    이므로, 사용자가 `%` 하나만 넣으면 조건이 사실상 사라져 프로젝트의 모든
+    청크가 걸린다. `_` 는 한 글자 와일드카드다.
+
+        입력 "100%"   ->  "%100\\%%"      "100%" 를 글자 그대로 찾는다
+        이스케이프 없으면  "%100%%"        "100" 으로 시작하는 것 전부
+
+    역슬래시를 먼저 바꾼다. 나중에 바꾸면 우리가 방금 넣은 이스케이프 문자를
+    또 이스케이프해서 패턴이 망가진다.
+
+    SQL 주입과는 다른 문제다 — 바인드 파라미터로 넘기므로 주입은 안 된다.
+    여기서 막는 것은 **의미가 뒤바뀌는 것**이다.
+
+    Spring 비교: Spring Data JPA 에서 `Containing` 파생 질의를 쓰지 않고
+    `@Query` 에 `LIKE %:term%` 를 직접 쓸 때 겪는 것과 같은 문제다.
+    """
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 class ChunkRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -109,7 +132,7 @@ class ChunkRepository:
     def is_current_for_document(self, document_id: int, *, text_version: int, model: str) -> bool:
         """이 문서의 청크가 이미 이 본문 판과 이 모델로 만들어져 있는가.
 
-        재청킹을 건너뛸지 판단하는 데 쓴다 (RAG-09). 검수 확정은 본문이 하나도
+        재청킹을 건너뛸지 판단하는 데 쓴다 (RAG-001-3). 검수 확정은 본문이 하나도
         바뀌지 않아도 일어난다 — 요소를 제외했다 되돌린 경우가 그렇다. 그때
         수백 청크를 다시 임베딩하는 것은 낭비다. 문서 임베딩이 건당 244~519ms 였다.
 
@@ -135,7 +158,7 @@ class ChunkRepository:
 
         청크의 text_version 이 extracted_texts.text_version 보다 작으면 낡은
         것이다 (models/chunk.py 의 ix_chunk_stale 인덱스가 이 조회용이다).
-        RAG-09(검수 확정 시 재임베딩)가 놓친 문서를 찾는 데 쓴다.
+        RAG-001-3(검수 확정 시 재임베딩)가 놓친 문서를 찾는 데 쓴다.
         """
         # ExtractedText 를 여기서 import 하면 순환이 생기지 않는다 (모델끼리는
         # 이미 서로를 알고 있다).
@@ -151,7 +174,7 @@ class ChunkRepository:
         )
         return [int(row) for row in self._db.execute(stmt).scalars()]
 
-    # --- 벡터 검색 (RAG-04) --------------------------------------------------
+    # --- 벡터 검색 (SRH-001) --------------------------------------------------
 
     def _scope_condition(self, project_ids: Sequence[int]):
         """프로젝트 범위 조건을 만든다.
@@ -216,7 +239,7 @@ class ChunkRepository:
 
         조건이 두 개인 것도 중요하다.
 
-        1. project_id — "내가 멤버가 아닌 프로젝트는 나오지 않는다"(RAG-04
+        1. project_id — "내가 멤버가 아닌 프로젝트는 나오지 않는다"(SRH-001
            판정 기준)를 만족시킨다. 조인이 아니라 document_chunks 자신의 컬럼으로
            거는 이유가 리비전 0014 다.
 
@@ -265,6 +288,83 @@ class ChunkRepository:
         if document_id is not None:
             stmt = stmt.where(DocumentChunk.document_id == document_id)
         stmt = stmt.order_by(distance).limit(limit)
+
+        return [
+            (row[0], row[1], int(row[2]), row[3], float(row[4]))
+            for row in self._db.execute(stmt).all()
+        ]
+
+    # --- 키워드 검색 (SRH-003) ----------------------------------------------
+
+    def search_by_keyword(
+        self,
+        *,
+        project_ids: Sequence[int],
+        term: str,
+        embedding_model: str,
+        limit: int,
+        document_id: int | None = None,
+    ) -> list[tuple[DocumentChunk, str, int, str, float]]:
+        """본문에 term 이 그대로 들어 있는 청크를 찾는다.
+
+        벡터 검색과 **같은 모양**으로 돌려준다 —
+        (청크, 문서 파일명, 프로젝트 id, 프로젝트 이름, 점수).
+        하이브리드(SRH-004)가 두 결과를 한 순위로 합칠 때 모양이 같아야 한다.
+
+        정확성과 순서를 나눠서 본다
+          · **정확성은 ILIKE 가 보장한다.** 걸린 청크에는 term 이 반드시 있다.
+          · **순서는 word_similarity 가 정한다.** 이건 정확성 문제가 아니라
+            "어느 것을 먼저 보여줄까" 이므로, 나중에 바꿔도 결과 집합은 같다.
+
+        word_similarity(term, text) 를 쓰는 이유
+          similarity() 는 두 문자열 **전체**의 트라이그램을 비교한다. 짧은 검색어
+          와 900자 청크를 비교하면 값이 늘 0 에 가까워 순서를 못 정한다.
+          word_similarity 는 **본문 안의 한 구간**과 비교하므로 짧은 질의에 맞다.
+
+          ⚠ 한국어에서 조사가 붙으면 1.0 이 안 된다("계약금액" vs "계약금액은").
+          그래도 순서만 정하는 값이라 문제가 되지 않는다. 실제 분포는 DB 에
+          청크를 넣고 확인해야 안다 — 확인 전까지 이 값을 화면에 "정확도" 로
+          표시하지 않는다.
+
+        조건이 세 개다
+          1. project_id — 벡터 검색과 같다. document_chunks 자기 컬럼으로 건다.
+          2. text ILIKE — ix_chunk_text_trgm (GIN · gin_trgm_ops) 이 가속한다.
+             term 이 3글자 미만이면 트라이그램이 없어 순차 스캔으로 떨어진다.
+          3. embedding_model — **키워드 검색에 임베딩은 상관없지만 빼면 안 된다.**
+             같은 문서를 두 모델로 청킹해 두면 같은 본문이 여러 행으로 있어서,
+             조건을 빼면 같은 텍스트가 결과에 중복으로 나온다. 의미 검색은 이
+             조건으로 중복을 우연히 피하고 있었다.
+
+        _apply_scan_settings() 를 부르지 않는다
+          그건 HNSW(hnsw.ef_search · iterative_scan) 전용이다. 키워드 검색은
+          HNSW 를 쓰지 않으므로 불필요한 왕복 2회만 늘어난다.
+        """
+        if not project_ids:
+            return []
+
+        from app.models.document import Document
+        from app.models.project import Project
+
+        score = func.word_similarity(term, DocumentChunk.text).label("score")
+        stmt = (
+            select(
+                DocumentChunk,
+                Document.filename,
+                Project.id,
+                Project.name,
+                score,
+            )
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .join(Project, Project.id == DocumentChunk.project_id)
+            .where(self._scope_condition(project_ids))
+            .where(DocumentChunk.embedding_model == embedding_model)
+            .where(DocumentChunk.text.ilike(like_pattern(term), escape="\\"))
+        )
+        if document_id is not None:
+            stmt = stmt.where(DocumentChunk.document_id == document_id)
+        # 점수가 같을 때 순서가 흔들리지 않게 seq 를 tie-break 로 둔다. 같은 질의에
+        # 다른 순서가 나오면 회귀 테스트를 쓸 수 없다.
+        stmt = stmt.order_by(score.desc(), DocumentChunk.seq).limit(limit)
 
         return [
             (row[0], row[1], int(row[2]), row[3], float(row[4]))

@@ -38,7 +38,7 @@ def extract_document_task(self, project_id: int, document_id: int) -> int:
         service = ExtractionService(db, DocumentRepository(db), get_extractor_registry())
         service.process_document(project_id, document_id)
 
-    # 추출이 끝나면 청킹·임베딩을 이어서 큐에 넣는다 (RAG-01 · RAG-02).
+    # 추출이 끝나면 청킹·임베딩을 이어서 큐에 넣는다 (RAG-001-1 · RAG-001-2).
     #
     # ExtractionService.process_document 안에 넣지 않고 여기 둔 이유는, 문서
     # 추출이 DOC 영역이라 그쪽 서비스 코드를 건드리지 않으려는 것이다.
@@ -56,12 +56,12 @@ def extract_document_task(self, project_id: int, document_id: int) -> int:
     retry_kwargs={"max_retries": 2},
 )
 def build_chunks_task(self, project_id: int, document_id: int) -> int:
-    """문서 하나를 청킹하고 임베딩해 document_chunks 에 넣는다 (RAG-01 · RAG-02).
+    """문서 하나를 청킹하고 임베딩해 document_chunks 에 넣는다 (RAG-001-1 · RAG-001-2).
 
     documents.extract 태스크와 일부러 분리해 뒀다. 문서 추출 파이프라인은
     DOC 영역이라 그쪽을 건드리지 않으려는 것이고, 이렇게 두면 세 가지가 된다.
       (1) 추출을 다시 돌리지 않고 청킹만 다시 돌릴 수 있다 (규칙을 바꿀 때)
-      (2) OCR 검수를 확정한 뒤 재임베딩(RAG-09)에 같은 태스크를 재사용한다
+      (2) OCR 검수를 확정한 뒤 재임베딩(RAG-001-3)에 같은 태스크를 재사용한다
       (3) 추출 파이프라인에 연결할 때 아래 한 줄만 넣으면 된다
             build_chunks_task.delay(project_id, document_id)
 
@@ -87,7 +87,7 @@ def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str) -> b
     """청킹·임베딩 태스크를 큐에 넣는다. 실패해도 예외를 올리지 않는다.
 
     부르는 쪽마다 try/except 를 복사하지 않게 하려고 여기 모았다. 지금 두 곳에서
-    부른다 — 문서 추출 완료 직후(RAG-01 · RAG-02), OCR 검수 확정 직후(RAG-09).
+    부른다 — 문서 추출 완료 직후(RAG-001-1 · RAG-001-2), OCR 검수 확정 직후(RAG-001-3).
 
     실패를 삼키는 것이 핵심이고, 두 곳 모두 같은 이유다. **이미 성공해서 커밋된
     작업을 큐 등록 실패 때문에 되돌리면 안 된다.**

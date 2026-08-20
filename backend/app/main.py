@@ -34,9 +34,11 @@ app.include_router(invitation_router.router)
 app.include_router(upload_router.router)
 app.include_router(analysis_router.router)
 app.include_router(document_router.router)
-# 의미 검색(RAG-04). 담당 보현. 계약은 API_계약서.md 에 초안으로 추가했다.
+# 의미 검색(SRH-001). 담당 보현. 계약은 API_계약서.md 에 초안으로 추가했다.
 app.include_router(search_router.router)
 app.include_router(amount_router.router)
-# 프로젝트 핵심 현황(DSH-001). 담당 보현. 되는 지표만 — 열린 태스크는 decisions
-# ORM 모델이 없어 아직 세지 않는다(응답에서 open_tasks = null).
+# 프로젝트 핵심 현황(DSH-001). 담당 보현. 되는 지표만 — 열린 태스크는 tasks 테이블이
+# 아직 없어서 세지 않는다(태스크 CRUD TSK-001-1 미구현, 담당 재정. open_tasks = null).
+# decisions 가 아니다. 그 테이블은 리비전 0007 로 있고 ORM 모델만 없으며, 뜻도
+# "결정사항" 이라 승인 대기 쪽이다. 자세한 근거는 schemas/dashboard.py 머리 주석.
 app.include_router(dashboard_router.router)

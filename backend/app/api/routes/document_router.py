@@ -81,10 +81,10 @@ def set_ocr_element_exclusion(document_id: int, element_id: int, payload: OcrEle
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     document = service.complete_ocr_review(access.project.id, document_id, access.member.user_id)
-    # 검수가 확정되면 본문이 바뀌었을 수 있으므로 청킹·임베딩을 다시 돌린다 (RAG-09).
+    # 검수가 확정되면 본문이 바뀌었을 수 있으므로 청킹·임베딩을 다시 돌린다 (RAG-001-3).
     # 여기서 부르는 이유: service 가 리턴한 시점에 transactional 이 이미 커밋했다.
     # 큐 등록이 실패해도 예외를 올리지 않아 검수 완료는 그대로 성공한다.
-    enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-09)")
+    enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)")
     document = service.get_document_for_review(access.project.id, document.id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded), pages=pages)

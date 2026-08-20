@@ -1,5 +1,5 @@
 # =============================================================================
-# 이 파일의 책임: 의미 검색 API(RAG-04 = SRH-001)의 HTTP 경계를 정의한다.
+# 이 파일의 책임: 의미 검색 API(SRH-001 = SRH-001)의 HTTP 경계를 정의한다.
 #   요청을 받아 서비스에 넘기고 응답 스키마로 돌려준다. 검색 로직은 두지 않는다.
 #
 # 왜 /api/projects/{project_id}/search 가 아니라 /api/search 인가
@@ -14,7 +14,7 @@
 # 왜 GET 이 아니라 POST 인가
 #   1. 질의가 문장이다. URL 에 넣으면 한글이 퍼센트 인코딩되어 길어진다.
 #   2. 범위(project_ids)가 배열이고 앞으로 필터가 더 늘어난다
-#      (문서 유형 · 기간 · RAG-05 하이브리드 가중치).
+#      (문서 유형 · 기간 · SRH-004 하이브리드 가중치).
 #   3. 검색 질의가 브라우저 이력과 서버 접근 로그에 남지 않는다. 조달 문서를
 #      다루므로 "무엇을 찾고 있는지"가 사업 정보다.
 #
@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import get_current_user, get_search_service
 from app.models.user import User
-from app.schemas.search import SearchRequest, SearchResponse
+from app.schemas.search import KeywordSearchRequest, SearchRequest, SearchResponse
 from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/api", tags=["search"])
@@ -53,6 +53,33 @@ def search_documents(
     멤버가 아닌 프로젝트를 지정하면 404 로 막는다.
     """
     return service.search(user.id, request)
+
+
+@router.post("/search/keyword", response_model=SearchResponse)
+def search_keyword(
+    request: KeywordSearchRequest,
+    user: User = Depends(get_current_user),
+    service: SearchService = Depends(get_search_service),
+) -> SearchResponse:
+    """키워드 검색을 한다 (SRH-003).
+
+    본문에 검색어가 **그대로 들어 있는** 조각을 찾는다. 문서번호·고유명사·금액
+    처럼 의미 검색이 놓치는 것을 위한 것이다.
+
+    `/api/search` 를 고치지 않고 엔드포인트를 따로 둔 이유
+      의미 검색(SRH-001)은 이미 구현됨이고 프론트가 쓰고 있다. 요청 스키마에
+      `mode` 를 더하면 그 계약을 고쳐야 하고 회귀 위험이 생긴다. 나중에
+      하이브리드(SRH-004)가 둘을 합칠 때 `/api/search/hybrid` 를 하나 더 두면
+      세 방식을 나란히 놓고 비교할 수 있다.
+
+    응답은 `/api/search` 와 **같은 모양**이다. 키워드에서만 채워지는 세 필드가
+    있다 — `match_kind`("keyword") · `match_count` · `match_offset`.
+    의미 검색 응답에서는 그 셋이 `null` 이다.
+
+    범위·권한은 의미 검색과 같다. 멤버가 아닌 프로젝트를 지정하면 404 다.
+    검색어가 너무 짧으면 400 `KEYWORD_TOO_SHORT` 다.
+    """
+    return service.search_keyword(user.id, request)
 
 
 @router.post("/search/explain", response_model=dict)

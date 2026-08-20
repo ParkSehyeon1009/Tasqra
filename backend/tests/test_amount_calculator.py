@@ -10,7 +10,7 @@
 #
 # 여기서 가장 중요한 테스트는 test_total_mismatch_is_reported_not_fixed 다.
 #   문서에 적힌 합계가 틀렸을 때 코드가 고치지 않고 차액을 보고하는지 확인한다.
-#   고쳐버리면 AMT-03(합계 대조)이 무의미해진다.
+#   고쳐버리면 AMT-002-1(합계 대조)이 무의미해진다.
 # =============================================================================
 
 from decimal import Decimal
@@ -151,7 +151,7 @@ def test_sum_items_ignores_only_vat_category():
     assert sum_items(items) == 3500
     assert sum_vat(items) == 300
 
-# ── 합계 대조 (AMT-03) ───────────────────────────────────────────────────────
+# ── 합계 대조 (AMT-002-1) ───────────────────────────────────────────────────────
 
 def test_total_matches(cost_sheet):
     result = check_total(cost_sheet)
@@ -167,7 +167,7 @@ def test_total_mismatch_is_reported_not_fixed():
 
     문서가 10,000,000 + 5,000,000 = 14,000,000 이라고 잘못 적어놨다.
     코드는 문서 값을 고치지 않고 차액 1,000,000 을 보고해야 한다.
-    고쳐버리면 AMT-03 이 무의미해진다.
+    고쳐버리면 AMT-002-1 이 무의미해진다.
     """
     doc = extraction(
         stated_total=14_000_000,
@@ -250,7 +250,7 @@ def test_category_none_goes_to_other():
     items = extraction([item("구분없음", 1000)]).items
     assert aggregate_by_category(items) == {AmountCategory.OTHER.value: 1000}
 
-# ── 프로젝트 집계 (AMT-06) ───────────────────────────────────────────────────
+# ── 프로젝트 집계 (AMT-002-2) ───────────────────────────────────────────────────
 
 def test_aggregate_project(cost_sheet):
     other = extraction([item("추가", 500_000)], document_type="CONTRACT")
@@ -282,7 +282,7 @@ def test_aggregate_project_with_no_documents():
     assert result["currency"] == "KRW"
 
 def test_aggregate_is_deterministic(cost_sheet):
-    """AMT-06 완료 판정 기준 — 같은 입력이면 항상 같은 결과."""
+    """AMT-002-2 완료 판정 기준 — 같은 입력이면 항상 같은 결과."""
     other = extraction([item("추가", 500_000)], document_type="CONTRACT")
     first = aggregate_project([cost_sheet, other])
     second = aggregate_project([cost_sheet, other])

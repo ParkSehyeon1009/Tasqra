@@ -27,9 +27,10 @@ import { http } from './http'
 //                        status, review_status, created_at }]
 // }
 //
-// open_tasks 가 null 인 이유: decisions 테이블은 있지만 ORM 모델이 없어 아직
-// 세지 못한다. 화면에서 0 으로 바꾸지 말 것 — 사용자가 "할 일이 없다" 고
-// 잘못 읽는다.
+// open_tasks 가 null 인 이유: 세려면 tasks 테이블이 필요한데 그 테이블이 아직
+// 없다(TSK-001-1 태스크 CRUD 미구현). decisions 와 혼동하지 말 것 — 그것은
+// 결정사항이고 승인 대기 쪽이다.
+// 화면에서 0 으로 바꾸지 말 것 — 사용자가 "할 일이 없다" 고 잘못 읽는다.
 export async function getDashboard(projectId, { recentLimit = 5 } = {}) {
   const { data } = await http.get(`/api/projects/${projectId}/dashboard`, {
     params: { recent_limit: recentLimit },
