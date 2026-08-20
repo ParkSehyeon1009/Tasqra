@@ -88,6 +88,15 @@ class ErrorCode(Enum):
     AI_INVALID_RESPONSE = ("AI_INVALID_RESPONSE", "AI 응답을 해석할 수 없습니다.", 502)
     AI_ANALYZER_FAILED = ("AI_ANALYZER_FAILED", "일부 분석에 실패했습니다.", 502)
 
+    # ── 검색 (SRH-003 키워드 검색) ──
+    # 위 머리말이 "요청 형식 오류는 Pydantic 이 막으므로 코드를 두지 않는다" 고
+    # 했지만, 이건 예외다. 최소 길이가 settings.SEARCH_KEYWORD_MIN_LENGTH 로
+    # 환경에서 바뀌는 값이라 Pydantic Field 제약으로 굳힐 수 없다. 그리고 화면이
+    # 다르게 처리해야 한다 — 일반 오류가 아니라 입력창 아래 안내로 띄운다.
+    #
+    # 메시지에 글자 수를 적지 않는다. 설정을 바꾸면 메시지가 거짓이 되기 때문이다.
+    KEYWORD_TOO_SHORT = ("KEYWORD_TOO_SHORT", "검색어가 너무 짧습니다. 더 길게 입력해 주세요.", 400)
+
     INTERNAL_ERROR = ("INTERNAL_ERROR", "서버 내부 오류가 발생했습니다.", 500)
 
     def __init__(self, code: str, message: str, status_code: int):

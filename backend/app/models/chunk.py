@@ -84,6 +84,20 @@ class DocumentChunk(Base):
         # 프로젝트가 아주 작을 때는 HNSW 를 훑는 것보다 이 인덱스로 그 프로젝트의
         # 청크만 읽어 정확한 거리를 계산하는 편이 빠르다. 계획 선택지를 준다.
         Index("ix_chunk_project", "project_id", "document_id"),
+        # 키워드 검색용 (SRH-003). ILIKE '%...%' 를 가속한다.
+        #
+        # 한국어는 PostgreSQL 에 전문검색 설정이 없다. simple 설정은 공백으로만
+        # 토큰을 나누므로 "계약금액" 과 "계약금액은" 이 다른 토큰이 된다.
+        # 트라이그램은 글자 3개씩 겹쳐 보므로 조사에 걸리지 않는다.
+        #
+        # ⚠ 검색어가 3글자 미만이면 트라이그램이 없어 이 인덱스를 못 쓴다.
+        # 리비전 0016 이 pg_trgm 확장과 함께 만든다.
+        Index(
+            "ix_chunk_text_trgm",
+            "text",
+            postgresql_using="gin",
+            postgresql_ops={"text": "gin_trgm_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

@@ -54,6 +54,32 @@ class SearchRequest(BaseModel):
     min_similarity: float | None = Field(default=None, ge=-1.0, le=1.0)
 
 
+class KeywordSearchRequest(BaseModel):
+    """키워드 검색(SRH-003) 요청.
+
+    SearchRequest 를 물려받지 않고 따로 둔다. query 의 뜻이 다르기 때문이다 —
+    의미 검색의 query 는 "대금은 언제 주나요" 같은 자연어 질문이고, 여기의
+    query 는 본문에 **그 글자가 그대로 있어야 하는** 문자열이다. 한 클래스로
+    묶으면 필드 설명을 둘 다 만족시킬 수 없다.
+
+    min_similarity 가 없는 것도 그래서다. 트라이그램 점수에 임계값을 두면
+    "찾았는데 안 보여주는" 일이 생긴다. 키워드는 있으면 보여주는 것이 맞다.
+    """
+
+    # 찾을 문자열. 문서번호("제2026-403호") · 고유명사 · 금액처럼 정확히
+    # 일치해야 하는 것을 넣는다. 앞뒤 공백은 서비스가 떼어낸다.
+    #
+    # 최소 길이는 settings.SEARCH_KEYWORD_MIN_LENGTH 로 서비스에서 검사한다.
+    # 여기서 min_length 를 올려 막지 않는 이유: 값을 환경에서 바꿀 수 있어야
+    # 하는데 Field 제약은 클래스 정의 시점에 굳는다.
+    query: str = Field(min_length=1, max_length=200)
+    project_ids: list[int] | None = Field(
+        default=None, min_length=1, max_length=MAX_SCOPE_PROJECTS
+    )
+    limit: int = Field(default=10, ge=1, le=MAX_SEARCH_LIMIT)
+    document_id: int | None = None
+
+
 class SearchResultItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,6 +110,24 @@ class SearchResultItem(BaseModel):
     # extracted_texts.content 안의 구간. 원문 대조에 쓴다. 모르면 null 이다.
     content_start: int | None
     content_end: int | None
+
+    # --- 키워드 검색(SRH-003)에서만 채워지는 필드 ---------------------------
+    # 의미 검색에서는 전부 None 이다. 하이브리드(SRH-004)가 두 결과를 한 순위로
+    # 합칠 때 같은 모양이어야 섞을 수 있으므로, 스키마를 나누지 않고 필드를
+    # 더했다. 어느 방식으로 걸린 결과인지는 match_kind 로 구분한다.
+    #
+    # "vector" | "keyword". None 이면 의미 검색이다(기존 응답과 호환).
+    match_kind: str | None = None
+    # 검색어가 이 청크에 몇 번 나오는가. 사람이 "많이 언급된 조각" 을 고르는
+    # 근거가 되고, 하이브리드에서 가중치 재료로도 쓸 수 있다.
+    match_count: int | None = None
+    # 검색어가 snippet 안에서 시작하는 위치(0부터). 프론트가 이 자리를
+    # 강조 표시한다.
+    #
+    # ⚠ content_start 에 더해서 원문 좌표로 쓸 수 없다. snippet 은 줄바꿈·연속
+    # 공백을 한 칸으로 눌러서 만들기 때문에 원문과 글자 수가 다르다. 원문 위
+    # 강조는 지금처럼 청크 단위(content_start~content_end)로 한다.
+    match_offset: int | None = None
 
 
 class SearchResponse(BaseModel):
