@@ -85,6 +85,12 @@ CHARS_PER_TOKEN = 1.89
 # structure.py 의 _SENTENCE_END 와 같은 판단을 쓰되, 자를 "위치"가 필요하므로
 # 문자 다음에 공백이 오는 지점을 찾는다.
 _SENTENCE_BREAK = re.compile(r"(?<=[.。!?])\s+|(?<=[다함됨음])\s+")
+# 다른 모듈이 **같은 문장 경계 규칙**을 쓸 수 있게 공개한다.
+#
+# context_assembly.py(RAG-002-1)가 이걸 쓴다. 그쪽은 겹침으로 들어온 문장을
+# 중복으로 걸러내는데, 경계 규칙이 갈라지면 같은 문장이 다르게 쪼개져 **중복
+# 판정이 조용히 실패한다.** 규칙을 두 곳에 적지 않으려고 이름만 내보낸다.
+SENTENCE_BREAK = _SENTENCE_BREAK
 # 문장 경계가 없을 때 두 번째 후보. 최소한 줄바꿈이나 공백에서 자른다.
 _SOFT_BREAK = re.compile(r"\n+|\s+")
 
