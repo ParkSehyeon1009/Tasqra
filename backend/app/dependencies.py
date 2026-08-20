@@ -46,6 +46,7 @@ from app.repositories.amount_repository import AmountRepository
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.dashboard_repository import DashboardRepository
+from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
@@ -58,6 +59,7 @@ from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
 from app.services.chunking_service import ChunkingService
 from app.services.dashboard_service import DashboardService
+from app.services.deliverable_service import DeliverableService
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
@@ -292,3 +294,23 @@ def get_document_service(
         document_repository=document_repository,
         analysis_repository=analysis_repository,
     )
+
+
+
+# --- 산출물 (DLV-001-2 생성 대상 미리보기) ----------------------------------
+
+
+def get_deliverable_repository(db: Session = Depends(get_db)) -> DeliverableRepository:
+    return DeliverableRepository(db)
+
+
+# get_search_service · get_dashboard_service 와 같은 이유로
+# get_deliverable_repository **아래에** 두어야 한다. Depends(...) 는 기본값이라
+# 함수를 정의하는 순간 평가되고, 위에 두면 import 시점에 NameError 로 앱이 안 뜬다.
+def get_deliverable_service(
+    deliverable_repository: DeliverableRepository = Depends(get_deliverable_repository),
+) -> DeliverableService:
+    # 세션을 넘기지 않는다. 미리보기는 읽기만 하고 조회는 전부 리포지토리를 거친다.
+    # ProjectRepository 도 넘기지 않는다 — 범위가 현재 프로젝트 하나로 정해져 있고
+    # 권한은 라우터의 get_project_access 가 이미 판정했다.
+    return DeliverableService(deliverable_repository)
