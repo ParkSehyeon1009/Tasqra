@@ -1,0 +1,80 @@
+# =============================================================================
+# 이 파일의 책임: 산출물 API 의 요청·응답 스키마를 정의한다. 지금은 생성 대상
+#   미리보기(DLV-001-2)만 있다.
+#
+# 다른 파일과의 관계: api/routes/deliverable_router.py 가 이 스키마로 주고받고
+#   services/deliverable_service.py 가 채운다. 필드명은 snake_case 그대로 둔다.
+#
+# Spring 비교: @RestController 의 Request/Response DTO 다.
+#
+# 완료 판정이 스키마 모양을 정했다
+#   DLV-001-2: "**LLM 호출 전에 건수가 보이고** 대상이 없으면 생성이 방지된다"
+#   그래서 응답이 건수와 **can_generate** 를 함께 담는다. 화면이 건수를 보고
+#   스스로 판단하게 두면 판단 규칙이 두 곳에 생긴다.
+#
+#   DLV-001-1: "형식을 고르지 않으면 생성 버튼이 비활성화된다"
+#   미리보기는 형식과 무관하다 — 형식은 만들 때 필요하다. 그래서 미리보기 요청에
+#   format 을 받지 않는다.
+# =============================================================================
+
+from datetime import date
+
+from pydantic import BaseModel, Field
+
+__all__ = [
+    "DELIVERABLE_KINDS",
+    "PERIOD_REQUIRED_KINDS",
+    "DeliverablePreviewResponse",
+    "PreviewCounts",
+]
+
+# models/deliverable.py 의 _KIND 와 같아야 한다. 리비전 0007 의 CHECK 가 근거다.
+DELIVERABLE_KINDS = ("WEEKLY_REPORT", "DECISION_LOG", "MEETING_AGENDA", "PROJECT_STATUS")
+# 기간이 필수인 유형. DB CHECK(ck_deliverable_period_required)와 같은 판단이다.
+PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
+
+
+class PreviewCounts(BaseModel):
+    """산출물에 담길 재료의 건수.
+
+    ⚠ **`completed_tasks` 가 `None` 인 것은 "0건" 이 아니라 "아직 셀 수 없다" 다.**
+    `tasks` 테이블이 없다(TSK-001-1 미구현). 화면에서 0 으로 바꾸면 안 된다 —
+    사용자가 "이번 주에 완료한 일이 없다" 로 잘못 읽는다. 대시보드의 `open_tasks`
+    와 같은 규칙이다.
+    """
+
+    documents: int
+    decisions: int
+    schedule_items: int
+    amount_items: int
+    # 기간과 무관하다. 지금 남아 있는 승인 대기 건수다.
+    pending_suggestions: int
+    # 셀 수 없으면 None. 위 경고 참고.
+    completed_tasks: int | None = None
+
+    @property
+    def countable_total(self) -> int:
+        """셀 수 있는 재료의 합. 생성 가능 판정에 쓴다.
+
+        `pending_suggestions` 는 **더하지 않는다.** 그것은 "담길 내용" 이 아니라
+        "처리해야 할 일" 이라, 승인 대기만 있고 확정된 내용이 없으면 보고서는
+        비어 있다.
+        """
+        return self.documents + self.decisions + self.schedule_items + self.amount_items
+
+
+class DeliverablePreviewResponse(BaseModel):
+    kind: str
+    period_from: date | None
+    period_to: date | None
+    counts: PreviewCounts
+    # 만들 수 있는가. 담을 내용이 하나도 없으면 False 다 (DLV-001-2 완료 판정).
+    can_generate: bool
+    # can_generate 가 False 인 이유. 화면이 그대로 보여줄 수 있는 문장이다.
+    # True 면 None.
+    blocked_reason: str | None = None
+    # 이 유형이 기간을 요구하는가. 화면이 날짜 입력을 띄울지 정한다.
+    needs_period: bool
+    # 셀 수 없는 재료의 이름. 화면이 "집계 전" 으로 표시한다.
+    # 지금은 항상 ["completed_tasks"] 다 — tasks 테이블이 생기면 빈 목록이 된다.
+    uncountable: list[str] = Field(default_factory=list)
