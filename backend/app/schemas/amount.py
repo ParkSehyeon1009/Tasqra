@@ -1,5 +1,5 @@
 # =============================================================================
-# 이 파일의 책임: 금액 분석기(AMT-01)가 반환한 JSON을 받는 Pydantic 모델을
+# 이 파일의 책임: 금액 분석기(AMT-001-1)가 반환한 JSON을 받는 Pydantic 모델을
 #   정의한다. 모델 응답이 규격에 맞는지 여기서 걸러내고, 어긋나면 호출부가
 #   ErrorCode.AI_INVALID_RESPONSE(502)로 BusinessError를 던져 재시도한다.
 
@@ -73,7 +73,7 @@ class AmountExtractionOut(BaseModel):
     currency: str = Field(default="KRW", pattern=r"^[A-Z]{3}$",
                           description="ISO 통화 코드")
 
-    # 문서에 적힌 합계. 항목 합계와 대조할 상대편이다(AMT-03).
+    # 문서에 적힌 합계. 항목 합계와 대조할 상대편이다(AMT-002-1).
     # 없으면 None이고, 그때는 "대조 불가"이지 "불일치"가 아니다.
     stated_total: int | None = Field(default=None, ge=0)
 

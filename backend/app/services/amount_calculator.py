@@ -1,17 +1,17 @@
 # =============================================================================
 # 이 파일의 책임: 금액 계산을 전담한다. 항목 합계, 부가세 분리, 문서에 적힌
-#   합계와의 대조(AMT-03), 수량x단가 검산, 원가 구분별·프로젝트 단위 집계
-#   (AMT-06)를 수행한다.
+#   합계와의 대조(AMT-002-1), 수량x단가 검산, 원가 구분별·프로젝트 단위 집계
+#   (AMT-002-2)를 수행한다.
 # 다른 파일과의 관계: schemas/amount.py의 AmountExtractionOut을 입력으로 받는다.
 #   services/amount_normalizer.py가 정규화하고 스키마가 검증한 값만 들어온다.
-#   여기 결과를 amount_items 테이블과 화면(AMT-17 계산식 표시)이 쓴다.
+#   여기 결과를 amount_items 테이블과 화면(AMT-003-3 계산식 표시)이 쓴다.
 # Spring 비교: 순수 도메인 서비스다. @Service 이지만 Repository를 주입받지 않는
 #   계산 전용 클래스에 해당한다. 스프링에서도 이런 계층은 @SpringBootTest 없이
 #   순수 JUnit으로 테스트한다. 여기서도 DB·컨테이너 없이 pytest로 검증된다.
 #
 # 이 모듈의 원칙 세 개
 #   1. 순수 함수만 담는다. DB·네트워크·AI를 부르지 않는다. 같은 입력에 항상
-#      같은 결과를 낸다(AMT-06 완료 판정 기준).
+#      같은 결과를 낸다(AMT-002-2 완료 판정 기준).
 #   2. 부가세(VAT)를 항목 합계에서 제외한다. 포함하면 이중으로 더해진다.
 #      합계 대조가 틀리는 가장 흔한 원인이다.
 #   3. 문서에 적힌 금액이 틀려 보여도 고치지 않는다. 문서가 3 x 9,500,000 =
@@ -31,7 +31,7 @@ from app.schemas.amount import AmountExtractionOut, AmountItemOut
 
 @dataclass(frozen=True)
 class TotalCheck:
-    """합계 대조 결과 (AMT-03).
+    """합계 대조 결과 (AMT-002-1).
 
     difference와 matches를 나눠 둔 이유가 있다. stated_total이 없는 문서는
     "대조 불가"이고, 값이 다른 문서는 "불일치"다. 둘은 사용자에게 다르게
@@ -80,7 +80,7 @@ def sum_vat(items: Iterable[AmountItemOut]) -> int:
     return sum(item.amount for item in items if _is_vat(item))
 
 def check_total(extraction: AmountExtractionOut) -> TotalCheck:
-    """항목 합계와 문서에 적힌 합계를 대조한다 (AMT-03).
+    """항목 합계와 문서에 적힌 합계를 대조한다 (AMT-002-1).
 
     이 프로젝트에서 정확도를 수치로 증명할 수 있는 유일한 기능이다.
     요약이나 결정사항은 AI가 맞게 뽑았는지 확인할 방법이 없지만, 금액은
@@ -131,7 +131,7 @@ def aggregate_by_category(items: Iterable[AmountItemOut]) -> dict[str, int]:
 def aggregate_project(
     extractions: Iterable[AmountExtractionOut],
 ) -> dict[str, object]:
-    """여러 문서의 금액을 프로젝트 단위로 합친다 (AMT-06).
+    """여러 문서의 금액을 프로젝트 단위로 합친다 (AMT-002-2).
 
     통화가 섞여 있으면 ValueError를 던진다. 호출부가
     ErrorCode.CURRENCY_MISMATCH(409)로 바꿔서 응답한다. 환율을 여기서

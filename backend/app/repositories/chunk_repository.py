@@ -109,7 +109,7 @@ class ChunkRepository:
     def is_current_for_document(self, document_id: int, *, text_version: int, model: str) -> bool:
         """이 문서의 청크가 이미 이 본문 판과 이 모델로 만들어져 있는가.
 
-        재청킹을 건너뛸지 판단하는 데 쓴다 (RAG-09). 검수 확정은 본문이 하나도
+        재청킹을 건너뛸지 판단하는 데 쓴다 (RAG-001-3). 검수 확정은 본문이 하나도
         바뀌지 않아도 일어난다 — 요소를 제외했다 되돌린 경우가 그렇다. 그때
         수백 청크를 다시 임베딩하는 것은 낭비다. 문서 임베딩이 건당 244~519ms 였다.
 
@@ -135,7 +135,7 @@ class ChunkRepository:
 
         청크의 text_version 이 extracted_texts.text_version 보다 작으면 낡은
         것이다 (models/chunk.py 의 ix_chunk_stale 인덱스가 이 조회용이다).
-        RAG-09(검수 확정 시 재임베딩)가 놓친 문서를 찾는 데 쓴다.
+        RAG-001-3(검수 확정 시 재임베딩)가 놓친 문서를 찾는 데 쓴다.
         """
         # ExtractedText 를 여기서 import 하면 순환이 생기지 않는다 (모델끼리는
         # 이미 서로를 알고 있다).
@@ -151,7 +151,7 @@ class ChunkRepository:
         )
         return [int(row) for row in self._db.execute(stmt).scalars()]
 
-    # --- 벡터 검색 (RAG-04) --------------------------------------------------
+    # --- 벡터 검색 (SRH-001) --------------------------------------------------
 
     def _scope_condition(self, project_ids: Sequence[int]):
         """프로젝트 범위 조건을 만든다.
@@ -216,7 +216,7 @@ class ChunkRepository:
 
         조건이 두 개인 것도 중요하다.
 
-        1. project_id — "내가 멤버가 아닌 프로젝트는 나오지 않는다"(RAG-04
+        1. project_id — "내가 멤버가 아닌 프로젝트는 나오지 않는다"(SRH-001
            판정 기준)를 만족시킨다. 조인이 아니라 document_chunks 자신의 컬럼으로
            거는 이유가 리비전 0014 다.
 

@@ -34,7 +34,7 @@ app.include_router(invitation_router.router)
 app.include_router(upload_router.router)
 app.include_router(analysis_router.router)
 app.include_router(document_router.router)
-# 의미 검색(RAG-04). 담당 보현. 계약은 API_계약서.md 에 초안으로 추가했다.
+# 의미 검색(SRH-001). 담당 보현. 계약은 API_계약서.md 에 초안으로 추가했다.
 app.include_router(search_router.router)
 app.include_router(amount_router.router)
 # 프로젝트 핵심 현황(DSH-001). 담당 보현. 되는 지표만 — 열린 태스크는 tasks 테이블이

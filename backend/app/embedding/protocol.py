@@ -26,7 +26,7 @@ class EmbeddingResult:
 
     벡터만 돌려주면 나중에 "이 벡터를 무슨 모델로 만들었나"를 알 수 없다.
     document_chunks.embedding_model / embedding_dim 에 그대로 기록해야 하므로
-    (기능명세서 RAG-02 판정 기준) 벡터와 함께 반환한다.
+    (기능명세서 RAG-001-2 판정 기준) 벡터와 함께 반환한다.
     """
 
     vectors: tuple[tuple[float, ...], ...]
