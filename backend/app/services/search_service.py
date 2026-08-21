@@ -46,6 +46,7 @@ from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.embedding.protocol import EmbeddingClientProtocol
+from app.rerank.protocol import RerankerProtocol
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.search import (
@@ -66,11 +67,15 @@ class SearchService:
         chunk_repository: ChunkRepository,
         project_repository: ProjectRepository,
         embedding_client: EmbeddingClientProtocol,
+        reranker: RerankerProtocol | None = None,
     ) -> None:
         self._db = db
         self._chunks = chunk_repository
         self._projects = project_repository
         self._embedder = embedding_client
+        # 없으면 임베딩 순서를 그대로 쓴다. 기본이 None 인 이유는
+        # dependencies.get_reranker() 주석 참고 — CPU 에서는 켜면 안 된다.
+        self._reranker = reranker
 
     # --- 공개 API -----------------------------------------------------------
 
@@ -90,6 +95,12 @@ class SearchService:
             logger.warning("질의 임베딩이 비어 있다 user_id=%s", user_id)
             return self._empty(request, scope, started, model=embedded.model)
 
+        # 리랭커가 있으면 후보를 넉넉히 뽑아 넘긴다. 재정렬은 받은 것 안에서만
+        # 순서를 바꾸므로, limit 만큼만 뽑으면 고를 여지가 없다.
+        depth = request.limit
+        if self._reranker is not None:
+            depth = max(request.limit, settings.RERANK_CANDIDATE_POOL)
+
         rows = self._chunks.search_by_vector(
             project_ids=scope,
             vector=list(embedded.vectors[0]),
@@ -97,19 +108,33 @@ class SearchService:
             # 가짜 임베더로 만든 청크가 섞여, 서로 다른 벡터 공간의 거리를
             # 에러 없이 계산해 버린다.
             embedding_model=embedded.model,
-            limit=request.limit,
+            limit=depth,
             document_id=request.document_id,
             ef_search=settings.SEARCH_EF_SEARCH,
         )
+
+        # ⚠️ 임계값은 **재정렬 전에** 적용한다. 재정렬하면 거리 오름차순이 깨져서
+        #   "여기부터는 전부 임계값 아래" 라는 전제가 무너진다. 순서가 섞인 뒤에
+        #   같은 방식으로 자르면 유효한 결과가 조용히 잘려 나간다.
+        #   임계값은 임베딩 거리에 대한 조건이므로 여기서 거르는 것이 맞기도 하다.
+        if request.min_similarity is not None:
+            cutoff = 1.0 - request.min_similarity
+            kept = 0
+            for _, _, _, _, distance in rows:
+                if distance > cutoff:
+                    break  # 거리 오름차순이라 여기부터는 전부 아래다
+                kept += 1
+            rows = rows[:kept]
+
+        rows = self._apply_rerank(request.query.strip(), rows, request.limit)
 
         results: list[SearchResultItem] = []
         for chunk, filename, project_id, project_name, distance in rows:
             # pgvector 의 <=> 는 코사인 거리(0~2)다. 사람이 읽기 쉬운 유사도로
             # 바꾼다. 정규화된 벡터에서 거리 0 = 유사도 1 이다.
+            # ⚠️ 유사도는 임베딩 기준 값이다. 리랭커가 순서를 바꿔도 이 값은
+            #   그대로이므로, 재정렬 후에는 유사도가 내림차순이 아닐 수 있다.
             similarity = 1.0 - distance
-            if request.min_similarity is not None and similarity < request.min_similarity:
-                # 거리 오름차순이므로 여기부터는 전부 임계값 아래다.
-                break
             results.append(
                 SearchResultItem(
                     chunk_id=chunk.id,
@@ -339,6 +364,30 @@ class SearchService:
         )
 
     # --- 내부 ---------------------------------------------------------------
+
+    def _apply_rerank(self, query: str, rows: list[tuple], limit: int) -> list[tuple]:
+        """리랭커가 있으면 후보를 재정렬하고 상위 limit 개를 돌려준다.
+
+        리랭커가 없거나 후보가 1개 이하면 아무것도 하지 않는다.
+
+        ⚠️ 리랭킹이 실패해도 검색 자체는 살린다. 임베딩 순서만으로도 쓸 만한
+        결과가 나오므로(문서 단위 k=10 97.2%), 재정렬 실패로 검색 전체를
+        죽이는 것은 손해다. 대신 경고를 남겨 조용히 넘어가지 않게 한다.
+        """
+        if self._reranker is None or len(rows) <= 1:
+            return rows[:limit]
+
+        try:
+            order = self._reranker.rerank(query, [row[0].text for row in rows])
+        except Exception:  # noqa: BLE001 - 재정렬 실패로 검색을 죽이지 않는다
+            logger.warning(
+                "리랭킹 실패, 임베딩 순서를 그대로 쓴다 (모델 %s)",
+                self._reranker.model_name,
+                exc_info=True,
+            )
+            return rows[:limit]
+
+        return [rows[i] for i in order][:limit]
 
     def _resolve_scope(self, user_id: int, requested: list[int] | None) -> list[int]:
         """검색할 프로젝트 id 목록을 정한다.

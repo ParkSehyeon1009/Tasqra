@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # (BGE-M3 float32)은 약 2.3GB를 잡고, api와 worker가 각각 올리면 약 4.6GB다.
     # 개발 노트북에서 이것이 켜진 줄 모르고 있으면 스왑으로 밀려 아주 느려진다.
     USE_FAKE_EMBEDDING: bool = True
+    # USE_FAKE_EMBEDDING=false 일 때 어떤 구현을 쓸지 고른다.
+    #   "local-model" -> 컨테이너 안에서 모델을 직접 로드 (서버 불필요)
+    #   "local-http"  -> OpenAI 호환 /v1/embeddings 서버 호출 (컨테이너 메모리 0)
+    # 직접 로드는 서버를 안 띄워도 되는 대신 컨테이너가 모델 메모리를 쓴다
+    # (fp16 기준 약 1.2GB). 어느 쪽이 나은지는 운영 조건에 달렸다.
+    EMBEDDING_PROVIDER: str = "local-model"
     # document_chunks.embedding_model 에 기록되는 이름이자, 로컬 서버에 넘기는
     # 모델 이름이다. 모델을 바꾸면 ix_chunk_model 인덱스로 "이 모델로 만든
     # 청크"만 골라 지우고 다시 만든다.
@@ -70,6 +76,41 @@ class Settings(BaseSettings):
     EMBEDDING_TIMEOUT_SECONDS: int = 120
     # 한 번의 요청에 넣을 청크 수. 너무 크면 서버가 타임아웃하거나 메모리로 터진다.
     EMBEDDING_BATCH_SIZE: int = 16
+
+    # --- 직접 로드용 (EMBEDDING_PROVIDER="local-model") ------------------------
+    # 베이스 모델. 첫 실행 때 HF 에서 받아 캐시된다(약 2.2GB).
+    EMBEDDING_BASE_MODEL: str = "dragonkue/BGE-m3-ko"
+    # 파인튜닝 LoRA 어댑터. 저장소의 adapters/ 에 들어 있다(27MB).
+    # ⚠️ 비우면 베이스만 쓰는데, 검색 품질이 크게 떨어진다
+    #   (문서 단위 k=5 기준 93.0% -> 64.0%).
+    EMBEDDING_ADAPTER_PATH: str = "adapters/embedding-hn-v1"
+    # 토큰 상한. 학습·측정을 이 값으로 했으므로 바꾸면 성능이 달라진다.
+    # 우리 청크의 p95 가 515토큰이라 512 면 5% 만 잘린다.
+    EMBEDDING_MAX_SEQ_LENGTH: int = 512
+
+    # --- 리랭킹 (검색 후보 재정렬) ---------------------------------------------
+    # ⚠️ **GPU 가 아니면 켜지 마라.** 후보 10건 재정렬에 GPU 527ms / CPU 8,511ms 다.
+    #   CPU 에서는 검색 한 번에 8.5초가 되어 사실상 멈춘다.
+    #   끄고 SEARCH limit 을 10 으로 두는 편이 낫다 — 문서 단위 k=10 이 97.2% 로
+    #   리랭커를 켠 k=5(96.3%)보다 오히려 높다.
+    #   리랭커가 사는 것은 정확도가 아니라 "LLM 에 넘길 청크 수" 다(10개 -> 5개).
+    RERANK_ENABLED: bool = False
+    RERANK_BASE_MODEL: str = "dragonkue/bge-reranker-v2-m3-ko"
+    # ⚠️ 범용 리랭커를 그대로 쓰면 검색이 **나빠진다** (문서 단위 k=1 66.4% -> 37.9%).
+    #   우리 임베딩이 이 도메인에 파인튜닝돼 있어 범용 리랭커보다 강해서다.
+    #   반드시 이 어댑터를 함께 쓸 것.
+    RERANK_ADAPTER_PATH: str = "adapters/reranker-v1"
+    # 재정렬에 넘길 후보 수. 실측(문서 단위):
+    #   N=10  k=5 96.3%  527ms   <- 채택
+    #   N=20  k=5 97.2%  901ms   (+0.9%p 에 지연 71% 증가)
+    RERANK_CANDIDATE_POOL: int = 10
+    RERANK_BATCH_SIZE: int = 16
+    # 질의와 문단을 이어붙여 넣으므로 임베딩보다 길게 잡는다.
+    RERANK_MAX_SEQ_LENGTH: int = 576
+
+    # 모델을 올릴 장치. 비우면 CUDA 가 있으면 CUDA, 없으면 CPU 로 자동 선택한다.
+    # 강제하려면 "cuda" 또는 "cpu".
+    MODEL_DEVICE: str = ""
 
     # --- 의미 검색 (SRH-001) --------------------------------------------------
     # HNSW 가 한 번에 꺼내 오는 후보 수. pgvector 기본값은 40인데, project_id 와

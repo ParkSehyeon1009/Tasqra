@@ -70,6 +70,20 @@ services:
       - ./backend/migrations:/app/migrations
       - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./backend/uploads:/app/uploads
+      - ./backend/adapters:/app/adapters:ro
+      # 베이스 모델(각 2.2GB)이 캐시되는 곳. 이게 없으면 컨테이너를 다시 만들
+      # 때마다 HF 에서 다시 받는다.
+      - hf_cache:/root/.cache/huggingface
+    # GPU 를 쓰려면 주석을 풀어라 (nvidia-container-toolkit 필요).
+    # ⚠️ 리랭킹(RERANK_ENABLED=true)은 GPU 가 없으면 켜지 마라 —
+    #   후보 10건에 CPU 8.5초 / GPU 0.5초다.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   worker:
@@ -93,6 +107,19 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./backend/uploads:/app/uploads
+      - ./backend/adapters:/app/adapters:ro
+      # api 와 같은 캐시를 본다. 베이스 모델을 두 번 받지 않는다.
+      - hf_cache:/root/.cache/huggingface
+    # 워커는 문서 임베딩을 한다. GPU 를 쓰려면 api 와 같이 주석을 풀어라.
+    # ⚠️ api 와 워커가 각각 모델을 올린다. 8GB 카드에서 fp16 이면 여유가 있지만
+    #   fp32 면 빠듯하다 (임베딩 2.3GB × 2 + 리랭커 2.3GB).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=1
 
   frontend:
@@ -109,3 +136,6 @@ services:
 
 volumes:
   tasqra_data:
+  # 베이스 임베딩·리랭커 모델 캐시. api 와 worker 가 공유한다.
+  # 첫 실행 때 HF 에서 받고(각 2.2GB) 이후로는 재사용한다.
+  hf_cache:

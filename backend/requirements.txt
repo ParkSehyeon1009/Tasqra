@@ -34,3 +34,18 @@ paddleocr==3.2.0
 opencv-python-headless==4.12.0.88
 Pillow==11.3.0
 numpy==2.2.6
+
+# --- 임베딩·리랭킹 모델 (EMBEDDING_PROVIDER=local-model 일 때만 쓰인다) -------
+# ⚠️ torch 가 이미지를 크게 늘린다. 기본 휠은 CUDA 런타임을 포함해 2GB 를 넘는다.
+#   GPU 를 안 쓸 것이면 CPU 전용 휠이 훨씬 작다:
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   다만 리랭킹은 CPU 에서 후보 10건에 8.5초가 걸려 사실상 못 쓴다
+#   (GPU 527ms). CPU 라면 RERANK_ENABLED=false 로 두어라.
+#
+# ⚠️ 서버를 따로 띄우는 편이 나으면 EMBEDDING_PROVIDER=local-http 로 바꾸고
+#   아래 셋을 지워도 된다. 그때는 컨테이너에 모델이 안 올라간다.
+#
+# 버전은 어댑터를 만들고 검증한 환경에 맞춘 것이다.
+torch
+sentence-transformers==5.7.0
+peft==0.20.0
