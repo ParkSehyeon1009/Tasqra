@@ -94,7 +94,7 @@ def reprocess_ocr_element(document_id: int, element_id: int, payload: OcrReproce
 
 @router.post("/documents/{document_id}/ocr-elements/merge", response_model=OcrElementMergeResponse)
 def merge_ocr_elements(document_id: int, payload: OcrElementMergeRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
-    document, merged, deleted_ids, operation = service.merge_ocr_elements(access.project.id, document_id, [(item.id, item.version) for item in payload.items], access.member.user_id)
+    document, merged, deleted_ids, operation = service.merge_ocr_elements(access.project.id, document_id, [(item.id, item.version) for item in payload.items], access.member.user_id, payload.join_with_space)
     return OcrElementMergeResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, merge_operation_id=operation.id, merged=OcrElementResponse.model_validate(merged), deleted_ids=deleted_ids)
 
 @router.post("/documents/{document_id}/ocr-elements/merge/{operation_id}/undo", response_model=OcrElementMergeUndoResponse)

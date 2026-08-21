@@ -187,7 +187,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   })
 
   const mergeMutation = useMutation({
-    mutationFn: elements => mergeOcrElements(projectId, documentId, elements),
+    mutationFn: preview => mergeOcrElements(projectId, documentId, preview.elements, preview.joinWithSpace),
     onSuccess: result => {
       queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })) }) : current)
       setMergeMode(false)
@@ -221,7 +221,8 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       return
     }
     const selectedElements = effectivePageElements.filter(element => mergeSelection.includes(element.id))
-    setMergePreview({ elements: selectedElements, text: selectedElements.slice().sort((a, b) => a.reading_order - b.reading_order).map(element => element.text).filter(Boolean).join('\n') })
+    const texts = selectedElements.slice().sort((a, b) => a.reading_order - b.reading_order).map(element => element.text).filter(Boolean)
+    setMergePreview({ elements: selectedElements, texts, joinWithSpace: true, text: texts.join(' ') })
   }
 
   function applyReOcrResult() {
@@ -270,7 +271,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     </main>
     {reOcrResult && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setReOcrResult(null)}><section className='reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='reocr-title'>재OCR 결과 비교</h2><p>새 인식 결과를 확인한 뒤 적용하세요. 적용 후에도 하단 저장 버튼을 눌러야 확정됩니다.</p><div className='reocr-comparison'><div><span>현재 텍스트</span><pre>{reOcrResult.original_text}</pre></div><div><span>새 인식 결과 {reOcrResult.confidence == null ? '' : `· ${Math.round(reOcrResult.confidence * 100)}%`}</span><pre>{reOcrResult.recognized_text}</pre></div></div><div className='reocr-dialog-actions'><button onClick={() => setReOcrResult(null)}>취소</button><button className='primary' onClick={applyReOcrResult}>새 결과 적용</button></div></section></div>}
     {batchReOcrResults && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setBatchReOcrResults(null)}><section className='reocr-dialog batch-reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='batch-reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='batch-reocr-title'>일괄 재OCR 결과</h2><p>성공한 결과를 검토하고 한꺼번에 변경 초안으로 적용할 수 있습니다.</p><ul>{batchReOcrResults.map(item => <li key={item.element.id} className={item.status === 'SUCCESS' ? 'success' : 'failed'}><div><strong>{item.element.text || '(빈 텍스트)'}</strong><span>{item.status === 'SUCCESS' ? '→ ' + item.result.recognized_text : item.error}</span></div><small>{item.status === 'SUCCESS' ? (item.result.confidence == null ? '신뢰도 정보 없음' : `신뢰도 ${Math.round(item.result.confidence * 100)}%`) : '실패'}</small></li>)}</ul><div className='reocr-dialog-actions'><button onClick={() => setBatchReOcrResults(null)}>취소</button><button className='primary' disabled={!batchReOcrResults.some(item => item.status === 'SUCCESS')} onClick={applyBatchReOcrResults}>성공 결과 전체 적용</button></div></section></div>}
-    {mergePreview && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setMergePreview(null)}><section className='reocr-dialog merge-preview-dialog' role='dialog' aria-modal='true' aria-labelledby='merge-preview-title' onMouseDown={event => event.stopPropagation()}><h2 id='merge-preview-title'>박스 병합 미리보기</h2><p>{mergePreview.elements.length}개 박스가 아래 텍스트로 합쳐집니다.</p><pre>{mergePreview.text}</pre><div className='reocr-dialog-actions'><button onClick={() => setMergePreview(null)}>취소</button><button className='primary' disabled={mergeMutation.isPending} onClick={() => mergeMutation.mutate(mergePreview.elements)}>{mergeMutation.isPending ? '병합 중...' : '이대로 병합'}</button></div></section></div>}
+    {mergePreview && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setMergePreview(null)}><section className='reocr-dialog merge-preview-dialog' role='dialog' aria-modal='true' aria-labelledby='merge-preview-title' onMouseDown={event => event.stopPropagation()}><h2 id='merge-preview-title'>박스 병합 미리보기</h2><p>{mergePreview.elements.length}개 박스가 아래 텍스트로 합쳐집니다.</p><label className='merge-linebreak-option'><input type='checkbox' checked={mergePreview.joinWithSpace} onChange={event => setMergePreview(current => ({ ...current, joinWithSpace: event.target.checked, text: current.texts.join(event.target.checked ? ' ' : '\n') }))}/>박스 사이 줄바꿈 없이 연결</label><pre>{mergePreview.text}</pre><div className='reocr-dialog-actions'><button onClick={() => setMergePreview(null)}>취소</button><button className='primary' disabled={mergeMutation.isPending} onClick={() => mergeMutation.mutate(mergePreview)}>{mergeMutation.isPending ? '병합 중...' : '이대로 병합'}</button></div></section></div>}
   </div>
 }
 

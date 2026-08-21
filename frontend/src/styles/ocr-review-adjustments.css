@@ -222,6 +222,8 @@
 .ocr-canvas.is-merging .ocr-box { cursor: pointer; }
 .ocr-box.merge-selected { z-index: 4; border-color: #7c3aed; background: rgba(124, 58, 237, .28); box-shadow: 0 0 0 3px white, 0 0 0 6px #7c3aed; }
 .merge-preview-dialog > pre { max-height: 220px; padding: 13px; overflow: auto; border: 1px solid #dce3ed; border-radius: 10px; background: #f7f9fc; white-space: pre-wrap; overflow-wrap: anywhere; }
+.merge-linebreak-option { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: #46556c; font-size: 13px; font-weight: 750; cursor: pointer; }
+.merge-linebreak-option input { width: 16px; height: 16px; margin: 0; accent-color: #5965d8; }
 @media (max-width: 650px) { .reocr-comparison { grid-template-columns: 1fr; } }
 
 @media (max-width: 1200px) {

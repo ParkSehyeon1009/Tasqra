@@ -229,6 +229,7 @@ class OcrElementMergeItem(BaseModel):
 
 class OcrElementMergeRequest(BaseModel):
     items: list[OcrElementMergeItem] = Field(min_length=2, max_length=100)
+    join_with_space: bool = True
 
     @model_validator(mode="after")
     def require_unique_ids(self):

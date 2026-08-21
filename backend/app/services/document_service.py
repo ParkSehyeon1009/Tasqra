@@ -474,7 +474,7 @@ class DocumentService:
         confidence = sum(scores) / len(scores) if scores else None
         return element, recognized_text, confidence
 
-    def merge_ocr_elements(self, project_id: int, document_id: int, items: list[tuple[int, int]], user_id: int) -> tuple[Document, OcrElement, list[int], OcrMergeOperation]:
+    def merge_ocr_elements(self, project_id: int, document_id: int, items: list[tuple[int, int]], user_id: int, join_with_space: bool = True) -> tuple[Document, OcrElement, list[int], OcrMergeOperation]:
         with transactional(self._db):
             document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
             if document is None:
@@ -525,7 +525,8 @@ class DocumentService:
                     "content_end": element.content_end, "version": element.version,
                 } for element in page.elements],
             }
-            merged_text = "\n".join(element.text for element in ordered if element.text)
+            separator = " " if join_with_space else "\n"
+            merged_text = separator.join(element.text for element in ordered if element.text)
             content_changed = self._replace_ocr_contents(document, [(survivor, merged_text), *[(element, "") for element in removed if element.is_in_content]])
             self._db.add(OcrElementRevision(element_id=survivor.id, changed_by=user_id, before_text=survivor.text, after_text=merged_text, from_version=survivor.version, to_version=survivor.version + 1))
             survivor.text = merged_text

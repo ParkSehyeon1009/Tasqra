@@ -70,8 +70,8 @@ export async function reprocessOcrElement(projectId, documentId, element) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${element.id}/reprocess`, { x, y, width, height })).data
 }
 
-export async function mergeOcrElements(projectId, documentId, elements) {
-  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })) })).data
+export async function mergeOcrElements(projectId, documentId, elements, joinWithSpace = true) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })), join_with_space: joinWithSpace })).data
 }
 
 export async function undoOcrElementMerge(projectId, documentId, operationId) {
