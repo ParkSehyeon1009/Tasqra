@@ -36,14 +36,23 @@ Pillow==11.3.0
 numpy==2.2.6
 
 # --- 임베딩·리랭킹 모델 (EMBEDDING_PROVIDER=local-model 일 때만 쓰인다) -------
-# ⚠️ torch 가 이미지를 크게 늘린다. 기본 휠은 CUDA 런타임을 포함해 2GB 를 넘는다.
-#   GPU 를 안 쓸 것이면 CPU 전용 휠이 훨씬 작다:
-#     pip install torch --index-url https://download.pytorch.org/whl/cpu
-#   다만 리랭킹은 CPU 에서 후보 10건에 8.5초가 걸려 사실상 못 쓴다
-#   (GPU 527ms). CPU 라면 RERANK_ENABLED=false 로 두어라.
+# ⚠️ 이 이미지는 11.1GB 다. torch 기본 휠이 CUDA 런타임을 통째로 끌고 온다
+#   (torch 527MB + cuDNN 366MB + nvidia_* 다수). paddleocr 가 이미 들어있는
+#   이미지에 CUDA 스택이 얹힌 결과다.
 #
-# ⚠️ 서버를 따로 띄우는 편이 나으면 EMBEDDING_PROVIDER=local-http 로 바꾸고
-#   아래 셋을 지워도 된다. 그때는 컨테이너에 모델이 안 올라간다.
+#   **이것은 실수가 아니라 판단이다** (2026-08-21). GPU 를 쓸 수 있는 환경을
+#   전제하고 리랭킹까지 살리기로 했다. 크기를 줄이려다 리랭킹을 잃는 것보다
+#   낫다고 봤다. 줄이고 싶어지면 아래 두 갈래가 있다:
+#
+#     1) CPU 전용 휠 — 이미지 약 4GB
+#        pip install torch --index-url https://download.pytorch.org/whl/cpu
+#        ⚠️ 리랭킹이 후보 10건에 8.5초가 되어 못 쓴다(GPU 527ms).
+#           RERANK_ENABLED=false 로 두고 검색 limit 을 10 으로 올려라 —
+#           문서 단위 k=10 이 97.2% 로 리랭커를 켠 k=5(96.3%)보다 오히려 높다.
+#
+#     2) EMBEDDING_PROVIDER=local-http — 이미지가 원래대로 돌아간다
+#        아래 셋을 지우고 모델은 별도 서버가 들고 있게 한다. 컨테이너에 torch 가
+#        없으므로 GPU 도 서버 쪽에서만 쓰면 된다. 대신 서버를 띄워 둬야 한다.
 #
 # 버전은 어댑터를 만들고 검증한 환경에 맞춘 것이다.
 torch
