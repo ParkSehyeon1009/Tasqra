@@ -7,7 +7,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrUndoableMergeResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
 from app.services.extraction_service import ExtractionService
 from app.worker import enqueue_build_chunks, extract_document_task
@@ -50,7 +50,8 @@ def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project
     document = service.get_document_for_review(access.project.id, document_id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
-    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), latest_merge_operation_id=latest_merge[0] if latest_merge else None, latest_merge_page_id=latest_merge[1] if latest_merge else None, pages=pages)
+    undoable_merges = service.list_undoable_merges(access.project.id, document_id)
+    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), latest_merge_operation_id=latest_merge[0] if latest_merge else None, latest_merge_page_id=latest_merge[1] if latest_merge else None, undoable_merges=[OcrUndoableMergeResponse(operation_id=item[0], survivor_id=item[1], page_id=item[2]) for item in undoable_merges], pages=pages)
 
 @router.get("/documents/{document_id}/review/pages/{page_id}/image")
 def get_ocr_page_image(document_id: int, page_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
@@ -112,7 +113,8 @@ def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_pr
     document = service.get_document_for_review(access.project.id, document.id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
-    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), latest_merge_operation_id=latest_merge[0] if latest_merge else None, latest_merge_page_id=latest_merge[1] if latest_merge else None, pages=pages)
+    undoable_merges = service.list_undoable_merges(access.project.id, document_id)
+    return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), latest_merge_operation_id=latest_merge[0] if latest_merge else None, latest_merge_page_id=latest_merge[1] if latest_merge else None, undoable_merges=[OcrUndoableMergeResponse(operation_id=item[0], survivor_id=item[1], page_id=item[2]) for item in undoable_merges], pages=pages)
 
 @router.get("/documents/{document_id}/download")
 def download_summary(document_id: int, format: str = Query("txt", pattern="^txt$"), access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):

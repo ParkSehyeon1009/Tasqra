@@ -224,6 +224,13 @@
 .merge-preview-dialog > pre { max-height: 220px; padding: 13px; overflow: auto; border: 1px solid #dce3ed; border-radius: 10px; background: #f7f9fc; white-space: pre-wrap; overflow-wrap: anywhere; }
 .merge-linebreak-option { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: #46556c; font-size: 13px; font-weight: 750; cursor: pointer; }
 .merge-linebreak-option input { width: 16px; height: 16px; margin: 0; accent-color: #5965d8; }
+.ocr-paragraph-merge-actions { display: flex; align-items: center; gap: 8px; max-width: 1440px; margin: -6px auto 16px; padding: 10px 12px; border: 1px solid #ddd6fe; border-radius: 11px; background: #faf8ff; }
+.ocr-paragraph-merge-actions > div { display: grid; gap: 2px; margin-right: auto; }
+.ocr-paragraph-merge-actions strong { color: #493980; font-size: 13px; }
+.ocr-paragraph-merge-actions span { color: #766b94; font-size: 11px; }
+.ocr-paragraph-merge-actions button { padding: 8px 10px; border: 1px solid #9d8ed0; border-radius: 8px; background: #fff; color: #5e45ad; font-size: 12px; font-weight: 750; cursor: pointer; }
+.ocr-paragraph-merge-actions button.restore { border-color: #91c8a6; color: #247347; }
+.ocr-paragraph-merge-actions button:disabled { cursor: not-allowed; opacity: .5; }
 @media (max-width: 650px) { .reocr-comparison { grid-template-columns: 1fr; } }
 
 @media (max-width: 1200px) {

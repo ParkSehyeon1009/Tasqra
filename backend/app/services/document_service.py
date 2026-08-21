@@ -152,11 +152,30 @@ class DocumentService:
             self._db.query(OcrMergeOperation.id, OcrElement.page_id)
             .join(OcrElement, OcrElement.id == OcrMergeOperation.survivor_id)
             .join(Document, Document.id == OcrMergeOperation.document_id)
-            .filter(Document.project_id == project_id, Document.id == document_id, OcrMergeOperation.undone_at.is_(None))
+            .filter(Document.project_id == project_id, Document.id == document_id, OcrMergeOperation.undone_at.is_(None), OcrElement.is_deleted.is_(False), OcrElement.version == OcrMergeOperation.merged_version)
             .order_by(OcrMergeOperation.created_at.desc(), OcrMergeOperation.id.desc())
             .first()
         )
         return (row[0], row[1]) if row else None
+
+    def list_undoable_merges(self, project_id: int, document_id: int) -> list[tuple[int, int, int]]:
+        return [
+            (row[0], row[1], row[2])
+            for row in (
+                self._db.query(OcrMergeOperation.id, OcrMergeOperation.survivor_id, OcrElement.page_id)
+                .join(OcrElement, OcrElement.id == OcrMergeOperation.survivor_id)
+                .join(Document, Document.id == OcrMergeOperation.document_id)
+                .filter(
+                    Document.project_id == project_id,
+                    Document.id == document_id,
+                    OcrMergeOperation.undone_at.is_(None),
+                    OcrElement.is_deleted.is_(False),
+                    OcrElement.version == OcrMergeOperation.merged_version,
+                )
+                .order_by(OcrMergeOperation.created_at.desc(), OcrMergeOperation.id.desc())
+                .all()
+            )
+        ]
 
     def list_ocr_revisions(self, project_id: int, document_id: int):
         self.get_document(project_id, document_id)
@@ -568,27 +587,41 @@ class DocumentService:
             if survivor is None or survivor.version != operation.merged_version:
                 raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             selected_ids = set(operation.snapshot_json["selected_ids"])
-            for saved in operation.snapshot_json["elements"]:
+            selected_snapshots = [saved for saved in operation.snapshot_json["elements"] if saved["id"] in selected_ids]
+            for saved in selected_snapshots:
                 element = all_elements.get(saved["id"])
-                expected_version = saved["version"] + (1 if saved["id"] in selected_ids else 0)
-                if element is None or element.version != expected_version:
+                if element is None or (element.id != survivor.id and not element.is_deleted):
                     raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             saved_text = operation.snapshot_json.get("extracted_text")
-            if saved_text and document.extracted_text and document.extracted_text.text_version != saved_text["text_version"] + 1:
-                raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
+            content_changed = False
+            range_origin = None
+            restored_content_start = None
+            if saved_text and document.extracted_text:
+                content_snapshots = [saved for saved in selected_snapshots if saved["is_in_content"] and saved["content_start"] is not None and saved["content_end"] is not None]
+                if content_snapshots:
+                    range_origin = min(saved["content_start"] for saved in content_snapshots)
+                    range_end = max(saved["content_end"] for saved in content_snapshots)
+                    original_segment = saved_text["content"][range_origin:range_end]
+                    restored_content_start = survivor.content_start
+                    content_changed = self._replace_ocr_content(document, survivor, original_segment)
             restored = []
-            for saved in operation.snapshot_json["elements"]:
+            for saved in selected_snapshots:
                 element = all_elements.get(saved["id"])
                 current_version = element.version
-                for field in ("text", "x", "y", "width", "height", "confidence", "source", "is_deleted", "is_excluded", "is_in_content", "content_start", "content_end"):
+                for field in ("text", "x", "y", "width", "height", "confidence", "source", "is_deleted", "is_excluded", "is_in_content"):
                     setattr(element, field, saved[field])
+                if saved["content_start"] is not None and range_origin is not None and restored_content_start is not None:
+                    element.content_start = restored_content_start + saved["content_start"] - range_origin
+                    element.content_end = restored_content_start + saved["content_end"] - range_origin
+                else:
+                    element.content_start = saved["content_start"]
+                    element.content_end = saved["content_end"]
                 element.version = current_version + 1
                 restored.append(element)
             if saved_text and document.extracted_text:
-                for field in ("content", "char_count", "ocr_char_count", "is_confirmed", "confirmed_by"):
-                    setattr(document.extracted_text, field, saved_text[field])
-                document.extracted_text.text_version += 1
-                document.extracted_text.confirmed_at = datetime.fromisoformat(saved_text["confirmed_at"]) if saved_text["confirmed_at"] else None
+                if content_changed:
+                    document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
             operation.undone_at = datetime.now(timezone.utc)
             document.ocr_revision += 1
             self._mark_review_in_progress(document)

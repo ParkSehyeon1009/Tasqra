@@ -169,7 +169,14 @@ class OcrReviewResponse(BaseModel):
     ocr_char_count: int
     latest_merge_operation_id: int | None = None
     latest_merge_page_id: int | None = None
+    undoable_merges: list["OcrUndoableMergeResponse"] = Field(default_factory=list)
     pages: list[OcrPageResponse]
+
+
+class OcrUndoableMergeResponse(BaseModel):
+    operation_id: int
+    survivor_id: int
+    page_id: int
 
 
 class OcrElementUpdateRequest(BaseModel):

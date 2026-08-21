@@ -44,6 +44,9 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const draft = selected ? (drafts[selected.id] ?? selected.text) : ''
   const effectivePageElements = useMemo(() => page?.elements.map(element => ({ ...element, ...structureDrafts[element.id], ...geometryDrafts[element.id] })) ?? [], [page, structureDrafts, geometryDrafts])
   const lowConfidenceElements = useMemo(() => effectivePageElements.filter(element => !element.is_deleted && confidenceLevel(element.confidence) === 'low'), [effectivePageElements])
+  const undoableMergeBySurvivor = useMemo(() => new Map((review?.undoable_merges ?? []).map(operation => [operation.survivor_id, operation])), [review?.undoable_merges])
+  const mergeableParagraphGroups = useMemo(() => paragraphMergeGroups(effectivePageElements), [effectivePageElements])
+  const selectedMergeOperation = undoableMergeBySurvivor.get(effectiveSelectedId)
   const canEdit = projectQuery.data?.role !== 'VIEWER'
   const dirtyChanges = pages.flatMap(item => item.elements.map(element => buildBatchChange(element, drafts[element.id], structureDrafts[element.id], geometryDrafts[element.id], reOcrDrafts[element.id])).filter(Boolean))
   const hasUnsavedChanges = dirtyChanges.length > 0
@@ -113,6 +116,15 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       })
       return next
     })
+  }
+
+  function mergeSuggestedParagraphs() {
+    if (hasUnsavedChanges) {
+      notify('error', '단락 병합 전 저장 필요', '자동 단락 제안이나 다른 변경 내용을 먼저 저장해 주세요.')
+      return
+    }
+    if (!mergeableParagraphGroups.length) return
+    if (window.confirm(`${mergeableParagraphGroups.length}개 단락의 박스와 텍스트를 합칠까요? 병합된 박스는 각각 다시 나눌 수 있습니다.`)) paragraphMergeMutation.mutate(mergeableParagraphGroups)
   }
 
   const updateMutation = useMutation({
@@ -189,7 +201,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const mergeMutation = useMutation({
     mutationFn: preview => mergeOcrElements(projectId, documentId, preview.elements, preview.joinWithSpace),
     onSuccess: result => {
-      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })) }) : current)
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', undoable_merges: [{ operation_id: result.merge_operation_id, survivor_id: result.merged.id, page_id: page.id }, ...(current.undoable_merges ?? [])], pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })) }) : current)
       setMergeMode(false)
       setMergeSelection([])
       setMergePreview(null)
@@ -203,12 +215,37 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const undoMergeMutation = useMutation({
     mutationFn: operation => undoOcrElementMerge(projectId, documentId, operation.operationId),
     onSuccess: (result, operation) => {
-      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', latest_merge_operation_id: null, latest_merge_page_id: null, pages: current.pages.map(item => item.id === operation.pageId ? { ...item, elements: result.restored } : item) }) : current)
+      const restoredIds = new Set(result.restored.map(element => element.id))
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', latest_merge_operation_id: null, latest_merge_page_id: null, undoable_merges: (current.undoable_merges ?? []).filter(item => item.operation_id !== operation.operationId), pages: current.pages.map(item => item.id === operation.pageId ? { ...item, elements: [...item.elements.filter(element => !restoredIds.has(element.id)), ...result.restored].sort((a, b) => a.reading_order - b.reading_order) } : item) }) : current)
       setLastMerge(null)
       setSelectedId(result.restored[0]?.id ?? null)
       notify('success', '박스 병합 되돌리기 완료', '병합 전 박스와 텍스트를 복원했습니다.')
     },
     onError: error => { setLastMerge(null); reviewQuery.refetch(); notify('error', '병합 되돌리기 실패', error.message) },
+  })
+
+  const paragraphMergeMutation = useMutation({
+    mutationFn: async groups => {
+      const results = []
+      for (const group of groups) {
+        try { results.push({ status: 'SUCCESS', result: await mergeOcrElements(projectId, documentId, group, true) }) }
+        catch (error) { results.push({ status: 'FAILED', error }) }
+      }
+      return results
+    },
+    onSuccess: results => {
+      const successes = results.filter(item => item.status === 'SUCCESS').map(item => item.result)
+      queryClient.setQueryData(reviewKey, current => {
+        if (!current) return current
+        let elements = current.pages.find(item => item.id === page.id)?.elements ?? []
+        successes.forEach(result => { elements = elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })
+        return { ...current, ocr_revision: successes.at(-1)?.ocr_revision ?? current.ocr_revision, review_status: 'IN_PROGRESS', undoable_merges: [...successes.map(result => ({ operation_id: result.merge_operation_id, survivor_id: result.merged.id, page_id: page.id })), ...(current.undoable_merges ?? [])], pages: current.pages.map(item => item.id === page.id ? { ...item, elements } : item) }
+      })
+      const failures = results.length - successes.length
+      setLastMerge(successes.length ? { operationId: successes.at(-1).merge_operation_id, pageId: page.id } : null)
+      setSelectedId(successes[0]?.merged.id ?? null)
+      notify(failures ? 'error' : 'success', '단락별 박스 병합 완료', `${successes.length}개 단락 병합 성공${failures ? ` · ${failures}개 실패` : ''}`)
+    },
   })
 
   function toggleMergeSelection(element) {
@@ -265,6 +302,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       <div className='ocr-review-toolbar-actions'><span className={'status-badge status-' + reviewStatus.tone} title={reviewStatus.description}>{reviewStatus.label}</span><button className='primary' disabled={!canEdit || completeMutation.isPending || updateMutation.isPending || exclusionMutation.isPending} onClick={completeReview}>{completeMutation.isPending ? '검수 완료 처리 중...' : 'OCR 검수 완료'}</button></div>
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
+    {canEdit && <section className='ocr-paragraph-merge-actions'><div><strong>단락 박스 정리</strong><span>자동 단락 제안과 직접 조정한 경계를 기준으로 박스와 텍스트를 합칩니다.</span></div><button type='button' disabled={!mergeableParagraphGroups.length || paragraphMergeMutation.isPending} onClick={mergeSuggestedParagraphs}>{paragraphMergeMutation.isPending ? '단락 병합 중...' : `단락별 박스 병합 (${mergeableParagraphGroups.length})`}</button>{selectedMergeOperation && <button type='button' className='restore' disabled={undoMergeMutation.isPending} onClick={() => undoMergeMutation.mutate({ operationId: selectedMergeOperation.operation_id, pageId: selectedMergeOperation.page_id })}>{undoMergeMutation.isPending ? '나누는 중...' : '선택 박스 원래대로 나누기'}</button>}</section>}
     <main className='ocr-review-workspace ocr-review-layout'>
       <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{mergeMode ? '합칠 인접 박스를 원본 화면에서 차례로 선택하세요.' : createMode ? '원본에서 원하는 영역을 대각선으로 드래그하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} mergeMode={mergeMode} mergeSelection={mergeSelection} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => mergeMode ? toggleMergeSelection(element) : selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
       <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div>{canEdit && <div className='ocr-batch-reocr'><span>일괄 재OCR</span><button type='button' disabled={!lowConfidenceElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(lowConfidenceElements)}>낮은 신뢰도 {lowConfidenceElements.length}개</button><button type='button' disabled={!effectivePageElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(effectivePageElements.filter(element => !element.is_deleted))}>현재 페이지 전체</button>{batchReOcrMutation.isPending && <small>선택 영역을 순서대로 처리하고 있습니다...</small>}</div>}{canEdit && <div className='ocr-merge-toolbar'><button type='button' className={mergeMode ? 'active' : ''} onClick={() => { setMergeMode(current => !current); setMergeSelection([]) }}>{mergeMode ? '병합 선택 취소' : '박스 병합'}</button>{mergeMode && <><span>{mergeSelection.length}개 선택</span><button type='button' className='primary' disabled={mergeSelection.length < 2 || mergeMutation.isPending} onClick={mergeSelectedElements}>선택 박스 병합</button></>}{availableLastMerge && <button type='button' disabled={undoMergeMutation.isPending} onClick={() => undoMergeMutation.mutate(availableLastMerge)}>{undoMergeMutation.isPending ? '되돌리는 중...' : '최근 병합 되돌리기'}</button>}</div>}<ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending || batchReOcrMutation.isPending || mergeMutation.isPending || undoMergeMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)} mergeMode={mergeMode} mergeSelection={mergeSelection} onToggleMerge={toggleMergeSelection}/></aside>
@@ -409,5 +447,24 @@ function paragraphGroupNumbers(elements) {
     if (index > 0 && (element.is_paragraph_start || element.element_type === 'HEADING' || beginsTable)) group += 1
     groups.set(element.id, group)
   })
+  return groups
+}
+
+function paragraphMergeGroups(elements) {
+  const groups = []
+  let current = []
+  const flush = () => {
+    if (current.length > 1) groups.push(current)
+    current = []
+  }
+  elements.slice().sort((a, b) => a.reading_order - b.reading_order).forEach(element => {
+    if (element.is_deleted || element.is_excluded || isTableElement(element) || element.element_type === 'HEADING') {
+      flush()
+      return
+    }
+    if (element.is_paragraph_start) flush()
+    current.push(element)
+  })
+  flush()
   return groups
 }
