@@ -18,12 +18,14 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.orm import Session
+from PIL import Image
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis, Document, OcrElement, OcrElementRevision
 from app.models.enums import AnalyzerType, ReviewStatus
+from app.extractors.ocr_extractor import OcrExtractor
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
 
@@ -57,6 +59,8 @@ class OcrElementBatchChange:
     y: float | None = None
     width: float | None = None
     height: float | None = None
+    re_ocr_confidence: float | None = None
+    re_ocr_applied: bool | None = None
 
 class DocumentService:
     def __init__(
@@ -64,10 +68,12 @@ class DocumentService:
         db: Session,
         document_repository: DocumentRepository,
         analysis_repository: AnalysisRepository,
+        ocr_extractor: OcrExtractor | None = None,
     ) -> None:
         self._db = db
         self._document_repository = document_repository
         self._analysis_repository = analysis_repository
+        self._ocr_extractor = ocr_extractor
 
     # ------------------------------------------------------------------ 목록
     def search_documents(
@@ -348,6 +354,11 @@ class DocumentService:
                         setattr(element, field, requested_value)
                         item_changed = True
 
+                if change.re_ocr_applied:
+                    element.confidence = change.re_ocr_confidence
+                    element.source = "RE_OCR"
+                    item_changed = True
+
                 if item_changed:
                     element.version += 1
                     any_changed = True
@@ -421,6 +432,36 @@ class DocumentService:
                     document.extracted_text.confirmed_by = None
                     document.extracted_text.confirmed_at = None
         return element
+
+    def reprocess_ocr_element(self, project_id: int, document_id: int, element_id: int, x: float, y: float, width: float, height: float) -> tuple[OcrElement, str, float | None]:
+        element = self._document_repository.get_ocr_element(project_id, document_id, element_id)
+        if element is None:
+            raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+        if element.is_deleted:
+            raise BusinessError(ErrorCode.OCR_ELEMENT_DELETED)
+        if self._ocr_extractor is None:
+            raise BusinessError(ErrorCode.RE_OCR_FAILED)
+        page = self._document_repository.get_review_page(project_id, document_id, element.page_id)
+        if page is None:
+            raise BusinessError(ErrorCode.PAGE_NOT_FOUND)
+        try:
+            with Image.open(page.image_path) as source:
+                image = source.convert("RGB")
+                left = max(0, min(image.width - 1, round(x * image.width)))
+                top = max(0, min(image.height - 1, round(y * image.height)))
+                right = max(left + 1, min(image.width, round((x + width) * image.width)))
+                bottom = max(top + 1, min(image.height, round((y + height) * image.height)))
+                results = self._ocr_extractor.extract(image.crop((left, top, right, bottom)), normalize_orientation=False)
+        except BusinessError:
+            raise
+        except Exception as exc:
+            raise BusinessError(ErrorCode.RE_OCR_FAILED) from exc
+        recognized_text = "\n".join(item.content for item in results if item.content.strip())
+        if not recognized_text:
+            raise BusinessError(ErrorCode.RE_OCR_FAILED)
+        scores = [item.confidence for item in results if item.confidence is not None]
+        confidence = sum(scores) / len(scores) if scores else None
+        return element, recognized_text, confidence
 
     def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
         with transactional(self._db):

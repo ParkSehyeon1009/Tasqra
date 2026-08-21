@@ -293,6 +293,7 @@ def get_document_service(
         db=db,
         document_repository=document_repository,
         analysis_repository=analysis_repository,
+        ocr_extractor=get_ocr_extractor(),
     )
 
 

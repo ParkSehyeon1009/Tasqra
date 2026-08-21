@@ -200,6 +200,26 @@ class OcrElementCreateRequest(BaseModel):
         return self
 
 
+class OcrReprocessResponse(BaseModel):
+    element_id: int
+    original_text: str
+    recognized_text: str
+    confidence: float | None
+
+
+class OcrReprocessRequest(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def require_box_inside_page(self):
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page")
+        return self
+
+
 class OcrElementBatchUpdateItem(BaseModel):
     id: int = Field(ge=1)
     version: int = Field(ge=1)
@@ -214,10 +234,12 @@ class OcrElementBatchUpdateItem(BaseModel):
     y: float | None = Field(default=None, ge=0, le=1)
     width: float | None = Field(default=None, gt=0, le=1)
     height: float | None = Field(default=None, gt=0, le=1)
+    re_ocr_confidence: float | None = Field(default=None, ge=0, le=1)
+    re_ocr_applied: bool | None = None
 
     @model_validator(mode="after")
     def require_change(self):
-        editable = (self.text, self.is_excluded, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height)
+        editable = (self.text, self.is_excluded, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height, self.re_ocr_applied)
         if all(value is None for value in editable):
             raise ValueError("at least one editable field is required")
         if self.x is not None and self.width is not None and self.x + self.width > 1:

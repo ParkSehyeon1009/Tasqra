@@ -7,7 +7,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
 from app.services.extraction_service import ExtractionService
 from app.worker import enqueue_build_chunks, extract_document_task
@@ -85,6 +85,11 @@ def create_ocr_element(document_id: int, payload: OcrElementCreateRequest, acces
 @router.patch("/documents/{document_id}/ocr-elements/{element_id}/deletion", response_model=OcrElementResponse)
 def set_ocr_element_deletion(document_id: int, element_id: int, payload: OcrElementDeletionRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     return OcrElementResponse.model_validate(service.set_ocr_element_deletion(access.project.id, document_id, element_id, payload.is_deleted, payload.version))
+
+@router.post("/documents/{document_id}/ocr-elements/{element_id}/reprocess", response_model=OcrReprocessResponse)
+def reprocess_ocr_element(document_id: int, element_id: int, payload: OcrReprocessRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
+    element, recognized_text, confidence = service.reprocess_ocr_element(access.project.id, document_id, element_id, payload.x, payload.y, payload.width, payload.height)
+    return OcrReprocessResponse(element_id=element.id, original_text=element.text, recognized_text=recognized_text, confidence=confidence)
 
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):

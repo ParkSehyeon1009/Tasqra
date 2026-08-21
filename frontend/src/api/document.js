@@ -65,6 +65,11 @@ export async function setOcrElementDeletion(projectId, documentId, elementId, is
   return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/deletion`, { is_deleted: isDeleted, version })).data
 }
 
+export async function reprocessOcrElement(projectId, documentId, element) {
+  const { x, y, width, height } = element
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${element.id}/reprocess`, { x, y, width, height })).data
+}
+
 export async function completeOcrReview(projectId, documentId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
 }
