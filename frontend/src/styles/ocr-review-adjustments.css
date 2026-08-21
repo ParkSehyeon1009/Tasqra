@@ -93,6 +93,36 @@
 .ocr-element-list-title button:disabled,
 .paragraph-boundary button:disabled { cursor: not-allowed; opacity: .5; }
 
+.ocr-confidence-filter {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #f0f3f8;
+}
+.ocr-confidence-filter button {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #637187;
+  font-weight: 750;
+  cursor: pointer;
+}
+.ocr-confidence-filter button span { margin-left: 4px; color: #8994a5; }
+.ocr-confidence-filter button.active {
+  border-color: #d4dbea;
+  background: #fff;
+  color: #27344c;
+  box-shadow: 0 2px 6px rgba(32, 47, 71, .08);
+}
+.ocr-confidence-filter button.active:last-child { color: #b43131; }
+.ocr-filter-empty { margin: 14px 0; padding: 24px 16px; border: 1px dashed #d5deea; border-radius: 10px; text-align: center; }
+.ocr-filter-empty strong { color: #405069; font-size: 13px; }
+.ocr-filter-empty p { margin: 6px 0 0; color: #7b8798; font-size: 12px; line-height: 1.45; }
+
 .ocr-element-with-boundary { position: relative; }
 .paragraph-boundary {
   display: flex;
