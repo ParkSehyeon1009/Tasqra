@@ -257,6 +257,7 @@ class OcrElementMergeResponse(BaseModel):
 class OcrElementMergeUndoResponse(BaseModel):
     ocr_revision: int
     text_version: int | None
+    deleted_ids: list[int]
     restored: list[OcrElementResponse]
 
 

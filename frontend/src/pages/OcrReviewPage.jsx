@@ -201,13 +201,13 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const mergeMutation = useMutation({
     mutationFn: preview => mergeOcrElements(projectId, documentId, preview.elements, preview.joinWithSpace),
     onSuccess: result => {
-      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', undoable_merges: [{ operation_id: result.merge_operation_id, survivor_id: result.merged.id, page_id: page.id }, ...(current.undoable_merges ?? [])], pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })) }) : current)
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', undoable_merges: [{ operation_id: result.merge_operation_id, survivor_id: result.merged.id, page_id: page.id }, ...(current.undoable_merges ?? [])], pages: current.pages.map(item => item.id === page.id ? { ...item, elements: [...item.elements.filter(element => !result.deleted_ids.includes(element.id)), result.merged].sort((a, b) => a.reading_order - b.reading_order) } : item) }) : current)
       setMergeMode(false)
       setMergeSelection([])
       setMergePreview(null)
       setLastMerge({ operationId: result.merge_operation_id, pageId: page.id })
       setSelectedId(result.merged.id)
-      notify('success', 'OCR 박스 병합 완료', `${result.deleted_ids.length + 1}개 영역을 하나로 병합했습니다.`)
+      notify('success', 'OCR 박스 병합 완료', `${result.deleted_ids.length}개 영역을 하나로 병합했습니다.`)
     },
     onError: error => notify('error', 'OCR 박스 병합 실패', error.message),
   })
@@ -216,7 +216,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     mutationFn: operation => undoOcrElementMerge(projectId, documentId, operation.operationId),
     onSuccess: (result, operation) => {
       const restoredIds = new Set(result.restored.map(element => element.id))
-      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', latest_merge_operation_id: null, latest_merge_page_id: null, undoable_merges: (current.undoable_merges ?? []).filter(item => item.operation_id !== operation.operationId), pages: current.pages.map(item => item.id === operation.pageId ? { ...item, elements: [...item.elements.filter(element => !restoredIds.has(element.id)), ...result.restored].sort((a, b) => a.reading_order - b.reading_order) } : item) }) : current)
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', latest_merge_operation_id: null, latest_merge_page_id: null, undoable_merges: (current.undoable_merges ?? []).filter(item => item.operation_id !== operation.operationId), pages: current.pages.map(item => item.id === operation.pageId ? { ...item, elements: [...item.elements.filter(element => !restoredIds.has(element.id) && !result.deleted_ids.includes(element.id)), ...result.restored].sort((a, b) => a.reading_order - b.reading_order) } : item) }) : current)
       setLastMerge(null)
       setSelectedId(result.restored[0]?.id ?? null)
       notify('success', '박스 병합 되돌리기 완료', '병합 전 박스와 텍스트를 복원했습니다.')
@@ -238,7 +238,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       queryClient.setQueryData(reviewKey, current => {
         if (!current) return current
         let elements = current.pages.find(item => item.id === page.id)?.elements ?? []
-        successes.forEach(result => { elements = elements.map(element => element.id === result.merged.id ? result.merged : element).filter(element => !result.deleted_ids.includes(element.id)) })
+        successes.forEach(result => { elements = [...elements.filter(element => !result.deleted_ids.includes(element.id)), result.merged].sort((a, b) => a.reading_order - b.reading_order) })
         return { ...current, ocr_revision: successes.at(-1)?.ocr_revision ?? current.ocr_revision, review_status: 'IN_PROGRESS', undoable_merges: [...successes.map(result => ({ operation_id: result.merge_operation_id, survivor_id: result.merged.id, page_id: page.id })), ...(current.undoable_merges ?? [])], pages: current.pages.map(item => item.id === page.id ? { ...item, elements } : item) }
       })
       const failures = results.length - successes.length

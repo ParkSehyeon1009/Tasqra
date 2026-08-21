@@ -100,8 +100,8 @@ def merge_ocr_elements(document_id: int, payload: OcrElementMergeRequest, access
 
 @router.post("/documents/{document_id}/ocr-elements/merge/{operation_id}/undo", response_model=OcrElementMergeUndoResponse)
 def undo_ocr_merge(document_id: int, operation_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
-    document, restored = service.undo_ocr_merge(access.project.id, document_id, operation_id, access.member.user_id)
-    return OcrElementMergeUndoResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, restored=[OcrElementResponse.model_validate(item) for item in restored if not item.is_deleted])
+    document, restored, deleted_ids = service.undo_ocr_merge(access.project.id, document_id, operation_id, access.member.user_id)
+    return OcrElementMergeUndoResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, deleted_ids=deleted_ids, restored=[OcrElementResponse.model_validate(item) for item in restored if not item.is_deleted])
 
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):

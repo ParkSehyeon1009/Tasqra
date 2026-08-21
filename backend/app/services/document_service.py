@@ -524,8 +524,9 @@ class DocumentService:
                 horizontal_gap = max(0.0, max(first.x, second.x) - min(first.x + first.width, second.x + second.width))
                 if not ((same_column and vertical_gap <= max(first.height, second.height) * 3) or (same_line and horizontal_gap <= max(first.height, second.height) * 3)):
                     raise BusinessError(ErrorCode.OCR_MERGE_TOO_FAR)
-            survivor, removed = ordered[0], ordered[1:]
+            first = ordered[0]
             snapshot = {
+                "result_strategy": "NEW_ELEMENT",
                 "selected_ids": ids,
                 "extracted_text": ({
                     "content": document.extracted_text.content,
@@ -546,19 +547,24 @@ class DocumentService:
             }
             separator = " " if join_with_space else "\n"
             merged_text = separator.join(element.text for element in ordered if element.text)
-            content_changed = self._replace_ocr_contents(document, [(survivor, merged_text), *[(element, "") for element in removed if element.is_in_content]])
-            self._db.add(OcrElementRevision(element_id=survivor.id, changed_by=user_id, before_text=survivor.text, after_text=merged_text, from_version=survivor.version, to_version=survivor.version + 1))
-            survivor.text = merged_text
+            content_changed = self._replace_ocr_contents(document, [(first, merged_text), *[(element, "") for element in ordered[1:] if element.is_in_content]])
             left = min(element.x for element in ordered)
             top = min(element.y for element in ordered)
             right = max(element.x + element.width for element in ordered)
             bottom = max(element.y + element.height for element in ordered)
-            survivor.x, survivor.y, survivor.width, survivor.height = left, top, right - left, bottom - top
-            survivor.confidence = min((element.confidence for element in ordered if element.confidence is not None), default=None)
-            survivor.version += 1
-            operation = OcrMergeOperation(document_id=document.id, survivor_id=survivor.id, created_by=user_id, snapshot_json=snapshot, merged_version=survivor.version)
+            merged = self._document_repository.create_ocr_element(OcrElement(
+                page_id=page.id, original_text=merged_text, text=merged_text,
+                x=left, y=top, width=right - left, height=bottom - top,
+                confidence=min((element.confidence for element in ordered if element.confidence is not None), default=None),
+                source="USER", element_type=first.element_type, element_type_source="USER_CORRECTED",
+                is_paragraph_start=first.is_paragraph_start, table_id=None, table_row=None,
+                reading_order=first.reading_order, version=1, is_deleted=False, is_excluded=False,
+                content_start=first.content_start, content_end=first.content_end, is_in_content=True,
+            ))
+            page.elements.append(merged)
+            operation = OcrMergeOperation(document_id=document.id, survivor_id=merged.id, created_by=user_id, snapshot_json=snapshot, merged_version=merged.version)
             self._db.add(operation)
-            for element in removed:
+            for element in ordered:
                 self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=element.text, after_text="", from_version=element.version, to_version=element.version + 1))
                 element.is_deleted = True
                 element.is_in_content = False
@@ -569,9 +575,9 @@ class DocumentService:
                     document.extracted_text.text_version += 1
                 document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
             self._mark_review_in_progress(document)
-        return document, survivor, [element.id for element in removed], operation
+        return document, merged, [element.id for element in ordered], operation
 
-    def undo_ocr_merge(self, project_id: int, document_id: int, operation_id: int, user_id: int) -> tuple[Document, list[OcrElement]]:
+    def undo_ocr_merge(self, project_id: int, document_id: int, operation_id: int, user_id: int) -> tuple[Document, list[OcrElement], list[int]]:
         with transactional(self._db):
             document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
             if document is None:
@@ -583,14 +589,16 @@ class DocumentService:
             if operation is None or operation.undone_at is not None:
                 raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             all_elements = {element.id: element for page in document.review_pages for element in page.elements}
-            survivor = all_elements.get(operation.survivor_id)
-            if survivor is None or survivor.version != operation.merged_version:
+            merged = all_elements.get(operation.survivor_id)
+            if merged is None or merged.is_deleted or merged.version != operation.merged_version:
                 raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             selected_ids = set(operation.snapshot_json["selected_ids"])
             selected_snapshots = [saved for saved in operation.snapshot_json["elements"] if saved["id"] in selected_ids]
+            uses_new_element = operation.snapshot_json.get("result_strategy") == "NEW_ELEMENT"
             for saved in selected_snapshots:
                 element = all_elements.get(saved["id"])
-                if element is None or (element.id != survivor.id and not element.is_deleted):
+                may_be_legacy_survivor = not uses_new_element and element is not None and element.id == merged.id
+                if element is None or (not element.is_deleted and not may_be_legacy_survivor):
                     raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             saved_text = operation.snapshot_json.get("extracted_text")
             content_changed = False
@@ -602,8 +610,8 @@ class DocumentService:
                     range_origin = min(saved["content_start"] for saved in content_snapshots)
                     range_end = max(saved["content_end"] for saved in content_snapshots)
                     original_segment = saved_text["content"][range_origin:range_end]
-                    restored_content_start = survivor.content_start
-                    content_changed = self._replace_ocr_content(document, survivor, original_segment)
+                    restored_content_start = merged.content_start
+                    content_changed = self._replace_ocr_content(document, merged, original_segment)
             restored = []
             for saved in selected_snapshots:
                 element = all_elements.get(saved["id"])
@@ -618,6 +626,12 @@ class DocumentService:
                     element.content_end = saved["content_end"]
                 element.version = current_version + 1
                 restored.append(element)
+            deleted_ids = []
+            if uses_new_element:
+                merged.is_deleted = True
+                merged.is_in_content = False
+                merged.version += 1
+                deleted_ids.append(merged.id)
             if saved_text and document.extracted_text:
                 if content_changed:
                     document.extracted_text.text_version += 1
@@ -625,7 +639,7 @@ class DocumentService:
             operation.undone_at = datetime.now(timezone.utc)
             document.ocr_revision += 1
             self._mark_review_in_progress(document)
-        return document, restored
+        return document, restored, deleted_ids
 
     def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
         with transactional(self._db):
