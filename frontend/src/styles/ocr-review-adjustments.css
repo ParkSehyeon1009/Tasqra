@@ -179,6 +179,17 @@
   box-shadow: 0 1px 4px rgba(23, 32, 51, .35);
   cursor: nwse-resize;
 }
+.ocr-canvas.is-creating { cursor: crosshair; }
+.ocr-canvas.is-creating .ocr-box { pointer-events: none; opacity: .55; }
+.ocr-editor-heading-actions { display: flex; align-items: center; gap: 8px; }
+.ocr-editor-heading-actions > span { padding: 4px 8px; border-radius: 999px; background: #f0f1f7; color: #5e6b7c; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.ocr-editor-heading-actions button { padding: 7px 10px; border: 1px solid #cfd8e6; border-radius: 8px; background: #fff; color: #4859bd; font-size: 12px; font-weight: 750; cursor: pointer; }
+.ocr-editor-heading-actions button.active { border-color: #6476d8; background: #f0f2ff; }
+.ocr-element-with-boundary.is-deleted { margin: 8px 0; opacity: .72; }
+.ocr-element-with-boundary.is-deleted article { border: 1px dashed #c4ccd8; background: #f2f4f7; }
+.ocr-element-with-boundary.is-deleted .ocr-element-summary span { text-decoration: line-through; }
+.delete-ocr,.restore-ocr { padding: 10px 12px; border: 1px solid #e5a9a9; border-radius: 9px; background: #fff5f5; color: #b43131; font-weight: 750; cursor: pointer; }
+.restore-ocr { border-color: #9fd7b3; background: #effaf3; color: #147a3a; }
 
 @media (max-width: 1200px) {
   .ocr-canvas-toolbar {

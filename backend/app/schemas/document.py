@@ -146,6 +146,7 @@ class OcrElementResponse(BaseModel):
     reading_order: int
     version: int
     is_excluded: bool
+    is_deleted: bool
     content_start: int | None
     content_end: int | None
     is_in_content: bool
@@ -177,6 +178,26 @@ class OcrElementUpdateRequest(BaseModel):
 class OcrElementExclusionRequest(BaseModel):
     is_excluded: bool
     version: int = Field(ge=1)
+
+
+class OcrElementDeletionRequest(BaseModel):
+    is_deleted: bool
+    version: int = Field(ge=1)
+
+
+class OcrElementCreateRequest(BaseModel):
+    page_id: int = Field(ge=1)
+    text: str = Field(min_length=1, max_length=10000)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def require_box_inside_page(self):
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page")
+        return self
 
 
 class OcrElementBatchUpdateItem(BaseModel):

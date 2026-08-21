@@ -28,6 +28,11 @@ class DocumentRepository:
         self._db.flush()
         return document
 
+    def create_ocr_element(self, element: OcrElement) -> OcrElement:
+        self._db.add(element)
+        self._db.flush()
+        return element
+
     def get_by_id(self, project_id: int, document_id: int) -> Document | None:
         return self._db.query(Document).filter(Document.project_id == project_id, Document.id == document_id).one_or_none()
 
@@ -104,7 +109,6 @@ class DocumentRepository:
                 Document.project_id == project_id,
                 Document.id == document_id,
                 OcrElement.id.in_(element_ids),
-                OcrElement.is_deleted.is_(False),
             )
             .with_for_update(of=OcrElement)
             .all()

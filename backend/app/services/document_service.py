@@ -422,6 +422,69 @@ class DocumentService:
                     document.extracted_text.confirmed_at = None
         return element
 
+    def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            page = next((item for item in document.review_pages if item.id == page_id), None)
+            if page is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            reading_order = max((item.reading_order for item in page.elements), default=-1) + 1
+            content_start = content_end = None
+            is_in_content = False
+            if document.extracted_text is not None:
+                separator = "\n" if document.extracted_text.content else ""
+                content_start = len(document.extracted_text.content) + len(separator)
+                document.extracted_text.content += separator + text
+                content_end = content_start + len(text)
+                document.extracted_text.char_count = len(document.extracted_text.content)
+                document.extracted_text.ocr_char_count += len(text)
+                document.extracted_text.text_version += 1
+                is_in_content = True
+            element = self._document_repository.create_ocr_element(OcrElement(
+                page_id=page.id, original_text=text, text=text, x=x, y=y, width=width, height=height,
+                confidence=None, source="USER", element_type="TEXT_LINE", element_type_source="USER",
+                is_paragraph_start=False, reading_order=reading_order, version=1, is_deleted=False,
+                is_excluded=False, content_start=content_start, content_end=content_end, is_in_content=is_in_content,
+            ))
+            page.elements.append(element)
+            document.ocr_revision += 1
+            self._mark_review_in_progress(document)
+        return element
+
+    def set_ocr_element_deletion(self, project_id: int, document_id: int, element_id: int, is_deleted: bool, version: int) -> OcrElement:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            element = self._document_repository.get_ocr_element_for_update(project_id, document_id, element_id)
+            if element is None:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if element.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+            if element.is_deleted == is_deleted:
+                return element
+            content_changed = False
+            if is_deleted:
+                if element.is_in_content:
+                    content_changed = self._replace_ocr_content(document, element, "")
+                    element.is_in_content = False
+                element.is_deleted = True
+            else:
+                element.is_deleted = False
+                if not element.is_excluded and not element.is_in_content:
+                    content_changed = self._replace_ocr_content(document, element, element.text)
+                    element.is_in_content = True
+            element.version += 1
+            document.ocr_revision += 1
+            if document.extracted_text:
+                if content_changed:
+                    document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(len(item.text) for item in self._ordered_ocr_elements(document) if not item.is_excluded)
+            self._mark_review_in_progress(document)
+        return element
+
     def complete_ocr_review(self, project_id: int, document_id: int, user_id: int) -> Document:
         with transactional(self._db):
             document = self._document_repository.get_by_id_for_update_with_review(
