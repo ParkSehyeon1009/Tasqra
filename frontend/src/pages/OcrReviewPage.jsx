@@ -22,13 +22,14 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const [geometryDrafts, setGeometryDrafts] = useState({})
   const [reOcrDrafts, setReOcrDrafts] = useState({})
   const [reOcrResult, setReOcrResult] = useState(null)
+  const [batchReOcrResults, setBatchReOcrResults] = useState(null)
   const [elementFilter, setElementFilter] = useState('ALL')
   const [createMode, setCreateMode] = useState(false)
   const allowNavigationRef = useRef(false)
   const projectQuery = useQuery({ queryKey: ['project-access', projectId], queryFn: () => getProject(projectId), retry: false })
   const documentQuery = useQuery({ queryKey: ['projects', projectId, 'documents', documentId], queryFn: () => getDocument(projectId, documentId) })
   const reviewKey = ['projects', projectId, 'documents', documentId, 'ocr-review']
-  const reviewQuery = useQuery({ queryKey: reviewKey, queryFn: () => getOcrReview(projectId, documentId) })
+  const reviewQuery = useQuery({ queryKey: reviewKey, queryFn: () => getOcrReview(projectId, documentId), refetchOnMount: 'always' })
   const review = reviewQuery.data
   const pages = review?.pages ?? []
   const page = pages[pageIndex]
@@ -165,11 +166,34 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     onError: error => notify('error', '선택 영역 재OCR 실패', error.message),
   })
 
+  const batchReOcrMutation = useMutation({
+    mutationFn: async elements => {
+      const results = []
+      for (const element of elements) {
+        try {
+          results.push({ status: 'SUCCESS', element, result: await reprocessOcrElement(projectId, documentId, element) })
+        } catch (error) {
+          results.push({ status: 'FAILED', element, error: error.message || '재OCR에 실패했습니다.' })
+        }
+      }
+      return results
+    },
+    onSuccess: results => setBatchReOcrResults(results),
+  })
+
   function applyReOcrResult() {
     if (!reOcrResult) return
     setDrafts(current => ({ ...current, [reOcrResult.element_id]: reOcrResult.recognized_text }))
     setReOcrDrafts(current => ({ ...current, [reOcrResult.element_id]: { confidence: reOcrResult.confidence } }))
     setReOcrResult(null)
+  }
+
+  function applyBatchReOcrResults() {
+    const successes = (batchReOcrResults ?? []).filter(item => item.status === 'SUCCESS')
+    setDrafts(current => ({ ...current, ...Object.fromEntries(successes.map(item => [item.element.id, item.result.recognized_text])) }))
+    setReOcrDrafts(current => ({ ...current, ...Object.fromEntries(successes.map(item => [item.element.id, { confidence: item.result.confidence }])) }))
+    setBatchReOcrResults(null)
+    notify('success', '일괄 재OCR 결과 적용', `${successes.length}개 영역을 변경 초안에 반영했습니다. 하단 저장 버튼을 눌러 확정해 주세요.`)
   }
 
   const completeMutation = useMutation({
@@ -199,9 +223,10 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     <main className='ocr-review-workspace ocr-review-layout'>
       <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{createMode ? '원본에서 원하는 영역을 대각선으로 드래그하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
-      <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div><ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)}/></aside>
+      <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div>{canEdit && <div className='ocr-batch-reocr'><span>일괄 재OCR</span><button type='button' disabled={!lowConfidenceElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(lowConfidenceElements)}>낮은 신뢰도 {lowConfidenceElements.length}개</button><button type='button' disabled={!effectivePageElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(effectivePageElements.filter(element => !element.is_deleted))}>현재 페이지 전체</button>{batchReOcrMutation.isPending && <small>선택 영역을 순서대로 처리하고 있습니다...</small>}</div>}<ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending || batchReOcrMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)}/></aside>
     </main>
     {reOcrResult && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setReOcrResult(null)}><section className='reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='reocr-title'>재OCR 결과 비교</h2><p>새 인식 결과를 확인한 뒤 적용하세요. 적용 후에도 하단 저장 버튼을 눌러야 확정됩니다.</p><div className='reocr-comparison'><div><span>현재 텍스트</span><pre>{reOcrResult.original_text}</pre></div><div><span>새 인식 결과 {reOcrResult.confidence == null ? '' : `· ${Math.round(reOcrResult.confidence * 100)}%`}</span><pre>{reOcrResult.recognized_text}</pre></div></div><div className='reocr-dialog-actions'><button onClick={() => setReOcrResult(null)}>취소</button><button className='primary' onClick={applyReOcrResult}>새 결과 적용</button></div></section></div>}
+    {batchReOcrResults && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setBatchReOcrResults(null)}><section className='reocr-dialog batch-reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='batch-reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='batch-reocr-title'>일괄 재OCR 결과</h2><p>성공한 결과를 검토하고 한꺼번에 변경 초안으로 적용할 수 있습니다.</p><ul>{batchReOcrResults.map(item => <li key={item.element.id} className={item.status === 'SUCCESS' ? 'success' : 'failed'}><div><strong>{item.element.text || '(빈 텍스트)'}</strong><span>{item.status === 'SUCCESS' ? '→ ' + item.result.recognized_text : item.error}</span></div><small>{item.status === 'SUCCESS' ? (item.result.confidence == null ? '신뢰도 정보 없음' : `신뢰도 ${Math.round(item.result.confidence * 100)}%`) : '실패'}</small></li>)}</ul><div className='reocr-dialog-actions'><button onClick={() => setBatchReOcrResults(null)}>취소</button><button className='primary' disabled={!batchReOcrResults.some(item => item.status === 'SUCCESS')} onClick={applyBatchReOcrResults}>성공 결과 전체 적용</button></div></section></div>}
   </div>
 }
 

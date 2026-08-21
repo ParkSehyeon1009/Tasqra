@@ -48,7 +48,7 @@ def get_document_history(document_id: int, access: ProjectAccess = Depends(get_p
 @router.get("/documents/{document_id}/review", response_model=OcrReviewResponse)
 def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document_for_review(access.project.id, document_id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), pages=pages)
 
 @router.get("/documents/{document_id}/review/pages/{page_id}/image")
@@ -99,7 +99,7 @@ def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_pr
     # 큐 등록이 실패해도 예외를 올리지 않아 검수 완료는 그대로 성공한다.
     enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)")
     document = service.get_document_for_review(access.project.id, document.id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     return OcrReviewResponse(document_id=document.id, review_status=document.review_status, ocr_revision=document.ocr_revision, ocr_char_count=sum(len(element.text) for page in pages for element in page.elements if not element.is_excluded and not element.is_deleted), pages=pages)
 
 @router.get("/documents/{document_id}/download")
