@@ -43,6 +43,8 @@ class ErrorCode(Enum):
     OCR_EDIT_CONFLICT = ("OCR_EDIT_CONFLICT", "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요.", 409)
     OCR_CONTENT_MAPPING_CONFLICT = ("OCR_CONTENT_MAPPING_CONFLICT", "OCR 영역과 문서 본문의 연결 정보가 일치하지 않습니다. 문서를 다시 추출해 주세요.", 409)
     OCR_INVALID_STRUCTURE = ("OCR_INVALID_STRUCTURE", "OCR 요소 종류와 단락 경계 설정이 올바르지 않습니다.", 400)
+    OCR_MERGE_TOO_FAR = ("OCR_MERGE_TOO_FAR", "서로 멀리 떨어진 OCR 영역은 병합할 수 없습니다. 같은 단락의 인접 영역만 선택해 주세요.", 400)
+    OCR_MERGE_UNDO_UNAVAILABLE = ("OCR_MERGE_UNDO_UNAVAILABLE", "이 병합은 더 이상 되돌릴 수 없습니다. 최신 검수 내용을 다시 확인해 주세요.", 409)
     FILE_TOO_LARGE = ("FILE_TOO_LARGE", "파일 크기가 허용 범위를 초과했습니다.", 413)
     TOO_MANY_PAGES = ("TOO_MANY_PAGES", "페이지 수가 허용 범위를 초과했습니다.", 413)
     CONTENT_TOO_LARGE = ("CONTENT_TOO_LARGE", "추출된 문서 내용이 허용 범위를 초과했습니다.", 413)
