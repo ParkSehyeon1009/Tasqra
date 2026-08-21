@@ -170,6 +170,7 @@ class OcrReviewResponse(BaseModel):
     latest_merge_operation_id: int | None = None
     latest_merge_page_id: int | None = None
     undoable_merges: list["OcrUndoableMergeResponse"] = Field(default_factory=list)
+    structure_history: list["OcrStructureEventResponse"] = Field(default_factory=list)
     pages: list[OcrPageResponse]
 
 
@@ -177,6 +178,15 @@ class OcrUndoableMergeResponse(BaseModel):
     operation_id: int
     survivor_id: int
     page_id: int
+    original_count: int
+
+
+class OcrStructureEventResponse(BaseModel):
+    id: int
+    page_id: int
+    event_type: str
+    details: dict
+    created_at: datetime
 
 
 class OcrElementUpdateRequest(BaseModel):
@@ -254,11 +264,42 @@ class OcrElementMergeResponse(BaseModel):
     deleted_ids: list[int]
 
 
+class OcrElementMergeGroupsRequest(BaseModel):
+    groups: list[list[OcrElementMergeItem]] = Field(min_length=1, max_length=100)
+    join_with_space: bool = True
+
+    @model_validator(mode="after")
+    def require_valid_groups(self):
+        ids = [item.id for group in self.groups for item in group]
+        if any(len(group) < 2 for group in self.groups) or len(ids) != len(set(ids)):
+            raise ValueError("merge groups must contain unique OCR element ids and at least two items")
+        return self
+
+
+class OcrElementMergeGroupsResponse(BaseModel):
+    items: list[OcrElementMergeResponse]
+
+
 class OcrElementMergeUndoResponse(BaseModel):
     ocr_revision: int
     text_version: int | None
     deleted_ids: list[int]
     restored: list[OcrElementResponse]
+
+
+class OcrElementSplitRequest(BaseModel):
+    version: int = Field(ge=1)
+    orientation: str = Field(pattern="^(VERTICAL|HORIZONTAL)$")
+    ratio: float = Field(ge=0.1, le=0.9)
+    first_text: str = Field(min_length=1, max_length=10000)
+    second_text: str = Field(min_length=1, max_length=10000)
+
+
+class OcrElementSplitResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    deleted_ids: list[int]
+    created: list[OcrElementResponse]
 
 
 class OcrElementBatchUpdateItem(BaseModel):

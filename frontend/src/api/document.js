@@ -74,8 +74,16 @@ export async function mergeOcrElements(projectId, documentId, elements, joinWith
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })), join_with_space: joinWithSpace })).data
 }
 
+export async function mergeOcrElementGroups(projectId, documentId, groups, joinWithSpace = true) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge-groups`, { groups: groups.map(elements => elements.map(element => ({ id: element.id, version: element.version }))), join_with_space: joinWithSpace })).data
+}
+
 export async function undoOcrElementMerge(projectId, documentId, operationId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge/${operationId}/undo`)).data
+}
+
+export async function splitOcrElement(projectId, documentId, elementId, payload) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/split`, payload)).data
 }
 
 export async function completeOcrReview(projectId, documentId) {

@@ -221,6 +221,7 @@
 .ocr-merge-toolbar > span { margin-left: auto; color: #655283; font-size: 12px; font-weight: 750; }
 .ocr-canvas.is-merging .ocr-box { cursor: pointer; }
 .ocr-box.merge-selected { z-index: 4; border-color: #7c3aed; background: rgba(124, 58, 237, .28); box-shadow: 0 0 0 3px white, 0 0 0 6px #7c3aed; }
+.ocr-merged-badge { position: absolute; top: -18px; left: -2px; padding: 2px 5px; border-radius: 5px 5px 0 0; background: #6d4bc3; color: #fff; font-size: 9px; font-weight: 800; line-height: 14px; pointer-events: none; }
 .merge-preview-dialog > pre { max-height: 220px; padding: 13px; overflow: auto; border: 1px solid #dce3ed; border-radius: 10px; background: #f7f9fc; white-space: pre-wrap; overflow-wrap: anywhere; }
 .merge-linebreak-option { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: #46556c; font-size: 13px; font-weight: 750; cursor: pointer; }
 .merge-linebreak-option input { width: 16px; height: 16px; margin: 0; accent-color: #5965d8; }
@@ -231,6 +232,25 @@
 .ocr-paragraph-merge-actions button { padding: 8px 10px; border: 1px solid #9d8ed0; border-radius: 8px; background: #fff; color: #5e45ad; font-size: 12px; font-weight: 750; cursor: pointer; }
 .ocr-paragraph-merge-actions button.restore { border-color: #91c8a6; color: #247347; }
 .ocr-paragraph-merge-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.ocr-direct-split-action { display: flex; justify-content: flex-end; max-width: 1440px; margin: -8px auto 12px; }
+.ocr-direct-split-action button { padding: 8px 11px; border: 1px solid #86a9d8; border-radius: 8px; background: #f4f8ff; color: #315f9d; font-size: 12px; font-weight: 750; cursor: pointer; }
+.split-box-preview { position: relative; height: 140px; margin-bottom: 14px; border: 2px solid #6d5bd0; border-radius: 10px; background: #f7f5ff; }
+.split-box-preview > span { position: absolute; display: block; border-color: #dc3f69; border-style: dashed; }
+.split-box-preview.vertical > span { top: 0; bottom: 0; border-left-width: 2px; }
+.split-box-preview.horizontal > span { left: 0; right: 0; border-top-width: 2px; }
+.split-controls,.split-texts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.split-controls label,.split-texts label { display: grid; gap: 6px; color: #56657b; font-size: 12px; font-weight: 750; }
+.split-controls select,.split-texts textarea { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #d2dae6; border-radius: 8px; background: #fff; }
+.split-controls input[type='range'] { width: 100%; }
+.split-texts { margin-top: 14px; }
+.split-texts textarea { min-height: 130px; resize: vertical; font: 13px/1.55 system-ui,sans-serif; }
+@media (max-width: 650px) { .split-controls,.split-texts { grid-template-columns: 1fr; } }
+.ocr-structure-history { max-width: 1440px; margin: 0 auto 14px; }
+.ocr-structure-history > button { padding: 7px 10px; border: 1px solid #d4dae5; border-radius: 8px; background: #fff; color: #526077; font-size: 12px; font-weight: 750; cursor: pointer; }
+.ocr-structure-history ul { max-height: 180px; margin: 8px 0 0; padding: 0; overflow: auto; border: 1px solid #dde3ec; border-radius: 9px; background: #fff; list-style: none; }
+.ocr-structure-history li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border-bottom: 1px solid #edf0f5; font-size: 12px; }
+.ocr-structure-history li:last-child { border-bottom: 0; }
+.ocr-structure-history li span { color: #7b8798; }
 @media (max-width: 650px) { .reocr-comparison { grid-template-columns: 1fr; } }
 
 @media (max-width: 1200px) {

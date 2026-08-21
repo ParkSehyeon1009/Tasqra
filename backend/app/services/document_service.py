@@ -14,6 +14,7 @@
 
 import logging
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -23,7 +24,7 @@ from PIL import Image
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
-from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation
+from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation, OcrStructureEvent
 from app.models.enums import AnalyzerType, ReviewStatus
 from app.extractors.ocr_extractor import OcrExtractor
 from app.repositories.analysis_repository import AnalysisRepository
@@ -158,11 +159,11 @@ class DocumentService:
         )
         return (row[0], row[1]) if row else None
 
-    def list_undoable_merges(self, project_id: int, document_id: int) -> list[tuple[int, int, int]]:
+    def list_undoable_merges(self, project_id: int, document_id: int) -> list[tuple[int, int, int, int]]:
         return [
-            (row[0], row[1], row[2])
+            (row[0], row[1], row[2], len(row[3].get("selected_ids", [])))
             for row in (
-                self._db.query(OcrMergeOperation.id, OcrMergeOperation.survivor_id, OcrElement.page_id)
+                self._db.query(OcrMergeOperation.id, OcrMergeOperation.survivor_id, OcrElement.page_id, OcrMergeOperation.snapshot_json)
                 .join(OcrElement, OcrElement.id == OcrMergeOperation.survivor_id)
                 .join(Document, Document.id == OcrMergeOperation.document_id)
                 .filter(
@@ -176,6 +177,9 @@ class DocumentService:
                 .all()
             )
         ]
+
+    def list_ocr_structure_events(self, project_id: int, document_id: int) -> list[OcrStructureEvent]:
+        return self._db.query(OcrStructureEvent).join(Document, Document.id == OcrStructureEvent.document_id).filter(Document.project_id == project_id, Document.id == document_id).order_by(OcrStructureEvent.created_at.desc(), OcrStructureEvent.id.desc()).limit(50).all()
 
     def list_ocr_revisions(self, project_id: int, document_id: int):
         self.get_document(project_id, document_id)
@@ -493,8 +497,9 @@ class DocumentService:
         confidence = sum(scores) / len(scores) if scores else None
         return element, recognized_text, confidence
 
-    def merge_ocr_elements(self, project_id: int, document_id: int, items: list[tuple[int, int]], user_id: int, join_with_space: bool = True) -> tuple[Document, OcrElement, list[int], OcrMergeOperation]:
-        with transactional(self._db):
+    def merge_ocr_elements(self, project_id: int, document_id: int, items: list[tuple[int, int]], user_id: int, join_with_space: bool = True, auto_commit: bool = True) -> tuple[Document, OcrElement, list[int], OcrMergeOperation]:
+        context = transactional(self._db) if auto_commit else nullcontext(self._db)
+        with context:
             document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
@@ -564,6 +569,7 @@ class DocumentService:
             page.elements.append(merged)
             operation = OcrMergeOperation(document_id=document.id, survivor_id=merged.id, created_by=user_id, snapshot_json=snapshot, merged_version=merged.version)
             self._db.add(operation)
+            self._db.add(OcrStructureEvent(document_id=document.id, page_id=page.id, event_type="MERGE", details_json={"result_id": merged.id, "source_ids": ids, "source_count": len(ids)}, created_by=user_id))
             for element in ordered:
                 self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=element.text, after_text="", from_version=element.version, to_version=element.version + 1))
                 element.is_deleted = True
@@ -577,8 +583,14 @@ class DocumentService:
             self._mark_review_in_progress(document)
         return document, merged, [element.id for element in ordered], operation
 
-    def undo_ocr_merge(self, project_id: int, document_id: int, operation_id: int, user_id: int) -> tuple[Document, list[OcrElement], list[int]]:
+    def merge_ocr_element_groups(self, project_id: int, document_id: int, groups: list[list[tuple[int, int]]], user_id: int, join_with_space: bool = True) -> list[tuple[Document, OcrElement, list[int], OcrMergeOperation]]:
         with transactional(self._db):
+            results = [self.merge_ocr_elements(project_id, document_id, group, user_id, join_with_space, auto_commit=False) for group in groups]
+        return results
+
+    def undo_ocr_merge(self, project_id: int, document_id: int, operation_id: int, user_id: int, auto_commit: bool = True) -> tuple[Document, list[OcrElement], list[int]]:
+        context = transactional(self._db) if auto_commit else nullcontext(self._db)
+        with context:
             document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
             if document is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
@@ -625,6 +637,7 @@ class DocumentService:
                     element.content_start = saved["content_start"]
                     element.content_end = saved["content_end"]
                 element.version = current_version + 1
+                self._db.query(OcrMergeOperation).filter(OcrMergeOperation.survivor_id == element.id, OcrMergeOperation.undone_at.is_(None)).update({OcrMergeOperation.merged_version: element.version}, synchronize_session=False)
                 restored.append(element)
             deleted_ids = []
             if uses_new_element:
@@ -636,10 +649,104 @@ class DocumentService:
                 if content_changed:
                     document.extracted_text.text_version += 1
                 document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
+            if len(restored) != len(selected_snapshots) or any(
+                abs(getattr(element, field) - saved[field]) > 1e-9
+                for element, saved in zip(restored, selected_snapshots)
+                for field in ("x", "y", "width", "height")
+            ):
+                raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             operation.undone_at = datetime.now(timezone.utc)
+            self._db.add(OcrStructureEvent(document_id=document.id, page_id=merged.page_id, event_type="UNMERGE", details_json={"result_id": merged.id, "restored_ids": [element.id for element in restored], "restored_count": len(restored)}, created_by=user_id))
             document.ocr_revision += 1
             self._mark_review_in_progress(document)
         return document, restored, deleted_ids
+
+    def undo_ocr_merge_to_originals(self, project_id: int, document_id: int, operation_id: int, user_id: int) -> tuple[Document, list[OcrElement], list[int]]:
+        with transactional(self._db):
+            pending = [operation_id]
+            restored_by_id: dict[int, OcrElement] = {}
+            deleted_ids: list[int] = []
+            document = None
+            while pending:
+                current_operation_id = pending.pop()
+                document, restored, deleted = self.undo_ocr_merge(project_id, document_id, current_operation_id, user_id, auto_commit=False)
+                deleted_ids.extend(deleted)
+                for deleted_id in deleted:
+                    restored_by_id.pop(deleted_id, None)
+                for element in restored:
+                    restored_by_id[element.id] = element
+                    nested = self._db.query(OcrMergeOperation).filter(
+                        OcrMergeOperation.survivor_id == element.id,
+                        OcrMergeOperation.undone_at.is_(None),
+                        OcrMergeOperation.merged_version == element.version,
+                    ).order_by(OcrMergeOperation.created_at.desc(), OcrMergeOperation.id.desc()).first()
+                    if nested is not None:
+                        pending.append(nested.id)
+            if document is None:
+                raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
+            final_restored = [element for element in restored_by_id.values() if not element.is_deleted]
+        return document, final_restored, deleted_ids
+
+    def split_ocr_element(self, project_id: int, document_id: int, element_id: int, version: int, orientation: str, ratio: float, first_text: str, second_text: str, user_id: int) -> tuple[Document, list[OcrElement]]:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            source = next((element for page in document.review_pages for element in page.elements if element.id == element_id), None)
+            if source is None or source.is_deleted:
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if source.version != version:
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+            if source.is_excluded or not source.is_in_content or orientation not in {"VERTICAL", "HORIZONTAL"} or not 0.1 <= ratio <= 0.9:
+                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+            page = next(page for page in document.review_pages if page.id == source.page_id)
+            replacement = first_text + "\n" + second_text
+            content_start = source.content_start
+            content_changed = self._replace_ocr_content(document, source, replacement)
+            if content_start is None:
+                raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+            if orientation == "VERTICAL":
+                geometries = [
+                    (source.x, source.y, source.width * ratio, source.height),
+                    (source.x + source.width * ratio, source.y, source.width * (1 - ratio), source.height),
+                ]
+            else:
+                geometries = [
+                    (source.x, source.y, source.width, source.height * ratio),
+                    (source.x, source.y + source.height * ratio, source.width, source.height * (1 - ratio)),
+                ]
+            for element in page.elements:
+                if element.id != source.id and element.reading_order > source.reading_order:
+                    element.reading_order += 1
+            created = []
+            offset = content_start
+            for index, (text, geometry) in enumerate(zip((first_text, second_text), geometries)):
+                child = self._document_repository.create_ocr_element(OcrElement(
+                    page_id=page.id, original_text=text, text=text,
+                    x=geometry[0], y=geometry[1], width=geometry[2], height=geometry[3],
+                    confidence=source.confidence, source="USER", element_type=source.element_type,
+                    element_type_source="USER_CORRECTED", is_paragraph_start=source.is_paragraph_start if index == 0 else False,
+                    table_id=source.table_id, table_row=source.table_row,
+                    reading_order=source.reading_order + index, version=1, is_deleted=False,
+                    is_excluded=False, content_start=offset, content_end=offset + len(text), is_in_content=True,
+                ))
+                page.elements.append(child)
+                created.append(child)
+                offset += len(text) + (1 if index == 0 else 0)
+            self._db.add(OcrElementRevision(element_id=source.id, changed_by=user_id, before_text=source.text, after_text=replacement, from_version=source.version, to_version=source.version + 1))
+            source.is_deleted = True
+            source.is_in_content = False
+            source.version += 1
+            self._db.add(OcrStructureEvent(document_id=document.id, page_id=page.id, event_type="SPLIT", details_json={"source_id": source.id, "created_ids": [item.id for item in created], "orientation": orientation, "ratio": ratio}, created_by=user_id))
+            if len(created) != 2 or any(item.width <= 0 or item.height <= 0 or item.x + item.width > 1.000001 or item.y + item.height > 1.000001 for item in created):
+                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+            document.ocr_revision += 1
+            if document.extracted_text:
+                if content_changed:
+                    document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
+            self._mark_review_in_progress(document)
+        return document, created
 
     def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
         with transactional(self._db):
