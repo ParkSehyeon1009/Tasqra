@@ -189,11 +189,20 @@ class OcrElementBatchUpdateItem(BaseModel):
         default=None,
         pattern="^(TEXT_LINE|HEADING|TABLE_ROW|TABLE_HEADER|HEADER_FOOTER)$",
     )
+    x: float | None = Field(default=None, ge=0, le=1)
+    y: float | None = Field(default=None, ge=0, le=1)
+    width: float | None = Field(default=None, gt=0, le=1)
+    height: float | None = Field(default=None, gt=0, le=1)
 
     @model_validator(mode="after")
     def require_change(self):
-        if all(value is None for value in (self.text, self.is_excluded, self.is_paragraph_start, self.element_type)):
+        editable = (self.text, self.is_excluded, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height)
+        if all(value is None for value in editable):
             raise ValueError("at least one editable field is required")
+        if self.x is not None and self.width is not None and self.x + self.width > 1:
+            raise ValueError("OCR element must fit within the page width")
+        if self.y is not None and self.height is not None and self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page height")
         return self
 
 

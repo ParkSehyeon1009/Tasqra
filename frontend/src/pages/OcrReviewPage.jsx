@@ -19,6 +19,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const [selectedId, setSelectedId] = useState(null)
   const [drafts, setDrafts] = useState({})
   const [structureDrafts, setStructureDrafts] = useState({})
+  const [geometryDrafts, setGeometryDrafts] = useState({})
   const [elementFilter, setElementFilter] = useState('ALL')
   const allowNavigationRef = useRef(false)
   const projectQuery = useQuery({ queryKey: ['project-access', projectId], queryFn: () => getProject(projectId), retry: false })
@@ -32,10 +33,10 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const selectedSource = useMemo(() => page?.elements.find(item => item.id === effectiveSelectedId) ?? null, [page, effectiveSelectedId])
   const selected = selectedSource ? { ...selectedSource, ...structureDrafts[selectedSource.id] } : null
   const draft = selected ? (drafts[selected.id] ?? selected.text) : ''
-  const effectivePageElements = useMemo(() => page?.elements.map(element => ({ ...element, ...structureDrafts[element.id] })) ?? [], [page, structureDrafts])
+  const effectivePageElements = useMemo(() => page?.elements.map(element => ({ ...element, ...structureDrafts[element.id], ...geometryDrafts[element.id] })) ?? [], [page, structureDrafts, geometryDrafts])
   const lowConfidenceElements = useMemo(() => effectivePageElements.filter(element => confidenceLevel(element.confidence) === 'low'), [effectivePageElements])
   const canEdit = projectQuery.data?.role !== 'VIEWER'
-  const dirtyChanges = pages.flatMap(item => item.elements.map(element => buildBatchChange(element, drafts[element.id], structureDrafts[element.id])).filter(Boolean))
+  const dirtyChanges = pages.flatMap(item => item.elements.map(element => buildBatchChange(element, drafts[element.id], structureDrafts[element.id], geometryDrafts[element.id])).filter(Boolean))
   const hasUnsavedChanges = dirtyChanges.length > 0
   const totalElements = pages.reduce((count, item) => count + item.elements.length, 0)
   const changedElements = pages.reduce((count, item) => count + item.elements.filter(element => element.version > 1 || element.is_excluded).length, 0)
@@ -88,6 +89,10 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     setStructureDrafts(current => ({ ...current, [element.id]: { ...(current[element.id] ?? {}), ...patch } }))
   }
 
+  function updateGeometry(element, geometry) {
+    setGeometryDrafts(current => ({ ...current, [element.id]: geometry }))
+  }
+
   function applyAutomaticParagraphs() {
     const suggestions = suggestParagraphStarts(effectivePageElements)
     setStructureDrafts(current => {
@@ -108,6 +113,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => updatedById.get(element.id) ?? element) })) }) : current)
       setDrafts({})
       setStructureDrafts({})
+      setGeometryDrafts({})
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true })
       notify('success', 'OCR 검수 내용 저장 완료', result.items.length + '개 영역의 변경 내용을 한 번에 저장했습니다.')
@@ -128,7 +134,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
 
   const completeMutation = useMutation({
     mutationFn: () => completeOcrReview(projectId, documentId),
-    onSuccess: result => { setDrafts({}); setStructureDrafts({}); queryClient.setQueryData(reviewKey, result); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true }); notify('success', 'OCR 검수 완료', '검수 결과가 최종 텍스트에 반영되었습니다.') },
+    onSuccess: result => { setDrafts({}); setStructureDrafts({}); setGeometryDrafts({}); queryClient.setQueryData(reviewKey, result); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true }); notify('success', 'OCR 검수 완료', '검수 결과가 최종 텍스트에 반영되었습니다.') },
     onError: error => notify('error', '검수 완료 처리 실패', error.message),
   })
 
@@ -152,17 +158,47 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     <main className='ocr-review-workspace ocr-review-layout'>
-      <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>현재 확인 중인 OCR 원본 페이지</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} onSelect={element => selectElement(element, true)}/></section>
+      <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} onSelect={element => selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
       <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><span>{effectivePageElements.length}개</span></div><ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)}/></aside>
     </main>
   </div>
 }
 
-function OcrCanvas({ page, selectedId, onSelect }) {
+function OcrCanvas({ page, selectedId, canEdit, onSelect, onGeometryChange }) {
   const imageQuery = useQuery({ queryKey: ['ocr-page-image', page.id], queryFn: () => getOcrPageImage(page.image_url), staleTime: Infinity })
   if (imageQuery.isPending) return <LoadingState label='원본 이미지를 불러오는 중...'/>
   const paragraphGroups = paragraphGroupNumbers(page.elements)
-  return <div className='ocr-canvas-scroll'><div className='ocr-canvas'><img src={imageQuery.data} alt={String(page.page_number) + '페이지 원본'}/>{page.elements.map(element => <button key={element.id} title={element.text} aria-label={'OCR 영역: ' + element.text} className={'ocr-box confidence-' + confidenceLevel(element.confidence) + ' paragraph-group-' + (paragraphGroups.get(element.id) % 6) + (selectedId === element.id ? ' selected' : '')} style={{ left: String(element.x * 100) + '%', top: String(element.y * 100) + '%', width: String(element.width * 100) + '%', height: String(element.height * 100) + '%' }} onClick={() => onSelect(element)}/>)}</div></div>
+  return <div className='ocr-canvas-scroll'><div className='ocr-canvas'><img src={imageQuery.data} alt={String(page.page_number) + '페이지 원본'}/>{page.elements.map(element => <EditableOcrBox key={element.id} element={element} group={paragraphGroups.get(element.id) % 6} selected={selectedId === element.id} canEdit={canEdit} onSelect={onSelect} onGeometryChange={onGeometryChange}/>)}</div></div>
+}
+
+function EditableOcrBox({ element, group, selected, canEdit, onSelect, onGeometryChange }) {
+  const [interaction, setInteraction] = useState(null)
+
+  function beginInteraction(event) {
+    onSelect(element)
+    if (!canEdit) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const canvas = event.currentTarget.parentElement.getBoundingClientRect()
+    setInteraction({ mode: event.target.dataset.resize ? 'resize' : 'move', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, canvasWidth: canvas.width, canvasHeight: canvas.height, original: { x: element.x, y: element.y, width: element.width, height: element.height } })
+  }
+
+  function moveInteraction(event) {
+    if (!interaction || interaction.pointerId !== event.pointerId) return
+    const dx = (event.clientX - interaction.startX) / interaction.canvasWidth
+    const dy = (event.clientY - interaction.startY) / interaction.canvasHeight
+    const original = interaction.original
+    onGeometryChange(element, interaction.mode === 'move'
+      ? { x: clamp(original.x + dx, 0, 1 - original.width), y: clamp(original.y + dy, 0, 1 - original.height), width: original.width, height: original.height }
+      : { x: original.x, y: original.y, width: clamp(original.width + dx, .005, 1 - original.x), height: clamp(original.height + dy, .005, 1 - original.y) })
+  }
+
+  function endInteraction(event) {
+    if (!interaction || interaction.pointerId !== event.pointerId) return
+    setInteraction(null)
+  }
+
+  return <button title={element.text} aria-label={'OCR 영역: ' + element.text} className={'ocr-box confidence-' + confidenceLevel(element.confidence) + ' paragraph-group-' + group + (selected ? ' selected' : '') + (interaction ? ' is-adjusting' : '')} style={{ left: String(element.x * 100) + '%', top: String(element.y * 100) + '%', width: String(element.width * 100) + '%', height: String(element.height * 100) + '%' }} onClick={() => onSelect(element)} onPointerDown={beginInteraction} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction}>{selected && canEdit && <span className='ocr-resize-handle' data-resize='true' aria-hidden='true'/>}</button>
 }
 
 function PageNavigator({ pageIndex, pageCount, onChange }) {
@@ -197,13 +233,18 @@ const OCR_ELEMENT_TYPES = [
 function elementTypeLabel(value) { return OCR_ELEMENT_TYPES.find(type => type.value === value)?.label ?? value }
 function isTableElement(element) { return element.element_type === 'TABLE_ROW' || element.element_type === 'TABLE_HEADER' }
 
-function buildBatchChange(element, textDraft, structureDraft) {
+function buildBatchChange(element, textDraft, structureDraft, geometryDraft) {
   const change = { id: element.id, version: element.version }
   if (textDraft !== undefined && textDraft !== element.text) change.text = textDraft
   if (structureDraft?.is_paragraph_start !== undefined && structureDraft.is_paragraph_start !== element.is_paragraph_start) change.is_paragraph_start = structureDraft.is_paragraph_start
   if (structureDraft?.element_type !== undefined && structureDraft.element_type !== element.element_type) change.element_type = structureDraft.element_type
+  for (const field of ['x', 'y', 'width', 'height']) {
+    if (geometryDraft?.[field] !== undefined && geometryDraft[field] !== element[field]) change[field] = geometryDraft[field]
+  }
   return Object.keys(change).length > 2 ? change : null
 }
+
+function clamp(value, minimum, maximum) { return Math.min(Math.max(value, minimum), maximum) }
 
 function suggestParagraphStarts(elements) {
   const suggestions = new Map()

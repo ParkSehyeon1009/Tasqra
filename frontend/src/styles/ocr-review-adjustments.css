@@ -165,6 +165,20 @@
 .ocr-box.paragraph-group-4 { box-shadow: 0 0 0 2px #4d7c0f; }
 .ocr-box.paragraph-group-5 { box-shadow: 0 0 0 2px #be185d; }
 .ocr-box.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px #2468e8; }
+.ocr-box { padding: 0; cursor: move; touch-action: none; }
+.ocr-box.is-adjusting { transition: none; }
+.ocr-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid white;
+  border-radius: 3px;
+  background: #2468e8;
+  box-shadow: 0 1px 4px rgba(23, 32, 51, .35);
+  cursor: nwse-resize;
+}
 
 @media (max-width: 1200px) {
   .ocr-canvas-toolbar {

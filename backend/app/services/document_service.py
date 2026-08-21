@@ -53,6 +53,10 @@ class OcrElementBatchChange:
     is_excluded: bool | None = None
     is_paragraph_start: bool | None = None
     element_type: str | None = None
+    x: float | None = None
+    y: float | None = None
+    width: float | None = None
+    height: float | None = None
 
 class DocumentService:
     def __init__(
@@ -286,6 +290,12 @@ class DocumentService:
                         raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
                     requested_paragraph_start = False
                 paragraph_updates[change.id] = requested_paragraph_start
+                resulting_x = element.x if change.x is None else change.x
+                resulting_y = element.y if change.y is None else change.y
+                resulting_width = element.width if change.width is None else change.width
+                resulting_height = element.height if change.height is None else change.height
+                if resulting_width <= 0 or resulting_height <= 0 or resulting_x + resulting_width > 1 or resulting_y + resulting_height > 1:
+                    raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
 
             text_replacements = [
                 (elements_by_id[change.id], change.text)
@@ -331,6 +341,12 @@ class DocumentService:
                     element.is_paragraph_start = requested_paragraph_start
                     chunk_structure_changed = True
                     item_changed = True
+
+                for field in ("x", "y", "width", "height"):
+                    requested_value = getattr(change, field)
+                    if requested_value is not None and requested_value != getattr(element, field):
+                        setattr(element, field, requested_value)
+                        item_changed = True
 
                 if item_changed:
                     element.version += 1
