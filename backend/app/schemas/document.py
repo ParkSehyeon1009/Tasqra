@@ -220,6 +220,29 @@ class OcrReprocessRequest(BaseModel):
         return self
 
 
+class OcrElementMergeItem(BaseModel):
+    id: int = Field(ge=1)
+    version: int = Field(ge=1)
+
+
+class OcrElementMergeRequest(BaseModel):
+    items: list[OcrElementMergeItem] = Field(min_length=2, max_length=100)
+
+    @model_validator(mode="after")
+    def require_unique_ids(self):
+        ids = [item.id for item in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate OCR element ids are not allowed")
+        return self
+
+
+class OcrElementMergeResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    merged: OcrElementResponse
+    deleted_ids: list[int]
+
+
 class OcrElementBatchUpdateItem(BaseModel):
     id: int = Field(ge=1)
     version: int = Field(ge=1)

@@ -7,7 +7,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
 from app.services.extraction_service import ExtractionService
 from app.worker import enqueue_build_chunks, extract_document_task
@@ -90,6 +90,11 @@ def set_ocr_element_deletion(document_id: int, element_id: int, payload: OcrElem
 def reprocess_ocr_element(document_id: int, element_id: int, payload: OcrReprocessRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     element, recognized_text, confidence = service.reprocess_ocr_element(access.project.id, document_id, element_id, payload.x, payload.y, payload.width, payload.height)
     return OcrReprocessResponse(element_id=element.id, original_text=element.text, recognized_text=recognized_text, confidence=confidence)
+
+@router.post("/documents/{document_id}/ocr-elements/merge", response_model=OcrElementMergeResponse)
+def merge_ocr_elements(document_id: int, payload: OcrElementMergeRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
+    document, merged, deleted_ids = service.merge_ocr_elements(access.project.id, document_id, [(item.id, item.version) for item in payload.items], access.member.user_id)
+    return OcrElementMergeResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, merged=OcrElementResponse.model_validate(merged), deleted_ids=deleted_ids)
 
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):

@@ -70,6 +70,10 @@ export async function reprocessOcrElement(projectId, documentId, element) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${element.id}/reprocess`, { x, y, width, height })).data
 }
 
+export async function mergeOcrElements(projectId, documentId, elements) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })) })).data
+}
+
 export async function completeOcrReview(projectId, documentId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
 }

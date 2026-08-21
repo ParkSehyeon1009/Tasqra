@@ -463,6 +463,53 @@ class DocumentService:
         confidence = sum(scores) / len(scores) if scores else None
         return element, recognized_text, confidence
 
+    def merge_ocr_elements(self, project_id: int, document_id: int, items: list[tuple[int, int]], user_id: int) -> tuple[Document, OcrElement, list[int]]:
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            ids = [item[0] for item in items]
+            elements = self._document_repository.get_ocr_elements_for_update(project_id, document_id, ids)
+            if len(elements) != len(ids) or any(element.is_deleted for element in elements):
+                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
+            if any(element.is_excluded or not element.is_in_content for element in elements):
+                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+            versions = dict(items)
+            if any(element.version != versions[element.id] for element in elements):
+                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
+            if len({element.page_id for element in elements}) != 1:
+                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+            page = next(page for page in document.review_pages if page.id == elements[0].page_id)
+            active = [element for element in page.elements if not element.is_deleted]
+            positions = sorted(active.index(element) for element in elements)
+            if positions != list(range(positions[0], positions[-1] + 1)):
+                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
+            ordered = sorted(elements, key=lambda element: element.reading_order)
+            survivor, removed = ordered[0], ordered[1:]
+            merged_text = "\n".join(element.text for element in ordered if element.text)
+            content_changed = self._replace_ocr_contents(document, [(survivor, merged_text), *[(element, "") for element in removed if element.is_in_content]])
+            self._db.add(OcrElementRevision(element_id=survivor.id, changed_by=user_id, before_text=survivor.text, after_text=merged_text, from_version=survivor.version, to_version=survivor.version + 1))
+            survivor.text = merged_text
+            left = min(element.x for element in ordered)
+            top = min(element.y for element in ordered)
+            right = max(element.x + element.width for element in ordered)
+            bottom = max(element.y + element.height for element in ordered)
+            survivor.x, survivor.y, survivor.width, survivor.height = left, top, right - left, bottom - top
+            survivor.confidence = min((element.confidence for element in ordered if element.confidence is not None), default=None)
+            survivor.version += 1
+            for element in removed:
+                self._db.add(OcrElementRevision(element_id=element.id, changed_by=user_id, before_text=element.text, after_text="", from_version=element.version, to_version=element.version + 1))
+                element.is_deleted = True
+                element.is_in_content = False
+                element.version += 1
+            document.ocr_revision += 1
+            if document.extracted_text:
+                if content_changed:
+                    document.extracted_text.text_version += 1
+                document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
+            self._mark_review_in_progress(document)
+        return document, survivor, [element.id for element in removed]
+
     def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
         with transactional(self._db):
             document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)

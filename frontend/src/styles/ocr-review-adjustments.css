@@ -215,6 +215,12 @@
 .batch-reocr-dialog li small { flex: 0 0 auto; color: #28724a; }
 .batch-reocr-dialog li.failed { background: #fff6f6; }
 .batch-reocr-dialog li.failed small,.batch-reocr-dialog li.failed span { color: #ad3d3d; }
+.ocr-merge-toolbar { display: flex; align-items: center; gap: 8px; margin: 12px 0 -8px; }
+.ocr-merge-toolbar > button { padding: 7px 10px; border: 1px solid #b8c3d4; border-radius: 8px; background: #fff; color: #4e5e76; font-size: 12px; font-weight: 750; cursor: pointer; }
+.ocr-merge-toolbar > button.active { border-color: #7c5bd6; background: #f3efff; color: #633dbf; }
+.ocr-merge-toolbar > span { margin-left: auto; color: #655283; font-size: 12px; font-weight: 750; }
+.ocr-canvas.is-merging .ocr-box { cursor: pointer; }
+.ocr-box.merge-selected { z-index: 4; border-color: #7c3aed; background: rgba(124, 58, 237, .28); box-shadow: 0 0 0 3px white, 0 0 0 6px #7c3aed; }
 @media (max-width: 650px) { .reocr-comparison { grid-template-columns: 1fr; } }
 
 @media (max-width: 1200px) {
