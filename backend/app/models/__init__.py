@@ -9,7 +9,7 @@
 #   패키지 진입점에서 명시적으로 모아 import해준다.
 # =============================================================================
 
-from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision, OcrMergeOperation
 from app.models.enums import AnalyzerType, DocumentStatus, ExtractMethod
 
 __all__ = [
@@ -22,7 +22,7 @@ __all__ = [
 ]
 from app.models.user import RefreshToken, User
 from app.models.project import Project, ProjectInvitation, ProjectMember
-from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
+from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision, OcrMergeOperation
 from app.models.chunk import DocumentChunk
 # amount 는 document 뒤에 온다. relationship("Document") 을 문자열로 쓰므로
 # import 순서가 강제되지는 않지만, 참조하는 쪽을 뒤에 두는 편이 읽기 좋다.
@@ -34,4 +34,4 @@ from app.models.decision import Decision
 from app.models.schedule import ScheduleItem
 from app.models.deliverable import Deliverable
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "OcrMergeOperation", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable"]

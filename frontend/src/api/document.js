@@ -74,6 +74,10 @@ export async function mergeOcrElements(projectId, documentId, elements) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })) })).data
 }
 
+export async function undoOcrElementMerge(projectId, documentId, operationId) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge/${operationId}/undo`)).data
+}
+
 export async function completeOcrReview(projectId, documentId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
 }

@@ -167,6 +167,8 @@ class OcrReviewResponse(BaseModel):
     review_status: str
     ocr_revision: int
     ocr_char_count: int
+    latest_merge_operation_id: int | None = None
+    latest_merge_page_id: int | None = None
     pages: list[OcrPageResponse]
 
 
@@ -239,8 +241,15 @@ class OcrElementMergeRequest(BaseModel):
 class OcrElementMergeResponse(BaseModel):
     ocr_revision: int
     text_version: int | None
+    merge_operation_id: int
     merged: OcrElementResponse
     deleted_ids: list[int]
+
+
+class OcrElementMergeUndoResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    restored: list[OcrElementResponse]
 
 
 class OcrElementBatchUpdateItem(BaseModel):
