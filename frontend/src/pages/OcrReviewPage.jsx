@@ -182,7 +182,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     <main className='ocr-review-workspace ocr-review-layout'>
-      <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{createMode ? '원본에서 새 박스를 놓을 위치를 선택하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
+      <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{createMode ? '원본에서 원하는 영역을 대각선으로 드래그하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
       <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div><ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)}/></aside>
     </main>
   </div>
@@ -190,16 +190,37 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
 
 function OcrCanvas({ page, selectedId, canEdit, createMode, onCreate, onSelect, onGeometryChange }) {
   const imageQuery = useQuery({ queryKey: ['ocr-page-image', page.id], queryFn: () => getOcrPageImage(page.image_url), staleTime: Infinity })
+  const [creation, setCreation] = useState(null)
   if (imageQuery.isPending) return <LoadingState label='원본 이미지를 불러오는 중...'/>
   const paragraphGroups = paragraphGroupNumbers(page.elements)
-  function createAt(event) {
+
+  function beginCreation(event) {
     if (!createMode || event.target.tagName !== 'IMG') return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
     const bounds = event.currentTarget.getBoundingClientRect()
-    const width = .18
-    const height = .05
-    onCreate({ x: clamp((event.clientX - bounds.left) / bounds.width, 0, 1 - width), y: clamp((event.clientY - bounds.top) / bounds.height, 0, 1 - height), width, height })
+    const x = clamp((event.clientX - bounds.left) / bounds.width, 0, 1)
+    const y = clamp((event.clientY - bounds.top) / bounds.height, 0, 1)
+    setCreation({ pointerId: event.pointerId, bounds, startX: x, startY: y, x, y, width: 0, height: 0 })
   }
-  return <div className='ocr-canvas-scroll'><div className={'ocr-canvas' + (createMode ? ' is-creating' : '')} onClick={createAt}><img src={imageQuery.data} alt={String(page.page_number) + '페이지 원본'}/>{page.elements.filter(element => !element.is_deleted).map(element => <EditableOcrBox key={element.id} element={element} group={paragraphGroups.get(element.id) % 6} selected={selectedId === element.id} canEdit={canEdit && !createMode} onSelect={onSelect} onGeometryChange={onGeometryChange}/>)}</div></div>
+
+  function moveCreation(event) {
+    if (!creation || creation.pointerId !== event.pointerId) return
+    const currentX = clamp((event.clientX - creation.bounds.left) / creation.bounds.width, 0, 1)
+    const currentY = clamp((event.clientY - creation.bounds.top) / creation.bounds.height, 0, 1)
+    setCreation(current => ({ ...current, x: Math.min(current.startX, currentX), y: Math.min(current.startY, currentY), width: Math.abs(currentX - current.startX), height: Math.abs(currentY - current.startY) }))
+  }
+
+  function endCreation(event) {
+    if (!creation || creation.pointerId !== event.pointerId) return
+    const currentX = clamp((event.clientX - creation.bounds.left) / creation.bounds.width, 0, 1)
+    const currentY = clamp((event.clientY - creation.bounds.top) / creation.bounds.height, 0, 1)
+    const geometry = { x: Math.min(creation.startX, currentX), y: Math.min(creation.startY, currentY), width: Math.abs(currentX - creation.startX), height: Math.abs(currentY - creation.startY) }
+    if (geometry.width >= .005 && geometry.height >= .005) onCreate(geometry)
+    setCreation(null)
+  }
+
+  return <div className='ocr-canvas-scroll'><div className={'ocr-canvas' + (createMode ? ' is-creating' : '')} onPointerDown={beginCreation} onPointerMove={moveCreation} onPointerUp={endCreation} onPointerCancel={() => setCreation(null)}><img src={imageQuery.data} draggable='false' alt={String(page.page_number) + '페이지 원본'}/>{page.elements.filter(element => !element.is_deleted).map(element => <EditableOcrBox key={element.id} element={element} group={paragraphGroups.get(element.id) % 6} selected={selectedId === element.id} canEdit={canEdit && !createMode} onSelect={onSelect} onGeometryChange={onGeometryChange}/>)}{creation && <span className='ocr-creation-preview' style={{ left: String(creation.x * 100) + '%', top: String(creation.y * 100) + '%', width: String(creation.width * 100) + '%', height: String(creation.height * 100) + '%' }}/>}</div></div>
 }
 
 function EditableOcrBox({ element, group, selected, canEdit, onSelect, onGeometryChange }) {

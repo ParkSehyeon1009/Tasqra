@@ -181,6 +181,7 @@
 }
 .ocr-canvas.is-creating { cursor: crosshair; }
 .ocr-canvas.is-creating .ocr-box { pointer-events: none; opacity: .55; }
+.ocr-creation-preview { position: absolute; z-index: 5; border: 2px dashed #2468e8; background: rgba(59, 130, 246, .2); pointer-events: none; }
 .ocr-editor-heading-actions { display: flex; align-items: center; gap: 8px; }
 .ocr-editor-heading-actions > span { padding: 4px 8px; border-radius: 999px; background: #f0f1f7; color: #5e6b7c; font-size: 12px; font-weight: 750; white-space: nowrap; }
 .ocr-editor-heading-actions button { padding: 7px 10px; border: 1px solid #cfd8e6; border-radius: 8px; background: #fff; color: #4859bd; font-size: 12px; font-weight: 750; cursor: pointer; }
