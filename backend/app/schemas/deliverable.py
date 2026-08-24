@@ -17,14 +17,19 @@
 #   format 을 받지 않는다.
 # =============================================================================
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "DELIVERABLE_FORMATS",
+    "DELIVERABLE_KIND_LABELS",
     "DELIVERABLE_KINDS",
     "PERIOD_REQUIRED_KINDS",
+    "SUPPORTED_DELIVERABLE_FORMATS",
+    "DeliverableCreateRequest",
     "DeliverablePreviewResponse",
+    "DeliverableResponse",
     "PreviewCounts",
 ]
 
@@ -32,6 +37,21 @@ __all__ = [
 DELIVERABLE_KINDS = ("WEEKLY_REPORT", "DECISION_LOG", "MEETING_AGENDA", "PROJECT_STATUS")
 # 기간이 필수인 유형. DB CHECK(ck_deliverable_period_required)와 같은 판단이다.
 PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
+
+# models/deliverable.py 의 _FORMAT 과 같아야 한다. 리비전 0021 이 PDF 를 더했다.
+DELIVERABLE_FORMATS = ("XLSX", "HTML", "MD", "PDF")
+# 실제로 만들 수 있는 형식. **DB 가 허용하는 것과 다르다** — 허용값은 넷인데
+# 만드는 코드는 아직 Markdown 하나다. 나머지는 501 로 분명히 알린다. 값이
+# 틀린 것(400)과 서버가 아직 못 하는 것(501)은 다른 상황이다.
+SUPPORTED_DELIVERABLE_FORMATS = ("MD",)
+
+# 제목에 쓰는 사람이 읽는 이름. 화면의 KINDS 목록과 문구를 맞춘다.
+DELIVERABLE_KIND_LABELS = {
+    "WEEKLY_REPORT": "주간 보고서",
+    "DECISION_LOG": "결정사항 대장",
+    "MEETING_AGENDA": "다음 회의 안건",
+    "PROJECT_STATUS": "프로젝트 현황",
+}
 
 
 class PreviewCounts(BaseModel):
@@ -89,3 +109,49 @@ class DeliverablePreviewResponse(BaseModel):
     # `tasks` 테이블이 생겨 지금은 항상 빈 목록이다. **필드를 지우지 않는다** —
     # 다음에 또 못 세는 재료가 생기면 화면을 고치지 않고 여기로 알릴 수 있다.
     uncountable: list[str] = Field(default_factory=list)
+
+
+
+class DeliverableCreateRequest(BaseModel):
+    """산출물 만들기 요청 (POST /deliverables).
+
+    `format` 에 **기본값을 두지 않는다.** DLV-001-1 완료 판정이 "형식을 고르지
+    않으면 생성 버튼이 비활성화된다" 이므로 서버도 받지 않는다. 기본값을 두면
+    나중에 "왜 md 로 나왔지" 가 생긴다.
+
+    기간은 유형과 무관하게 받는다. 주간 보고서만 필수이고 나머지에서는 서버가
+    무시한다 — 미리보기(GET)와 같은 규칙이라 화면이 유형별 규칙을 몰라도 된다.
+
+    ⚠ `format` 을 빼면 `422 VALIDATION_ERROR` 다. `ErrorCode.FORMAT_REQUIRED` 를
+    쓰지 않는다 — error_codes.py 머리말이 "요청 형식 오류는 Pydantic 이 먼저
+    막으므로 별도 코드를 두지 않는다" 로 정하고 있다. 둘 다 422 이고, 필드가
+    빠졌다는 사실은 검증 응답의 `errors` 가 더 정확히 알려준다.
+    (`models/deliverable.py` 주석은 FORMAT_REQUIRED 를 가리키는데 그 규칙이
+    정해지기 전에 쓴 것이다.)
+    """
+
+    kind: str = Field(description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS")
+    format: str = Field(description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD 다")
+    period_from: date | None = None
+    period_to: date | None = None
+
+
+class DeliverableResponse(BaseModel):
+    """만들어진 산출물 한 건.
+
+    `source_counts` 는 **만든 시점의 재료 개수 스냅샷**이다. 나중에 지금 개수와
+    비교해 "생성 후 문서가 2건 추가됨" 을 띄우는 근거가 된다(DLV-003-4).
+    미리보기의 건수와 **같은 키**를 쓴다 — 그래야 다시 세어 비교할 수 있다.
+    """
+
+    id: int
+    kind: str
+    format: str
+    title: str
+    period_from: date | None
+    period_to: date | None
+    file_size: int | None
+    source_counts: dict[str, int]
+    generated_at: datetime
+    # 파일을 받는 경로. 화면이 경로를 조립하지 않게 서버가 준다.
+    download_url: str

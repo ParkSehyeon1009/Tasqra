@@ -89,6 +89,12 @@ class ErrorCode(Enum):
     PERIOD_REQUIRED = ("PERIOD_REQUIRED", "대상 기간을 선택해 주세요.", 422)
     DELIVERABLE_EMPTY = ("DELIVERABLE_EMPTY", "선택한 기간에 담을 내용이 없습니다.", 422)
     DELIVERABLE_GENERATION_FAILED = ("DELIVERABLE_GENERATION_FAILED", "산출물 파일을 만들지 못했습니다.", 500)
+    # 값은 맞지만 아직 그 형식으로 만드는 코드가 없다. 400(잘못된 값)과 구분한다 —
+    # 사용자가 고를 수 있는 값이었고 서버가 아직 못 하는 것이다.
+    DELIVERABLE_FORMAT_NOT_READY = ("DELIVERABLE_FORMAT_NOT_READY", "아직 지원하지 않는 출력 형식입니다.", 501)
+    # 이력에는 있는데 파일이 사라졌다. NOT_FOUND 와 구분해야 "목록에 보이는데 왜 못
+    # 받나" 를 설명할 수 있다.
+    DELIVERABLE_FILE_MISSING = ("DELIVERABLE_FILE_MISSING", "산출물 파일이 남아 있지 않습니다. 다시 만들어 주세요.", 410)
 
     # ── AI 모델 (금액 모델을 따로 돌리는 구성) ──
     AI_MODEL_NOT_LOADED = ("AI_MODEL_NOT_LOADED", "AI 모델이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.", 503)

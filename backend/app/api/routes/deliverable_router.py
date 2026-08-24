@@ -1,6 +1,6 @@
 # =============================================================================
-# 이 파일의 책임: 산출물 API 의 HTTP 경계를 정의한다. 지금은 생성 대상
-#   미리보기(DLV-001-2)만 있다.
+# 이 파일의 책임: 산출물 API 의 HTTP 경계를 정의한다. 생성 대상 미리보기
+#   (DLV-001-2) · 만들기(DLV-002-x) · 다운로드(DLV-003-3) 셋이다.
 #
 # 다른 파일과의 관계: services/deliverable_service.py 가 판단하고
 #   schemas/deliverable.py 가 계약이다. main.py 에서 include_router 로 등록한다.
@@ -17,25 +17,55 @@
 #   검색을 POST 로 둔 이유(한글 문장 질의 · 검색어가 로그에 남지 않아야 함)가
 #   여기에는 없다.
 #
-# ⚠ 만들기(POST)는 이 PR 에 없다
-#   미리보기만 먼저 낸다. 완료 판정이 "**LLM 호출 전에** 건수가 보이고 대상이
-#   없으면 생성이 방지된다" 이므로, 미리보기가 먼저 있어야 만들기가 그것을 전제로
-#   설계된다. 만들기는 DLV-002-1 이고 별도 작업이다.
+# 만들기가 미리보기를 그대로 부른다
+#   완료 판정이 "**LLM 호출 전에** 건수가 보이고 대상이 없으면 생성이 방지된다"
+#   이므로 미리보기가 먼저 있었고, 만들기는 그것을 전제로 설계했다. 만들기는
+#   자기만의 집계를 갖지 않는다 — 그러면 "미리보기는 12건, 보고서는 9건" 이 생긴다.
+#
+# ⚠ 지금 만들 수 있는 형식은 Markdown 하나다
+#   DB 는 XLSX·HTML·MD·PDF 를 허용하지만(리비전 0021) 만드는 코드는 MD 만 있다.
+#   나머지는 501 로 분명히 알린다. 형식을 늘리는 것은 별도 작업이고, XLSX·PDF 는
+#   새 라이브러리가 필요해 팀 이미지 크기에 영향을 준다.
 # =============================================================================
 
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 
 from app.dependencies import (
     ProjectAccess,
     get_deliverable_service,
     get_project_access,
+    get_project_editor_access,
 )
-from app.schemas.deliverable import DeliverablePreviewResponse
+from app.schemas.deliverable import (
+    DeliverableCreateRequest,
+    DeliverablePreviewResponse,
+    DeliverableResponse,
+)
 from app.services.deliverable_service import DeliverableService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["deliverables"])
+
+
+def _to_response(project_id: int, row) -> DeliverableResponse:
+    """이력 한 건을 응답으로. 다운로드 경로를 **서버가** 만든다.
+
+    화면이 경로를 조립하면 경로를 바꿀 때 양쪽을 고쳐야 한다.
+    """
+    return DeliverableResponse(
+        id=row.id,
+        kind=row.kind,
+        format=row.format,
+        title=row.title,
+        period_from=row.period_from,
+        period_to=row.period_to,
+        file_size=row.file_size,
+        source_counts=row.source_counts_json,
+        generated_at=row.generated_at,
+        download_url=f"/api/projects/{project_id}/deliverables/{row.id}/file",
+    )
 
 
 @router.get("/deliverables/preview", response_model=DeliverablePreviewResponse)
@@ -84,4 +114,80 @@ def preview_deliverable(
         kind=kind,
         period_from=period_from,
         period_to=period_to,
+    )
+
+
+
+@router.post("/deliverables", response_model=DeliverableResponse, status_code=201)
+def create_deliverable(
+    request: DeliverableCreateRequest,
+    access: ProjectAccess = Depends(get_project_editor_access),
+    service: DeliverableService = Depends(get_deliverable_service),
+) -> DeliverableResponse:
+    """산출물을 만든다 (DLV-002-x).
+
+    경로는 팀 계약서 43행에 이미 정해져 있다 — `POST /api/projects/{pid}/deliverables`.
+
+    **미리보기와 같은 규칙으로 센다.** 만들기가 자기만의 집계를 갖지 않으므로
+    "미리보기는 12건이라 했는데 보고서는 9건" 이 생기지 않는다.
+
+    ⚠️ 지금 만들 수 있는 형식은 **Markdown 하나**다. `XLSX`·`HTML`·`PDF` 는 DB 가
+    허용하는 값이지만 만드는 코드가 아직 없어 `501` 을 낸다. 값이 틀린 것(400)과
+    서버가 아직 못 하는 것(501)은 다른 상황이라 구분한다.
+
+    ⚠️ 개요 문장은 아직 비어 있다. `DLV-002-1` 완료 판정의 "LLM 호출은 개요 1회"
+    가 붙지 않았다. 표는 모두 실제 자료이고, 개요 자리에 비었다고 적는다 —
+    없는 문장을 지어내지 않는다.
+
+    편집 권한이 필요하다(`VIEWER` 는 만들 수 없다). 읽기 전용 참여자가 프로젝트에
+    파일과 이력을 남기는 것은 역할의 뜻과 맞지 않는다.
+
+    오류
+      `400 INVALID_DOCUMENT_TYPE`         kind 나 format 이 허용값이 아니다
+      `422 DELIVERABLE_EMPTY`             담을 내용이 없다. 이유가 detail 에 있다
+      `422 PERIOD_REQUIRED`               주간 보고서인데 기간이 없다
+      `422 INVALID_PROJECT_DATES`         시작일이 종료일보다 늦다
+      `501 DELIVERABLE_FORMAT_NOT_READY`  아직 못 만드는 형식이다
+      `403 PROJECT_FORBIDDEN`             VIEWER 다
+    """
+    row = service.generate(
+        access.project.id,
+        kind=request.kind,
+        deliverable_format=request.format,
+        period_from=request.period_from,
+        period_to=request.period_to,
+        user_id=access.member.user_id,
+    )
+    return _to_response(access.project.id, row)
+
+
+@router.get("/deliverables/{deliverable_id}/file")
+def download_deliverable(
+    deliverable_id: int,
+    access: ProjectAccess = Depends(get_project_access),
+    service: DeliverableService = Depends(get_deliverable_service),
+) -> FileResponse:
+    """만들어 둔 산출물을 내려받는다 (DLV-003-3).
+
+    경로는 계약서 45행 그대로다. 계약서 본문의 예시에는
+    `/api/deliverables/9/file` 로 적혀 있는데 **표(45행)와 어긋난다.** 표를 따랐다 —
+    다른 엔드포인트가 모두 프로젝트 아래에 있고, 권한도 프로젝트 단위로 판정한다.
+
+    조회는 `VIEWER` 에게도 열어 둔다. 만드는 것과 보는 것은 다른 권한이다.
+
+    받을 때의 파일 이름은 **제목으로** 만든다. 저장은 uuid 이름으로 하지만
+    사용자에게는 "주간 보고서 2026-08-04 ~ 2026-08-10.md" 가 보여야 한다.
+
+    오류
+      `404 DELIVERABLE_NOT_FOUND`     이 프로젝트에 그 산출물이 없다
+      `410 DELIVERABLE_FILE_MISSING`  이력은 있는데 파일이 사라졌다
+    """
+    row = service.open_file(access.project.id, deliverable_id)
+    extension = row.format.lower()
+    return FileResponse(
+        row.file_path,
+        # 한글 제목이라 브라우저가 알아볼 수 있게 FileResponse 가 RFC 5987 로
+        # 인코딩해 준다. 여기서 직접 헤더를 만들지 않는다.
+        filename=f"{row.title}.{extension}",
+        media_type="text/markdown; charset=utf-8",
     )
