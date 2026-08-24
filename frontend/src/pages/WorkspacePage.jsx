@@ -6,6 +6,7 @@ import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
 import BoardView from '../features/board/BoardView'
 import DashboardView from '../features/dashboard/DashboardView'
+import DeliverablesView from '../features/deliverables/DeliverablesView'
 import DocumentsView from '../features/documents/DocumentsView'
 import DocumentUploadModal from '../features/documents/DocumentUploadModal'
 import MembersView from '../features/members/MembersView'
@@ -22,7 +23,7 @@ import '../styles/workspace.css'
 // 탭을 추가할 때는 이 배열과 아래 TabContent 를 **함께** 고쳐야 한다.
 // TabContent 마지막이 return <BoardView/> 로 떨어지므로, 여기만 추가하면
 // 새 탭에서 보드가 나온다 — 에러가 나지 않아 찾기 어렵다.
-const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['board','보드'],['settings','설정']]
+const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['deliverables','산출물'],['board','보드'],['settings','설정']]
 
 export default function WorkspacePage({ user, onLogout, notify }) {
   const { projectId, tab } = useParams()
@@ -121,7 +122,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       <ProjectSidebar projects={projects} activeProjectId={project.id} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
         <nav className="tabs" aria-label="프로젝트 메뉴">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
-        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
@@ -129,12 +130,17 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   </div>
 }
 
-function TabContent({ tab, project, data, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
+function TabContent({ tab, project, data, canEdit, notify, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
   if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onRetryUpload={onRetryUpload} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
   // 검색은 워크스페이스 데이터(문서 목록 · 멤버)를 쓰지 않는다. 자기 상태만
   // 들고 api/search.js 를 부른다. 범위 토글에 쓸 프로젝트 이름만 넘긴다.
   if (tab === 'search') return <SearchView projectId={project.id} projectName={project.name}/>
+  // 산출물도 워크스페이스 데이터를 쓰지 않는다. 건수는 서버가 세므로(DLV-001-2)
+  // 화면에 넘겨준 문서 목록으로 다시 세지 않는다 — 그 목록은 첫 페이지라
+  // 문서가 21건 이상이면 조용히 틀린다(대시보드에서 겪은 것과 같은 함정).
+  // notify 는 만들기가 아직 준비 중임을 알리는 데 쓴다.
+  if (tab === 'deliverables') return <DeliverablesView projectId={project.id} notify={notify}/>
   return <BoardView/>
 }
