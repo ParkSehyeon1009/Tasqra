@@ -18,6 +18,11 @@ class TaskType(str, Enum):
     OTHER = "OTHER"
 
 
+class TaskOrigin(str, Enum):
+    MANUAL = "MANUAL"
+    AI_APPROVED = "AI_APPROVED"
+
+
 class TaskCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     description: str | None = None
@@ -60,6 +65,20 @@ class TaskResponse(BaseModel):
     assignee: TaskAssigneeResponse | None
     due_on: date | None
     completed_at: datetime | None
+    origin: str
+    source_suggestion_id: int | None
     created_by: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class TaskActivityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int | None
+    task_title: str
+    event_type: str
+    actor: TaskAssigneeResponse | None
+    details: dict
+    created_at: datetime

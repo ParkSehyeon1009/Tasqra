@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createTask, deleteTask, listTasks, updateTask } from '../../api/task'
+import { createTask, deleteTask, listTaskActivity, listTasks, updateTask } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
 import './BoardView.css'
 
@@ -10,16 +10,19 @@ const TYPE_LABELS = { DEVELOPMENT: '개발', DESIGN: '디자인', INFRA: '인프
 export default function BoardView({ projectId, members, canEdit, notify }) {
   const queryClient = useQueryClient()
   const tasksKey = ['projects', projectId, 'tasks']
+  const activityKey = ['projects', projectId, 'task-activity']
   const tasksQuery = useQuery({ queryKey: tasksKey, queryFn: () => listTasks(projectId) })
   const [editingTask, setEditingTask] = useState(null)
   const [deletingTask, setDeletingTask] = useState(null)
   const [draggingTaskId, setDraggingTaskId] = useState(null)
   const [dragOverStatus, setDragOverStatus] = useState(null)
+  const [activityOpen, setActivityOpen] = useState(false)
   const saveMutation = useMutation({
     mutationFn: values => editingTask?.id ? updateTask(projectId, editingTask.id, values) : createTask(projectId, values),
     onSuccess: saved => {
       queryClient.setQueryData(tasksKey, current => editingTask?.id ? current?.map(task => task.id === saved.id ? saved : task) : [saved, ...(current ?? [])])
       notify('success', editingTask?.id ? '태스크 수정 완료' : '태스크 생성 완료', `${saved.title} 태스크를 저장했습니다.`)
+      queryClient.invalidateQueries({ queryKey: activityKey })
       setEditingTask(null)
     },
     onError: error => notify('error', '태스크 저장 실패', error.message),
@@ -29,6 +32,7 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     onSuccess: (_, task) => {
       queryClient.setQueryData(tasksKey, current => current?.filter(item => item.id !== task.id))
       notify('success', '태스크 삭제 완료', `${task.title} 태스크를 삭제했습니다.`)
+      queryClient.invalidateQueries({ queryKey: activityKey })
       setDeletingTask(null)
     },
     onError: error => notify('error', '태스크 삭제 실패', error.message),
@@ -41,7 +45,10 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
       queryClient.setQueryData(tasksKey, current => current?.map(item => item.id === task.id ? { ...item, status } : item))
       return { previous }
     },
-    onSuccess: saved => queryClient.setQueryData(tasksKey, current => current?.map(task => task.id === saved.id ? saved : task)),
+    onSuccess: saved => {
+      queryClient.setQueryData(tasksKey, current => current?.map(task => task.id === saved.id ? saved : task))
+      queryClient.invalidateQueries({ queryKey: activityKey })
+    },
     onError: (error, _, context) => {
       queryClient.setQueryData(tasksKey, context?.previous)
       notify('error', '태스크 이동 실패', error.message)
@@ -66,7 +73,7 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
   }
 
   return <>
-    <div className='task-board-heading'><PageHeading eyebrow='ACTION TASKS' title='액션 태스크' description='프로젝트에서 직접 등록한 작업을 상태별로 관리합니다.'/>{canEdit && <button className='primary' onClick={() => setEditingTask({})}>+ 태스크 만들기</button>}</div>
+    <div className='task-board-heading'><PageHeading eyebrow='ACTION TASKS' title='액션 태스크' description='프로젝트에서 직접 등록한 작업을 상태별로 관리합니다.'/><div><button onClick={() => setActivityOpen(true)}>활동 기록</button>{canEdit && <button className='primary' onClick={() => setEditingTask({})}>+ 태스크 만들기</button>}</div></div>
     {tasksQuery.isPending && <section className='board-empty-state' role='status'><div className='board-empty-icon'>…</div><div><h2>태스크를 불러오는 중입니다.</h2></div></section>}
     {tasksQuery.isError && <section className='board-empty-state board-error' role='alert'><div className='board-empty-icon'>!</div><div><h2>태스크를 불러오지 못했습니다.</h2><p>{tasksQuery.error.message}</p><button onClick={() => tasksQuery.refetch()}>다시 시도</button></div></section>}
     {tasksQuery.isSuccess && <div className='board task-board'>{COLUMNS.map(([status, label]) => {
@@ -76,6 +83,7 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     })}</div>}
     {editingTask && <TaskDialog task={editingTask} members={members} pending={saveMutation.isPending} onClose={() => setEditingTask(null)} onSubmit={values => saveMutation.mutate(values)}/>}
     {deletingTask && <DeleteDialog task={deletingTask} pending={deleteMutation.isPending} onClose={() => setDeletingTask(null)} onDelete={() => deleteMutation.mutate(deletingTask)}/>}
+    {activityOpen && <ActivityDialog projectId={projectId} onClose={() => setActivityOpen(false)}/>}
   </>
 }
 
@@ -103,4 +111,26 @@ function TaskDialog({ task, members, pending, onClose, onSubmit }) {
 
 function DeleteDialog({ task, pending, onClose, onDelete }) {
   return <div className='dialog-backdrop'><section className='confirm-dialog' role='dialog' aria-modal='true' aria-labelledby='task-delete-title'><h2 id='task-delete-title'>태스크를 삭제할까요?</h2><p><strong>{task.title}</strong> 태스크가 삭제되며 되돌릴 수 없습니다.</p><div><button onClick={onClose} disabled={pending}>취소</button><button className='danger' onClick={onDelete} disabled={pending}>{pending ? '삭제 중...' : '삭제'}</button></div></section></div>
+}
+
+function ActivityDialog({ projectId, onClose }) {
+  const query = useQuery({ queryKey: ['projects', projectId, 'task-activity'], queryFn: () => listTaskActivity(projectId) })
+  return <div className='dialog-backdrop' onMouseDown={event => event.target === event.currentTarget && onClose()}><section className='project-dialog task-activity-dialog' role='dialog' aria-modal='true' aria-labelledby='task-activity-title'><header><div><p className='eyebrow'>ACTIVITY LOG</p><h2 id='task-activity-title'>태스크 활동 기록</h2></div><button className='dialog-close' onClick={onClose}>×</button></header>{query.isPending && <p className='task-activity-empty'>기록을 불러오는 중입니다.</p>}{query.isError && <p className='task-activity-empty'>활동 기록을 불러오지 못했습니다.</p>}{query.data?.length === 0 && <p className='task-activity-empty'>아직 기록된 활동이 없습니다.</p>}{query.data?.length > 0 && <ol className='task-activity-list'>{query.data.map(activity => <ActivityItem activity={activity} key={activity.id}/>)}</ol>}</section></div>
+}
+
+function ActivityItem({ activity }) {
+  const actor = activity.actor?.name ?? '알 수 없는 사용자'
+  const changes = activity.details?.changes ?? {}
+  const status = changes.status
+  const messages = {
+    CREATED: activity.details?.origin === 'AI_APPROVED' ? `${actor}님이 AI 제안을 승인하여 생성했습니다.` : `${actor}님이 직접 생성했습니다.`,
+    UPDATED: `${actor}님이 태스크 정보를 수정했습니다.`,
+    STATUS_CHANGED: `${actor}님이 상태를 ${status ? `${statusLabel(status.before)}에서 ${statusLabel(status.after)}로` : ''} 변경했습니다.`,
+    DELETED: `${actor}님이 태스크를 삭제했습니다.`,
+  }
+  return <li><div><strong>{activity.task_title}</strong><span>{messages[activity.event_type] ?? `${actor}님이 태스크를 변경했습니다.`}</span></div><time dateTime={activity.created_at}>{new Date(activity.created_at).toLocaleString('ko-KR')}</time></li>
+}
+
+function statusLabel(status) {
+  return COLUMNS.find(([value]) => value === status)?.[1] ?? status
 }

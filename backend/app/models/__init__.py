@@ -33,6 +33,6 @@ from app.models.amount import AmountItem
 from app.models.decision import Decision
 from app.models.schedule import ScheduleItem
 from app.models.deliverable import Deliverable
-from app.models.task import Task
+from app.models.task import Task, TaskActivityLog
 
-__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "OcrMergeOperation", "OcrStructureEvent", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable", "Task"]
+__all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "OcrMergeOperation", "OcrStructureEvent", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable", "Task", "TaskActivityLog"]

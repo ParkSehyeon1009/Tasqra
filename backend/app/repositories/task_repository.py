@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.project import ProjectMember
-from app.models.task import Task
+from app.models.task import Task, TaskActivityLog
 
 
 class TaskRepository:
@@ -35,3 +35,18 @@ class TaskRepository:
 
     def delete(self, task: Task) -> None:
         self._db.delete(task)
+
+    def add_activity(self, activity: TaskActivityLog) -> TaskActivityLog:
+        self._db.add(activity)
+        self._db.flush()
+        return activity
+
+    def list_activity(self, project_id: int, limit: int = 100) -> list[TaskActivityLog]:
+        return (
+            self._db.query(TaskActivityLog)
+            .options(joinedload(TaskActivityLog.actor))
+            .filter(TaskActivityLog.project_id == project_id)
+            .order_by(TaskActivityLog.created_at.desc(), TaskActivityLog.id.desc())
+            .limit(limit)
+            .all()
+        )
