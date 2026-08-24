@@ -53,6 +53,7 @@ from app.repositories.deliverable_repository import DeliverableRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.task_repository import TaskRepository
 from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
@@ -67,6 +68,7 @@ from app.services.deliverable_service import DeliverableService
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
+from app.services.task_service import TaskService
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -189,6 +191,17 @@ def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
 
 def get_project_repository(db: Session = Depends(get_db)) -> ProjectRepository:
     return ProjectRepository(db)
+
+
+def get_task_repository(db: Session = Depends(get_db)) -> TaskRepository:
+    return TaskRepository(db)
+
+
+def get_task_service(
+    db: Session = Depends(get_db),
+    task_repository: TaskRepository = Depends(get_task_repository),
+) -> TaskService:
+    return TaskService(db, task_repository)
 
 
 # get_search_service 는 get_project_repository 아래에 두어야 한다.

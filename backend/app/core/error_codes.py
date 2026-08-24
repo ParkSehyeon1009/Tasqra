@@ -77,6 +77,12 @@ class ErrorCode(Enum):
     DECISION_NOT_FOUND = ("DECISION_NOT_FOUND", "결정사항을 찾을 수 없습니다.", 404)
     SCHEDULE_ITEM_NOT_FOUND = ("SCHEDULE_ITEM_NOT_FOUND", "일정을 찾을 수 없습니다.", 404)
 
+    # ── 액션 태스크 ──
+    TASK_NOT_FOUND = ("TASK_NOT_FOUND", "태스크를 찾을 수 없습니다.", 404)
+    INVALID_TASK_TITLE = ("INVALID_TASK_TITLE", "태스크 제목은 비워둘 수 없습니다.", 400)
+    INVALID_TASK_DUE_DATE = ("INVALID_TASK_DUE_DATE", "태스크 마감일은 오늘보다 이전으로 설정할 수 없습니다.", 400)
+    TASK_ASSIGNEE_NOT_MEMBER = ("TASK_ASSIGNEE_NOT_MEMBER", "프로젝트 멤버만 태스크 담당자로 지정할 수 있습니다.", 400)
+
     # ── 산출물 (deliverables) ──
     DELIVERABLE_NOT_FOUND = ("DELIVERABLE_NOT_FOUND", "산출물을 찾을 수 없습니다.", 404)
     FORMAT_REQUIRED = ("FORMAT_REQUIRED", "파일 형식을 선택해 주세요.", 422)

@@ -8,22 +8,8 @@
 #   만드는 MapStruct 매핑이나 생성자 프로젝션에 해당한다.
 #
 # DSH-001 이 요구하는 지표는 여섯이다 — 문서 수 · 처리 중 문서 · 열린 태스크 ·
-# 승인 대기 · 문서 유형 분포 · 최근 문서. 이 중 넷은 지금 셀 수 있고 둘은 아니다.
-#
-#   열린 태스크    세려면 tasks 테이블이 필요한데 **그 테이블이 아예 없다.**
-#                 마이그레이션 어디에도 create_table("tasks") 가 없고 모델도 없다
-#                 (TSK-001-1 태스크 CRUD 미구현, 담당 최재정).
-#
-#                 decisions · schedule_items 와 혼동하지 말 것. 그 둘은 리비전
-#                 0007 로 테이블이 있고 모델만 없으며, "결정사항" 과 "일정" 이다.
-#                 승인 대기(아래)의 한 종류일 뿐 태스크가 아니다.
-#
-#                 그래서 open_tasks 는 int 가 아니라 int | None 이고 기본값이
-#                 None 이다. **0 을 넣으면 안 된다** — "열린 태스크가 0건" 과
-#                 "아직 셀 수 없다" 를 화면에서 구별할 수 없게 된다. 그러면
-#                 사용자가 "할 일이 없다" 고 잘못 읽는다. 없음을 0 이 아니라
-#                 None 으로 두는 것은 amount_precedent.py 의 summary 와 같은
-#                 판단이다.
+# 승인 대기 · 문서 유형 분포 · 최근 문서. 열린 태스크는 tasks 테이블에서
+# status가 DONE이 아닌 항목을 센다.
 #
 #   승인 대기      amount_items 만 센다. 그래서 이름이 pending_amount_items 이고
 #                 pending_suggestions 가 아니다. 같은 승인 대기인 decisions ·
@@ -103,7 +89,7 @@ class DashboardResponse(BaseModel):
     # 승인 대기 금액 항목 수. amount_items.decision = 'PENDING'.
     # ix_amount_pending 부분 인덱스가 바로 이 조회를 위해 있다(리비전 0007).
     pending_amount_items: int
-    # 열린 태스크. 모델이 없어 아직 셀 수 없다 — 위 파일 주석 참고.
-    open_tasks: int | None = None
+    # 완료되지 않은 TODO · IN_PROGRESS 태스크 수.
+    open_tasks: int
     document_types: list[DashboardDocumentTypeCount] = Field(default_factory=list)
     recent_documents: list[DashboardRecentDocument] = Field(default_factory=list)

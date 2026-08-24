@@ -77,6 +77,7 @@ class DashboardService:
             project_id=project_id, limit=recent_limit
         )
         pending_amounts = self._dashboard.count_pending_amount_items(project_id)
+        open_tasks = self._dashboard.count_open_tasks(project_id)
 
         counts = DashboardDocumentCounts(**document_counts(by_status))
 
@@ -95,9 +96,7 @@ class DashboardService:
             documents=counts,
             review_pending=review_pending,
             pending_amount_items=pending_amounts,
-            # open_tasks 를 넘기지 않는다. 기본값 None 이 "아직 셀 수 없다" 는
-            # 뜻이다. tasks 테이블이 생기면(TSK-001-1) 여기서 채운다 —
-            # decisions 가 아니다. 그것은 결정사항이고 승인 대기 쪽이다.
+            open_tasks=open_tasks,
             document_types=[
                 DashboardDocumentTypeCount(document_type=document_type, count=count)
                 for document_type, count in sort_type_rows(type_rows)
