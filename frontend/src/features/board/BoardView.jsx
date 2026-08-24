@@ -13,6 +13,8 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
   const tasksQuery = useQuery({ queryKey: tasksKey, queryFn: () => listTasks(projectId) })
   const [editingTask, setEditingTask] = useState(null)
   const [deletingTask, setDeletingTask] = useState(null)
+  const [draggingTaskId, setDraggingTaskId] = useState(null)
+  const [dragOverStatus, setDragOverStatus] = useState(null)
   const saveMutation = useMutation({
     mutationFn: values => editingTask?.id ? updateTask(projectId, editingTask.id, values) : createTask(projectId, values),
     onSuccess: saved => {
@@ -31,7 +33,37 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     },
     onError: error => notify('error', '태스크 삭제 실패', error.message),
   })
+  const statusMutation = useMutation({
+    mutationFn: ({ task, status }) => updateTask(projectId, task.id, { status }),
+    onMutate: async ({ task, status }) => {
+      await queryClient.cancelQueries({ queryKey: tasksKey })
+      const previous = queryClient.getQueryData(tasksKey)
+      queryClient.setQueryData(tasksKey, current => current?.map(item => item.id === task.id ? { ...item, status } : item))
+      return { previous }
+    },
+    onSuccess: saved => queryClient.setQueryData(tasksKey, current => current?.map(task => task.id === saved.id ? saved : task)),
+    onError: (error, _, context) => {
+      queryClient.setQueryData(tasksKey, context?.previous)
+      notify('error', '태스크 이동 실패', error.message)
+    },
+    onSettled: () => { setDraggingTaskId(null); setDragOverStatus(null) },
+  })
   const tasks = tasksQuery.data ?? []
+
+  function startDragging(event, task) {
+    if (!canEdit || statusMutation.isPending) { event.preventDefault(); return }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(task.id))
+    setDraggingTaskId(task.id)
+  }
+  function dropTask(event, status) {
+    event.preventDefault()
+    const taskId = Number(event.dataTransfer.getData('text/plain') || draggingTaskId)
+    const task = tasks.find(item => item.id === taskId)
+    setDragOverStatus(null)
+    if (!task || task.status === status || statusMutation.isPending) { setDraggingTaskId(null); return }
+    statusMutation.mutate({ task, status })
+  }
 
   return <>
     <div className='task-board-heading'><PageHeading eyebrow='ACTION TASKS' title='액션 태스크' description='프로젝트에서 직접 등록한 작업을 상태별로 관리합니다.'/>{canEdit && <button className='primary' onClick={() => setEditingTask({})}>+ 태스크 만들기</button>}</div>
@@ -39,15 +71,16 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     {tasksQuery.isError && <section className='board-empty-state board-error' role='alert'><div className='board-empty-icon'>!</div><div><h2>태스크를 불러오지 못했습니다.</h2><p>{tasksQuery.error.message}</p><button onClick={() => tasksQuery.refetch()}>다시 시도</button></div></section>}
     {tasksQuery.isSuccess && <div className='board task-board'>{COLUMNS.map(([status, label]) => {
       const columnTasks = tasks.filter(task => task.status === status)
-      return <section key={status} className={`task-column task-column-${status.toLowerCase()}`}><header><div><h2>{label}</h2><span>{columnTasks.length}</span></div></header>{columnTasks.length ? <div className='task-card-list'>{columnTasks.map(task => <TaskCard key={task.id} task={task} canEdit={canEdit} onEdit={() => setEditingTask(task)} onDelete={() => setDeletingTask(task)}/>)}</div> : <p className='task-column-empty'>등록된 태스크가 없습니다.</p>}</section>
+      const activeDrop = canEdit && draggingTaskId && dragOverStatus === status
+      return <section key={status} className={`task-column task-column-${status.toLowerCase()}${activeDrop ? ' is-drag-over' : ''}`} onDragOver={event => { if (canEdit) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverStatus(status) } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOverStatus(null) }} onDrop={event => dropTask(event, status)}><header><div><h2>{label}</h2><span>{columnTasks.length}</span></div></header>{columnTasks.length ? <div className='task-card-list'>{columnTasks.map(task => <TaskCard key={task.id} task={task} canEdit={canEdit} dragging={draggingTaskId === task.id} onDragStart={event => startDragging(event, task)} onDragEnd={() => { setDraggingTaskId(null); setDragOverStatus(null) }} onEdit={() => setEditingTask(task)} onDelete={() => setDeletingTask(task)}/>)}</div> : <p className='task-column-empty'>{activeDrop ? '여기에 놓아 상태를 변경합니다.' : '등록된 태스크가 없습니다.'}</p>}</section>
     })}</div>}
     {editingTask && <TaskDialog task={editingTask} members={members} pending={saveMutation.isPending} onClose={() => setEditingTask(null)} onSubmit={values => saveMutation.mutate(values)}/>}
     {deletingTask && <DeleteDialog task={deletingTask} pending={deleteMutation.isPending} onClose={() => setDeletingTask(null)} onDelete={() => deleteMutation.mutate(deletingTask)}/>}
   </>
 }
 
-function TaskCard({ task, canEdit, onEdit, onDelete }) {
-  return <article className={`task-board-card task-board-card-${task.type.toLowerCase()}`}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}<footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
+function TaskCard({ task, canEdit, dragging, onDragStart, onDragEnd, onEdit, onDelete }) {
+  return <article className={`task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}`} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}<footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
 }
 
 function TaskDialog({ task, members, pending, onClose, onSubmit }) {
