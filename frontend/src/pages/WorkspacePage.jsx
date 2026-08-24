@@ -142,5 +142,5 @@ function TabContent({ tab, project, data, canEdit, notify, onUpload, onFileDrop,
   // 문서가 21건 이상이면 조용히 틀린다(대시보드에서 겪은 것과 같은 함정).
   // notify 는 만들기가 아직 준비 중임을 알리는 데 쓴다.
   if (tab === 'deliverables') return <DeliverablesView projectId={project.id} notify={notify}/>
-  return <BoardView/>
+  return <BoardView projectId={project.id} members={data.members} canEdit={canEdit} notify={notify}/>
 }
