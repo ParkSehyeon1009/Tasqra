@@ -134,16 +134,30 @@ class DeliverableCreateRequest(BaseModel):
     기간은 유형과 무관하게 받는다. 주간 보고서만 필수이고 나머지에서는 서버가
     무시한다 — 미리보기(GET)와 같은 규칙이라 화면이 유형별 규칙을 몰라도 된다.
 
-    ⚠ `format` 을 빼면 `422 VALIDATION_ERROR` 다. `ErrorCode.FORMAT_REQUIRED` 를
-    쓰지 않는다 — error_codes.py 머리말이 "요청 형식 오류는 Pydantic 이 먼저
-    막으므로 별도 코드를 두지 않는다" 로 정하고 있다. 둘 다 422 이고, 필드가
-    빠졌다는 사실은 검증 응답의 `errors` 가 더 정확히 알려준다.
-    (`models/deliverable.py` 주석은 FORMAT_REQUIRED 를 가리키는데 그 규칙이
-    정해지기 전에 쓴 것이다.)
+    ⚠ `format` 을 빼거나 **빈 문자열로 보내면** `422 VALIDATION_ERROR` 다.
+    `ErrorCode.FORMAT_REQUIRED` 를 쓰지 않는다 — error_codes.py 머리말이 "요청
+    형식 오류는 Pydantic 이 먼저 막으므로 별도 코드를 두지 않는다" 로 정하고 있다.
+    둘 다 422 이고, 어느 필드가 문제인지는 검증 응답의 `errors` 가 더 정확히
+    알려준다. (`models/deliverable.py` 주석은 FORMAT_REQUIRED 를 가리키는데 그
+    규칙이 정해지기 전에 쓴 것이다.)
+
+    빈 문자열을 400(`INVALID_DOCUMENT_TYPE`)으로 두지 않는 이유
+      "값이 틀렸다" 와 "아직 고르지 않았다" 는 사용자가 할 일이 다르다. 전자는
+      잘못된 값을 고쳐야 하고 후자는 선택만 하면 된다. 빈 값에 "XLSX · HTML · MD ·
+      PDF 중 하나여야 합니다" 를 띄우면 무엇이 잘못됐는지 알기 어렵다.
     """
 
-    kind: str = Field(description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS")
-    format: str = Field(description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD 다")
+    # min_length=1 이 있어야 **빈 문자열이 값으로 통과하지 않는다.**
+    # 빈 값은 "고르지 않았다" 는 뜻이라 "값이 틀렸다"(400)가 아니라 422 로 막아야
+    # 한다. 없는 필드와 빈 필드가 같은 응답을 받는 것도 화면 입장에서 자연스럽다.
+    kind: str = Field(
+        min_length=1,
+        description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS",
+    )
+    format: str = Field(
+        min_length=1,
+        description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD · HTML 이다",
+    )
     period_from: date | None = None
     period_to: date | None = None
 

@@ -354,3 +354,35 @@ def test_download_missing_file_is_distinguished_from_not_found():
     with pytest.raises(BusinessError) as err:
         service.open_file(1, 9)
     assert err.value.error_code is ErrorCode.DELIVERABLE_NOT_FOUND
+
+
+
+# --- 요청 검증 (빈 값과 잘못된 값을 구분한다) --------------------------------
+
+
+def test_empty_format_is_rejected_by_schema():
+    """빈 문자열은 "고르지 않았다" 다. 값이 틀린 것(400)이 아니라 422 여야 한다.
+
+    min_length=1 이 없으면 "" 가 문자열로 통과해 서비스까지 내려가고, 거기서
+    INVALID_DOCUMENT_TYPE(400)이 난다. 실제로 그렇게 나와서 고쳤다.
+    """
+    from pydantic import ValidationError
+
+    from app.schemas.deliverable import DeliverableCreateRequest
+
+    for payload in (
+        {"kind": "PROJECT_STATUS", "format": ""},
+        {"kind": "", "format": "MD"},
+        {"kind": "PROJECT_STATUS"},
+    ):
+        with pytest.raises(ValidationError):
+            DeliverableCreateRequest(**payload)
+
+
+def test_valid_request_passes_schema():
+    from app.schemas.deliverable import DeliverableCreateRequest
+
+    request = DeliverableCreateRequest(kind="PROJECT_STATUS", format="MD")
+    assert (request.kind, request.format) == ("PROJECT_STATUS", "MD")
+    # 기간은 없어도 된다. 주간 보고서만 서비스에서 필수로 본다.
+    assert request.period_from is None and request.period_to is None
