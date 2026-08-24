@@ -146,6 +146,7 @@ class OcrElementResponse(BaseModel):
     reading_order: int
     version: int
     is_excluded: bool
+    is_deleted: bool
     content_start: int | None
     content_end: int | None
     is_in_content: bool
@@ -166,7 +167,26 @@ class OcrReviewResponse(BaseModel):
     review_status: str
     ocr_revision: int
     ocr_char_count: int
+    latest_merge_operation_id: int | None = None
+    latest_merge_page_id: int | None = None
+    undoable_merges: list["OcrUndoableMergeResponse"] = Field(default_factory=list)
+    structure_history: list["OcrStructureEventResponse"] = Field(default_factory=list)
     pages: list[OcrPageResponse]
+
+
+class OcrUndoableMergeResponse(BaseModel):
+    operation_id: int
+    survivor_id: int
+    page_id: int
+    original_count: int
+
+
+class OcrStructureEventResponse(BaseModel):
+    id: int
+    page_id: int
+    event_type: str
+    details: dict
+    created_at: datetime
 
 
 class OcrElementUpdateRequest(BaseModel):
@@ -179,6 +199,94 @@ class OcrElementExclusionRequest(BaseModel):
     version: int = Field(ge=1)
 
 
+class OcrElementDeletionRequest(BaseModel):
+    is_deleted: bool
+    version: int = Field(ge=1)
+
+
+class OcrElementCreateRequest(BaseModel):
+    page_id: int = Field(ge=1)
+    text: str = Field(min_length=1, max_length=10000)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def require_box_inside_page(self):
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page")
+        return self
+
+
+class OcrReprocessResponse(BaseModel):
+    element_id: int
+    original_text: str
+    recognized_text: str
+    confidence: float | None
+
+
+class OcrReprocessRequest(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def require_box_inside_page(self):
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page")
+        return self
+
+
+class OcrElementMergeItem(BaseModel):
+    id: int = Field(ge=1)
+    version: int = Field(ge=1)
+
+
+class OcrElementMergeRequest(BaseModel):
+    items: list[OcrElementMergeItem] = Field(min_length=2, max_length=100)
+    join_with_space: bool = True
+
+    @model_validator(mode="after")
+    def require_unique_ids(self):
+        ids = [item.id for item in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate OCR element ids are not allowed")
+        return self
+
+
+class OcrElementMergeResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    merge_operation_id: int
+    merged: OcrElementResponse
+    deleted_ids: list[int]
+
+
+class OcrElementMergeGroupsRequest(BaseModel):
+    groups: list[list[OcrElementMergeItem]] = Field(min_length=1, max_length=100)
+    join_with_space: bool = True
+
+    @model_validator(mode="after")
+    def require_valid_groups(self):
+        ids = [item.id for group in self.groups for item in group]
+        if any(len(group) < 2 for group in self.groups) or len(ids) != len(set(ids)):
+            raise ValueError("merge groups must contain unique OCR element ids and at least two items")
+        return self
+
+
+class OcrElementMergeGroupsResponse(BaseModel):
+    items: list[OcrElementMergeResponse]
+
+
+class OcrElementMergeUndoResponse(BaseModel):
+    ocr_revision: int
+    text_version: int | None
+    deleted_ids: list[int]
+    restored: list[OcrElementResponse]
+
+
 class OcrElementBatchUpdateItem(BaseModel):
     id: int = Field(ge=1)
     version: int = Field(ge=1)
@@ -189,11 +297,22 @@ class OcrElementBatchUpdateItem(BaseModel):
         default=None,
         pattern="^(TEXT_LINE|HEADING|TABLE_ROW|TABLE_HEADER|HEADER_FOOTER)$",
     )
+    x: float | None = Field(default=None, ge=0, le=1)
+    y: float | None = Field(default=None, ge=0, le=1)
+    width: float | None = Field(default=None, gt=0, le=1)
+    height: float | None = Field(default=None, gt=0, le=1)
+    re_ocr_confidence: float | None = Field(default=None, ge=0, le=1)
+    re_ocr_applied: bool | None = None
 
     @model_validator(mode="after")
     def require_change(self):
-        if all(value is None for value in (self.text, self.is_excluded, self.is_paragraph_start, self.element_type)):
+        editable = (self.text, self.is_excluded, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height, self.re_ocr_applied)
+        if all(value is None for value in editable):
             raise ValueError("at least one editable field is required")
+        if self.x is not None and self.width is not None and self.x + self.width > 1:
+            raise ValueError("OCR element must fit within the page width")
+        if self.y is not None and self.height is not None and self.y + self.height > 1:
+            raise ValueError("OCR element must fit within the page height")
         return self
 
 

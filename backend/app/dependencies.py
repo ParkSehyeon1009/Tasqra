@@ -57,6 +57,7 @@ from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.services.amount_precedent_service import AmountPrecedentService
+from app.services.amount_summary_service import AmountSummaryService
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
@@ -228,6 +229,15 @@ def get_amount_precedent_service(
     return AmountPrecedentService(db, amount_repository, project_repository)
 
 
+# get_amount_repository 아래에 두어야 한다 — 위 주석과 같은 이유다.
+# Session 을 받지 않는다. 이 서비스는 리포지토리를 통해서만 DB 를 만지고,
+# 트랜잭션을 열 일이 없는 순수 조회다.
+def get_amount_summary_service(
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+) -> AmountSummaryService:
+    return AmountSummaryService(amount_repository)
+
+
 def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardRepository:
     return DashboardRepository(db)
 
@@ -276,6 +286,31 @@ def get_project_editor_access(access: ProjectAccess = Depends(get_project_access
     return access
 
 
+# 금액 열람 권한. **정책이 아직 미결이라 여기 한 곳에 모아 둔다** (AMT-003-1).
+#
+# 지금은 VIEWER 를 막는다. 역할별 허용 표에서 금액 항목 조회의 VIEWER 칸이
+# "미결" 로 남아 있고, 멤버 역할 변경(PRJ-004-3)에도 "금액 열람 권한은 함께 정책
+# 확정 필요" 가 붙어 있다.
+#
+# 왜 막는 쪽을 기본값으로 두는가 — 방향이 비대칭이다
+#   막았다가 푸는 것은 이 함수 한 줄이다. 열었다가 막는 것은 **이미 본 뒤**라
+#   되돌릴 수 없다. 금액은 계약 정보라 특히 그렇다.
+#
+# ⚠️ 단가 선례 조회(amount-precedents)는 get_project_access 를 써서 VIEWER 에게
+#   열려 있다. 정책이 정해지면 **그것도 이 함수로 옮겨** 두 엔드포인트가 갈리지
+#   않게 해야 한다. 지금 옮기지 않은 이유는 이미 동작하는 기능의 권한을 바꾸는
+#   일이라 팀 합의가 필요해서다.
+#
+# get_project_editor_access 를 그대로 쓰지 않는 이유: 지금은 판정이 같지만 뜻이
+#   다르다. 그것은 "고칠 수 있는가" 이고 이것은 "금액을 볼 수 있는가" 다. 정책이
+#   정해져 VIEWER 에게 열면 둘이 갈라지는데, 같은 함수를 쓰고 있으면 그때 금액을
+#   열면서 편집 권한까지 함께 열게 된다.
+def get_project_amount_access(access: ProjectAccess = Depends(get_project_access)) -> ProjectAccess:
+    if access.member.role not in {MemberRole.OWNER.value, MemberRole.EDITOR.value}:
+        raise BusinessError(ErrorCode.PROJECT_FORBIDDEN)
+    return access
+
+
 def get_project_owner_access(access: ProjectAccess = Depends(get_project_access)) -> ProjectAccess:
     if access.member.role != MemberRole.OWNER.value or access.project.owner_id != access.member.user_id:
         raise BusinessError(ErrorCode.PROJECT_FORBIDDEN)
@@ -316,6 +351,7 @@ def get_document_service(
         db=db,
         document_repository=document_repository,
         analysis_repository=analysis_repository,
+        ocr_extractor=get_ocr_extractor(),
     )
 
 

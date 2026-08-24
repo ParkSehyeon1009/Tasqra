@@ -159,6 +159,31 @@ class OcrElementRevision(Base):
     element = relationship("OcrElement", back_populates="revisions")
 
 
+class OcrMergeOperation(Base):
+    __tablename__ = "ocr_merge_operations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    survivor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ocr_elements.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    merged_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    undone_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class OcrStructureEvent(Base):
+    __tablename__ = "ocr_structure_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    page_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("document_pages.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    details_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class Analysis(Base):
     __tablename__ = "analyses"
     __table_args__ = (Index("ix_analysis_doc_type", "document_id", "analyzer_type"),)

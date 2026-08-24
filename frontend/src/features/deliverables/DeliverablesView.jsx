@@ -1,0 +1,213 @@
+// =============================================================================
+// 이 파일의 책임: 산출물 생성 대상 미리보기 화면이다(DLV-001-2). 산출물 유형과
+//   기간을 고르면 담길 내용이 몇 건인지 보여주고, 담을 것이 없으면 생성을 막는다.
+// 다른 파일과의 관계: api/deliverable.js 로 건수를 받는다. 표기 규칙은
+//   utils/format.js 를 쓴다. WorkspacePage 의 '산출물' 탭에서 그린다.
+// Spring 비교: 서버가 만든 뷰 모델을 그대로 그리는 화면이다. 판단을 화면에서
+//   다시 하지 않는다.
+//
+// 완료 판정이 이 화면의 모양을 정했다
+//   DLV-001-2: "**LLM 호출 전에 건수가 보이고** 대상이 없으면 생성이 방지된다"
+//   그래서 ① 건수가 보이는 것과 ② 막히는 것이 둘 다 화면에 있어야 한다.
+//   막히는 것은 비활성 버튼과 그 아래 이유 문장으로 드러낸다.
+//
+// 판단을 화면에서 다시 하지 않는다
+//   can_generate 를 건수로 계산하지 않고 서버 값을 그대로 쓴다. 승인 대기는
+//   건수에 있지만 생성 가능 판정에는 더하지 않는다 같은 규칙이 섞여 있어서,
+//   화면에서 다시 구현하면 조용히 어긋난다.
+//
+//   같은 이유로 **"담길 내용 합계" 를 보여주지 않는다.** 합계를 내려면 어느 넷을
+//   더하는지 화면이 알아야 하는데 그것이 곧 규칙 복제다(서버는 합계를 응답에
+//   담지 않는다 — countable_total 은 내부 판단용 프로퍼티다). 합계 대신
+//   카드를 "담길 내용" 과 "담기지 않는 것" 으로 묶어서 뜻을 드러낸다.
+//
+// 기간 입력을 유형과 무관하게 늘 띄우는 이유
+//   어느 유형이 기간을 쓰는지는 서버가 안다(주간 보고서만 필수). 화면이 그것을
+//   알아야 한다면 그 규칙이 DB CHECK · 서비스 · 화면 세 곳에 생긴다. 그래서
+//   기간은 늘 보내고, 쓰지 않는 유형에서는 서버가 무시한다. 응답의 needs_period
+//   로 "이 유형은 기간을 쓰지 않는다" 는 안내만 띄운다.
+//   기본값을 이번 주로 넣어 두므로 주간 보고서에서도 처음부터 값이 있다.
+// =============================================================================
+
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { getDeliverablePreview } from '../../api/deliverable'
+import PageHeading from '../../components/common/PageHeading'
+import { formatNumber } from '../../utils/format'
+import './DeliverablesView.css'
+
+// 산출물 유형. 값은 서버의 DELIVERABLE_KINDS 와 같아야 한다(리비전 0007 의
+// CHECK 가 근거다). 여기 있는 것은 **표시 문구뿐**이고 기간 규칙은 담지 않는다.
+//
+// "담기는 것" 설명을 화면에 두는 이유: 유형마다 세는 대상이 다른데 그것을 모르면
+// 결정사항 대장에서 기간을 바꿔도 숫자가 안 변하는 것이 고장처럼 보인다.
+const KINDS = [
+  ['WEEKLY_REPORT', '주간 보고서', '기간 안의 문서·결정·일정·금액'],
+  ['DECISION_LOG', '결정사항 대장', '결정 전부 (확정·미결·뒤집힘)'],
+  ['MEETING_AGENDA', '다음 회의 안건', '아직 정해지지 않은 결정만'],
+  ['PROJECT_STATUS', '프로젝트 현황', '지금 상태 전부'],
+]
+
+// 산출물에 실제로 담기는 재료.
+const CONTENT_COUNTS = [
+  ['documents', '문서'],
+  ['decisions', '결정사항'],
+  ['schedule_items', '일정'],
+  ['amount_items', '금액 항목'],
+]
+
+// 건수는 보여주지만 산출물에 담기지 않는 것. 왜 담기지 않는지를 note 로 적는다 —
+// 적지 않으면 "4건이 있는데 왜 못 만드나" 가 된다.
+const ASIDE_COUNTS = [
+  ['pending_suggestions', '승인 대기', '승인하면 담깁니다'],
+  ['completed_tasks', '완료한 태스크', null],
+]
+
+/** Date 를 'YYYY-MM-DD' 로. toISOString() 을 쓰지 않는다 — 그것은 UTC 라서
+ *  한국 시간 09시 이전에는 날짜가 하루 앞으로 밀린다. */
+function toDateInput(date) {
+  const pad = number => String(number).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** 이번 주 월요일~일요일. 주간 보고서의 기본 기간이다. */
+function thisWeek() {
+  const today = new Date()
+  const monday = new Date(today)
+  // getDay() 는 일요일이 0 이다. 월요일을 주의 시작으로 삼아 옮긴다.
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return [toDateInput(monday), toDateInput(sunday)]
+}
+
+const [DEFAULT_FROM, DEFAULT_TO] = thisWeek()
+
+export default function DeliverablesView({ projectId, notify }) {
+  const [kind, setKind] = useState('WEEKLY_REPORT')
+  const [periodFrom, setPeriodFrom] = useState(DEFAULT_FROM)
+  const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
+
+  const previewQuery = useQuery({
+    queryKey: ['projects', projectId, 'deliverable-preview', kind, periodFrom, periodTo],
+    queryFn: () => getDeliverablePreview(projectId, { kind, periodFrom, periodTo }),
+    // 날짜가 비어 있으면 부르지 않는다. 주간 보고서에서 422 가 날 뿐이다.
+    enabled: Boolean(periodFrom && periodTo),
+    // 시작일이 종료일보다 늦은 경우는 **서버가 판정한다**(422
+    // INVALID_PROJECT_DATES). 화면에서 미리 막으면 같은 규칙이 두 곳에 생긴다.
+    retry: false,
+  })
+  const preview = previewQuery.data
+  const counts = preview?.counts
+  // 어느 항목을 셀 수 없는지 서버가 알려준다. 화면이 필드 이름을 외우지 않는다.
+  const uncountable = preview?.uncountable ?? []
+  const selected = KINDS.find(([value]) => value === kind)
+
+  return <>
+    <PageHeading
+      eyebrow='DELIVERABLES'
+      title='산출물'
+      description='만들기 전에 담길 내용이 몇 건인지 확인하세요. 담을 것이 없으면 생성되지 않습니다.'
+    />
+
+    <section className='panel deliverable-controls' aria-label='산출물 조건'>
+      <div className='deliverable-kind-group' role='group' aria-label='산출물 유형'>
+        {KINDS.map(([value, label, contains]) => <button
+          className={'deliverable-kind' + (value === kind ? ' is-active' : '')}
+          type='button'
+          key={value}
+          aria-pressed={value === kind}
+          onClick={() => setKind(value)}
+        ><strong>{label}</strong><span>{contains}</span></button>)}
+      </div>
+
+      <div className='deliverable-period'>
+        <label>
+          <span>시작일</span>
+          <input type='date' value={periodFrom} max={periodTo} onChange={event => setPeriodFrom(event.target.value)}/>
+        </label>
+        <label>
+          <span>종료일</span>
+          <input type='date' value={periodTo} min={periodFrom} onChange={event => setPeriodTo(event.target.value)}/>
+        </label>
+        {/* needs_period 는 서버가 정한다. 응답이 오기 전에는 아무 말도 하지 않는다 —
+            추측해서 안내하면 유형을 바꾼 직후 잘못된 문구가 잠깐 보인다. */}
+        {preview && !preview.needs_period && <p className='deliverable-period-note'>
+          <strong>{selected?.[1]}</strong>은 기간을 쓰지 않습니다. 날짜를 바꿔도 결과가 같습니다.
+        </p>}
+      </div>
+    </section>
+
+    {previewQuery.isError && <section className='panel deliverable-notice'>
+      <div>
+        <strong>담길 내용을 불러오지 못했습니다.</strong>
+        <p>{previewQuery.error?.message}</p>
+      </div>
+      <button type='button' onClick={() => previewQuery.refetch()}>다시 시도</button>
+    </section>}
+
+    <section className='deliverable-count-grid' aria-label='담길 내용'>
+      <h2 className='deliverable-group-heading'>담길 내용</h2>
+      {CONTENT_COUNTS.map(([key, label]) => <CountCard
+        key={key}
+        label={label}
+        value={counts?.[key]}
+        unknown={uncountable.includes(key)}
+      />)}
+    </section>
+
+    <section className='deliverable-count-grid deliverable-count-grid--aside' aria-label='담기지 않는 것'>
+      <h2 className='deliverable-group-heading'>담기지 않는 것</h2>
+      {ASIDE_COUNTS.map(([key, label, note]) => <CountCard
+        key={key}
+        label={label}
+        value={counts?.[key]}
+        note={note}
+        unknown={uncountable.includes(key)}
+      />)}
+    </section>
+
+    <GeneratePanel preview={preview} loading={previewQuery.isPending} notify={notify}/>
+  </>
+}
+
+// 값이 null·undefined 면 '—' 를 보여준다. 0 과 구별하기 위한 것이다.
+//   0    — 실제로 0건이다
+//   —    — 아직 못 받았거나(로딩) 셀 수 없다(완료한 태스크)
+// 둘을 같은 '—' 로 두되 **셀 수 없는 것에는 이유를 적는다.** 대시보드의
+// SummaryCard 와 같은 규칙이다. 0 으로 바꾸면 사용자가 "없다" 로 잘못 읽는다.
+function CountCard({ label, value, note, unknown }) {
+  const shown = value === null || value === undefined ? '—' : formatNumber(value)
+  return <section className={'deliverable-count-card' + (unknown ? ' is-unknown' : '')}>
+    <span>{label}</span>
+    <strong>{shown}{value === null || value === undefined ? '' : '건'}</strong>
+    {unknown ? <p>아직 집계할 수 없습니다 (태스크 기능 준비 중)</p> : note && <p>{note}</p>}
+  </section>
+}
+
+// 생성 영역. **막히는 것이 보이는 자리**라서 화면에서 가장 중요하다.
+//
+// 만들기(DLV-002-1)가 아직 없다. 그래서 눌렀을 때 실제로 만들지는 않고 준비 중임을
+// 알린다. 버튼을 아예 없애지 않는 이유: 없으면 "대상이 없으면 생성이 방지된다" 를
+// 화면에서 확인할 수 없다. 대신 **버튼 아래에 준비 중임을 늘 적어** 눌러 보고 나서
+// 알게 되는 일이 없게 한다.
+function GeneratePanel({ preview, loading, notify }) {
+  const blocked = preview ? !preview.can_generate : true
+  return <section className='panel deliverable-generate'>
+    <div>
+      <h2>산출물 만들기</h2>
+      {loading
+        ? <p>담길 내용을 확인하는 중입니다.</p>
+        : blocked
+          ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
+          : <p>담길 내용이 있습니다. 만들 수 있습니다.</p>}
+      <p className='deliverable-generate-note'>만들기 기능은 아직 붙지 않았습니다. 지금은 담길 내용 확인까지만 됩니다.</p>
+    </div>
+    <button
+      type='button'
+      className='deliverable-generate-button'
+      disabled={blocked || loading}
+      onClick={() => notify?.('info', '준비 중입니다', '담길 내용 확인까지만 되어 있습니다. 만들기는 다음 작업에서 붙습니다.')}
+    >만들기</button>
+  </section>
+}
