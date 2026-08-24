@@ -162,16 +162,32 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
 .dashboard-task-card { min-height:112px; padding:13px; border-radius:10px; }
 .dashboard-task-card>p { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .dashboard-attention-summary { margin:14px 0 4px; border-block:1px solid var(--c-border); }
-.dashboard-attention-summary>button,.dashboard-attention-summary>div { display:grid; width:100%; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:11px; padding:12px 0; border:0; border-top:1px solid var(--c-border); background:transparent; color:inherit; text-align:left; }
+.dashboard-attention-summary>button,.dashboard-attention-summary>div { display:grid; width:100%; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:11px; padding:12px 0; border:0; border-top:1px solid var(--c-border); background:transparent; color:inherit; text-align:left; }
+.dashboard-attention-summary>div { grid-template-columns:auto minmax(0,1fr) auto; }
 .dashboard-attention-summary>*:first-child { border-top:0; }
 .dashboard-attention-summary>button { cursor:pointer; }
 .dashboard-attention-summary>button:hover { background:var(--c-accent-soft); }
 .dashboard-attention-summary>*>span { padding:4px 7px; border-radius:99px; background:var(--c-accent-soft); color:var(--c-accent); font-size:10px; font-weight:800; }
+.dashboard-attention-summary>*>span.is-urgent { background:var(--c-danger-bg); color:var(--c-danger); }
 .dashboard-attention-summary>*>div strong,.dashboard-attention-summary>*>div small { display:block; }
 .dashboard-attention-summary>*>div strong { color:var(--c-text-strong); font-size:13px; }
 .dashboard-attention-summary>*>div small { margin-top:2px; color:var(--c-text-muted); font-size:11px; }
 .dashboard-attention-summary>*>b { color:var(--c-text-strong); font-size:14px; white-space:nowrap; }
-.dashboard-recent-list { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.dashboard-attention-summary>*>em { color:var(--c-accent); font-style:normal; }
+.dashboard-recent-list { grid-template-columns:1fr; }
+.dashboard-recent-list .dashboard-document-item { padding:14px 0; }
+.dashboard-distribution-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:16px; }
+.dashboard-distribution-grid>.panel { height:100%; margin-top:0; }
+.dashboard-status-list { margin-top:10px; }
+.dashboard-status-list button { display:grid; width:100%; grid-template-columns:minmax(90px,140px) minmax(0,1fr) auto; align-items:center; gap:12px; padding:12px 0; border:0; border-top:1px solid var(--c-border); background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.dashboard-status-list button:first-child { border-top:0; }
+.dashboard-status-list button:hover { background:var(--c-bg-hover); }
+.dashboard-status-list button>span { color:var(--c-text-strong); font-size:13px; font-weight:700; }
+.dashboard-status-list button>i { height:8px; overflow:hidden; border-radius:99px; background:#eef1f7; }
+.dashboard-status-list button>i>b { display:block; height:100%; min-width:3px; border-radius:99px; background:var(--c-accent); }
+.dashboard-status-list button>i>b.is-success { background:var(--c-success); }
+.dashboard-status-list button>i>b.is-danger { background:var(--c-danger); }
+.dashboard-status-list button>strong { color:var(--c-text-muted); font-size:12px; white-space:nowrap; }
 
 /* Documents */
 .table-panel { border-radius:var(--c-radius); }
@@ -262,7 +278,7 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
 .document-search input { border-color:var(--c-border); }
 .document-text { border-color:var(--c-border); background:#fff; }
 
-@media(max-width:1180px){.dashboard-summary-grid--compact{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-top-grid{grid-template-columns:1fr}.deliverable-count-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1180px){.dashboard-summary-grid--compact{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-top-grid,.dashboard-distribution-grid{grid-template-columns:1fr}.deliverable-count-grid{grid-template-columns:repeat(3,1fr)}}
 
 @media (max-width: 900px) {
   .app-frame > .app-header { position: sticky; inset: auto; height: 60px; padding: 0 14px; }
