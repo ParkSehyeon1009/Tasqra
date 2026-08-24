@@ -19,6 +19,9 @@ from app.models.document import Analysis, Document, DocumentPage, ExtractedText,
 from app.models.user import User
 
 
+UNCLASSIFIED_DOCUMENT_TYPE_FILTER = "__UNCLASSIFIED__"
+
+
 class DocumentRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -167,7 +170,11 @@ class DocumentRepository:
                 )
 
 
-        if document_type:
+        if document_type == UNCLASSIFIED_DOCUMENT_TYPE_FILTER:
+            # URL에서만 쓰는 필터 값이다. 저장된 문서 유형이 아니며, 유형이 아직
+            # 정해지지 않은 NULL 행을 대시보드 분포에서 그대로 열기 위해 번역한다.
+            query = query.filter(Document.document_type.is_(None))
+        elif document_type:
             query = query.filter(Document.document_type == document_type)
 
         if category:

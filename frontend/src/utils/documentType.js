@@ -17,6 +17,8 @@
 
 // [값, 표시명]. 순서는 업로드 모달의 선택 순서이기도 하다 — 문서가 만들어지는
 // 흐름(제안요청서 → 제안서 → 산출내역서 → 계약서 → ...)에 맞춰 둔 것이다.
+export const UNCLASSIFIED_DOCUMENT_TYPE = '__UNCLASSIFIED__'
+
 export const DOCUMENT_TYPES = [
   ['RFP', '제안요청서·입찰공고'],
   ['PROPOSAL', '제안서·기술제안서'],
@@ -30,6 +32,22 @@ export const DOCUMENT_TYPES = [
 ]
 
 const LABELS = Object.fromEntries(DOCUMENT_TYPES)
+const FILTER_VALUES = new Set([...DOCUMENT_TYPES.map(([value]) => value), UNCLASSIFIED_DOCUMENT_TYPE])
+
+export function isSupportedDocumentTypeFilter(documentType) {
+  return FILTER_VALUES.has(documentType)
+}
+
+/** URL query의 문서 유형 필터를 저장 가능한 9종 또는 미분류 값으로 제한한다. */
+export function normalizeDocumentTypeFilter(documentType) {
+  return isSupportedDocumentTypeFilter(documentType) ? documentType : ''
+}
+
+/** 필터 값을 화면 문구로. URL 전용 미분류 값은 실제 저장값 null과 같은 뜻이다. */
+export function getDocumentTypeFilterLabel(documentType) {
+  if (documentType === UNCLASSIFIED_DOCUMENT_TYPE) return '미분류'
+  return getDocumentTypeLabel(documentType)
+}
 
 /** 문서 유형 값을 표시명으로. null·빈 값은 "미분류" 다.
  *

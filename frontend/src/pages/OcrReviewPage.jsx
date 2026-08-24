@@ -1,7 +1,15 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿// =============================================================================
+// 이 파일의 책임: OCR 페이지의 텍스트·구조·좌표를 검수하고 최종 본문에 반영한다.
+// 다른 파일과의 관계: 문서 목록 또는 상세 화면이 router state로 넘긴 목록 복귀
+//   URL을 유지하며, 저장하지 않은 변경이 있으면 useBlocker로 이탈을 확인한다.
+// Spring 비교: 검수용 Controller/View에 해당하며, 목록 복귀 URL은
+//   RedirectAttributes처럼 화면 이동 동안만 전달하는 탐색 상태다.
+// =============================================================================
+
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
-import { useBlocker, useNavigate, useParams } from 'react-router-dom'
+import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { completeOcrReview, createOcrElement, getDocument, getOcrPageImage, getOcrReview, mergeOcrElementGroups, mergeOcrElements, reprocessOcrElement, setOcrElementDeletion, setOcrElementExclusion, undoOcrElementMerge, updateOcrElementsBatch } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
@@ -11,9 +19,16 @@ import '../styles/ocr-review.css'
 import '../styles/ocr-review-adjustments.css'
 import '../styles/ocr-exclusion.css'
 
+function getDocumentListUrl(projectId, candidate) {
+  const fallback = `/projects/${projectId}/documents`
+  return candidate === fallback || candidate?.startsWith(`${fallback}?`) ? candidate : fallback
+}
+
 export default function OcrReviewPage({ user, onLogout, notify }) {
   const { projectId, documentId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const documentListUrl = getDocumentListUrl(projectId, location.state?.documentListUrl)
   const queryClient = useQueryClient()
   const [pageIndex, setPageIndex] = useState(0)
   const [selectedId, setSelectedId] = useState(null)
@@ -95,7 +110,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   function goBack() {
     if (!confirmDiscard('저장하지 않은 수정 내용이 있습니다. 문서 목록으로 돌아갈까요?')) return
     allowNavigationRef.current = true
-    navigate('/projects/' + projectId + '/documents')
+    navigate(documentListUrl)
   }
 
   function updateStructure(element, patch) {
@@ -276,7 +291,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
 
   const completeMutation = useMutation({
     mutationFn: () => completeOcrReview(projectId, documentId),
-    onSuccess: result => { setDrafts({}); setStructureDrafts({}); setGeometryDrafts({}); setReOcrDrafts({}); queryClient.setQueryData(reviewKey, result); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true }); notify('success', 'OCR 검수 완료', '검수 결과가 최종 텍스트에 반영되었습니다.') },
+    onSuccess: result => { setDrafts({}); setStructureDrafts({}); setGeometryDrafts({}); setReOcrDrafts({}); queryClient.setQueryData(reviewKey, result); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', 'OCR 검수 완료', '검수 결과가 최종 텍스트에 반영되었습니다.') },
     onError: error => notify('error', '검수 완료 처리 실패', error.message),
   })
 
@@ -287,7 +302,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
 
   if (projectQuery.isError) return <div className='center'><p>프로젝트에 접근할 수 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
   if (documentQuery.isPending || reviewQuery.isPending) return <LoadingState label='OCR 검수 데이터를 불러오는 중...'/>
-  if (documentQuery.isError || reviewQuery.isError || !page) return <div className='ocr-review-error'><h1>OCR 검수 화면을 열 수 없습니다.</h1><p>문서가 없거나 검수할 OCR 페이지가 없습니다.</p><button onClick={() => navigate('/projects/' + projectId + '/documents/' + documentId)}>문서 상세로 돌아가기</button></div>
+  if (documentQuery.isError || reviewQuery.isError || !page) return <div className='ocr-review-error'><h1>OCR 검수 화면을 열 수 없습니다.</h1><p>문서가 없거나 검수할 OCR 페이지가 없습니다.</p><button onClick={() => navigate('/projects/' + projectId + '/documents/' + documentId, { state: { documentListUrl } })}>문서 상세로 돌아가기</button></div>
 
   const documentPageCount = documentQuery.data?.page_count ?? pages.length
   const selectedIndex = effectivePageElements.findIndex(element => element.id === effectiveSelectedId)
