@@ -97,3 +97,44 @@ class AmountRepository:
             (row[0], row[1], int(row[2]), row[3])
             for row in self._db.execute(stmt).all()
         ]
+
+    def list_project_items(
+        self, project_id: int
+    ) -> list[tuple[AmountItem, int, str]]:
+        """한 프로젝트의 **승인된** 금액 항목 전부를 문서 정보와 함께 가져온다.
+
+        (금액 항목, 문서 id, 문서 파일명) 을 돌려준다. 프로젝트 금액 집계
+        (AMT-002-2)와 수량x단가 검산(AMT-002-1)의 재료다.
+
+        list_precedents 와 다른 점 셋
+
+        1. **`unit_price IS NOT NULL` 조건이 없다.** 선례는 단가를 찾는 것이라
+           단가 없는 항목이 쓸모없지만, 집계는 금액을 더하는 것이라 제경비·
+           기술료처럼 비율로 산정된 항목도 반드시 들어가야 한다. 빼면 합계가
+           조용히 낮아진다.
+
+        2. **항목명으로 걸지 않는다.** 프로젝트의 모든 금액이 대상이다.
+
+        3. **다른 프로젝트를 보지 않는다.** 선례는 "내 멤버십 − 현재 프로젝트"
+           였지만 여기는 현재 프로젝트 하나뿐이다.
+
+        `amount IS NULL` 인 항목도 **가져온다.** 문서에 금액이 안 적힌 항목이
+        그렇다(계약서: "amount 가 null 인 항목을 그대로 둔다"). 합계에 못 넣는
+        것은 맞지만, **몇 건이 빠졌는지 사용자에게 알려야** 하므로 여기서 버리지
+        않는다. 거르는 것은 서비스가 하고 그 건수를 응답에 담는다.
+
+        정렬을 고정하는 이유: AMT-002-2 완료 판정이 "같은 입력이면 항상 같은
+        집계 결과가 나온다" 다. 합계는 순서와 무관하지만 **검산 불일치 목록은
+        순서가 보이므로** 정렬이 없으면 호출마다 뒤바뀐다.
+        """
+        stmt: Select = (
+            select(AmountItem, Document.id, Document.filename)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+            .where(AmountItem.decision.in_(APPROVED_DECISIONS))
+            .order_by(Document.id, AmountItem.id)
+        )
+        return [
+            (row[0], int(row[1]), row[2])
+            for row in self._db.execute(stmt).all()
+        ]
