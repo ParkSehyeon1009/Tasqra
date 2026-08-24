@@ -30,13 +30,13 @@
 .deliverable-period-note { flex: 1 1 240px; margin: 0 0 9px; color: #758197; font-size: 12px; line-height: 1.5; }
 .deliverable-period-note strong { color: #2c326b; }
 
-/* 출력 형식 선택. DB CHECK 값(XLSX·HTML·MD)을 그대로 쓰고 기본 선택은 없다.
-   유형 버튼과 같은 상호작용을 쓰되, 형식은 셋이라 별도 그룹으로 분리한다. */
+/* 출력 형식 선택. DB CHECK 값(XLSX·HTML·MD·PDF)을 그대로 쓰고 기본 선택은 없다.
+   유형 버튼과 같은 상호작용을 쓰되, 형식은 넷이라 별도 그룹으로 분리한다. */
 .deliverable-format-fieldset { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid #e8edf4; }
 .deliverable-control-heading { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
 .deliverable-control-heading > strong { color: #2c326b; font-size: 14px; }
 .deliverable-control-heading > span { color: #758197; font-size: 12px; }
-.deliverable-format-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.deliverable-format-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .deliverable-format { display: block; min-height: 66px; padding: 11px 13px; border: 1px solid #d2d9e7; border-radius: 10px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
 .deliverable-format:hover, .deliverable-format:focus-visible { border-color: #756de8; background: #f7f6ff; }
 .deliverable-format.is-active { border-color: #4a43ae; background: #f5f4ff; box-shadow: inset 0 0 0 1px #4a43ae; }
