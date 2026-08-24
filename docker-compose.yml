@@ -40,6 +40,13 @@ services:
     container_name: tasqra-api
     env_file:
       - ./backend/.env.example
+      # ⚠️ .env.example 만 읽으면 각자의 로컬 설정이 컨테이너에 반영되지 않는다.
+      #   실제 .env 를 뒤에 두어 덮어쓰게 한다(뒤가 이긴다). gitignore 대상이라
+      #   없는 사람도 있으므로 required: false 다.
+      #   ⚠️ 아래 environment: 블록은 env_file 보다 우선한다 — 거기 적힌 키
+      #     (USE_FAKE_AI, AI_* 등)는 .env 에 뭘 써도 바뀌지 않는다.
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
       TZ: Asia/Seoul
@@ -74,9 +81,14 @@ services:
       # 베이스 모델(각 2.2GB)이 캐시되는 곳. 이게 없으면 컨테이너를 다시 만들
       # 때마다 HF 에서 다시 받는다.
       - hf_cache:/root/.cache/huggingface
-    # GPU 를 쓰려면 주석을 풀어라 (nvidia-container-toolkit 필요).
+    # GPU 를 쓰려면 아래 주석을 풀어라 (nvidia-container-toolkit 필요).
+    # ⚠️ **주석인 채로 두는 것이 기본이다.** 이 블록이 살아 있으면 GPU 가 없는
+    #   환경에서는 컨테이너가 아예 뜨지 않는다. 팀원 전원이 GPU 를 쓰는 게
+    #   아니므로 저장소에는 꺼진 상태로 둔다.
     # ⚠️ 리랭킹(RERANK_ENABLED=true)은 GPU 가 없으면 켜지 마라 —
     #   후보 10건에 CPU 8.5초 / GPU 0.5초다.
+    # 검증 기록(2026-08-24): RTX 4060 Laptop 8GB / torch 2.13.0+cu130 에서
+    #   주석을 풀면 컨테이너가 CUDA 를 잡는 것을 확인했다.
     # deploy:
     #   resources:
     #     reservations:
@@ -94,6 +106,10 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env.example
+      # api 와 같은 이유. 문서 색인이 워커에서 일어나므로 임베딩 설정이
+      # 여기에도 들어와야 한다 — 없으면 워커만 가짜 벡터로 색인한다.
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -110,9 +126,11 @@ services:
       - ./backend/adapters:/app/adapters:ro
       # api 와 같은 캐시를 본다. 베이스 모델을 두 번 받지 않는다.
       - hf_cache:/root/.cache/huggingface
-    # 워커는 문서 임베딩을 한다. GPU 를 쓰려면 api 와 같이 주석을 풀어라.
-    # ⚠️ api 와 워커가 각각 모델을 올린다. 8GB 카드에서 fp16 이면 여유가 있지만
-    #   fp32 면 빠듯하다 (임베딩 2.3GB × 2 + 리랭커 2.3GB).
+    # 워커는 문서 임베딩을 한다. GPU 를 쓰려면 api 와 **같이** 주석을 풀어라.
+    # ⚠️ api 와 워커가 각각 모델을 올린다. 8GB 카드에서 임베딩은 fp16 이라
+    #   여유가 있지만(1.2GB × 2), 리랭커는 fp32 라 2.3GB 를 더 쓴다. 호스트에서
+    #   Ollama 가 GPU 를 잡고 있으면 모자라 시스템 메모리로 밀려나고, 그러면
+    #   에러 없이 크게 느려진다(실측: 후보 20건 재정렬 7.1초).
     # deploy:
     #   resources:
     #     reservations:
