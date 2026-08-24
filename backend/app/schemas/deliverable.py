@@ -155,3 +155,14 @@ class DeliverableResponse(BaseModel):
     generated_at: datetime
     # 파일을 받는 경로. 화면이 경로를 조립하지 않게 서버가 준다.
     download_url: str
+
+    # --- 갱신 필요 판정 (DLV-003-4) -----------------------------------------
+    # 만든 뒤에 재료가 늘었는가. 화면이 "다시 만들기" 를 띄울 근거다.
+    is_stale: bool = False
+    # 무엇이 몇 건 늘었는지. {"documents": 2} 처럼 **늘어난 것만** 담는다.
+    # 줄어든 것은 담지 않는다 — 문서를 지웠다고 보고서를 다시 만들 이유가 없고,
+    # 이유를 못 밝히는 "갱신 필요" 는 사용자를 헷갈리게 한다.
+    #
+    # 화면이 이 값으로 문장을 만들 수 있다 — "문서 2건이 나중에 추가됨".
+    # 서버가 문장을 만들지 않는 이유는 항목 이름을 화면이 이미 번역하고 있어서다.
+    stale_changes: dict[str, int] = Field(default_factory=dict)

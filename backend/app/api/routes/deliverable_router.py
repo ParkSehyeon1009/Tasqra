@@ -49,11 +49,18 @@ from app.services.deliverable_service import DeliverableService
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["deliverables"])
 
 
-def _to_response(project_id: int, row) -> DeliverableResponse:
+def _to_response(
+    project_id: int, row, stale_changes: dict[str, int] | None = None
+) -> DeliverableResponse:
     """이력 한 건을 응답으로. 다운로드 경로를 **서버가** 만든다.
 
     화면이 경로를 조립하면 경로를 바꿀 때 양쪽을 고쳐야 한다.
+
+    `stale_changes` 를 주지 않으면 갱신이 필요 없는 것으로 본다. 방금 만든
+    산출물이 그렇다 — 만든 시점의 개수를 그대로 스냅샷으로 남겼으니 늘어난 것이
+    있을 수 없다.
     """
+    changes = stale_changes or {}
     return DeliverableResponse(
         id=row.id,
         kind=row.kind,
@@ -65,6 +72,8 @@ def _to_response(project_id: int, row) -> DeliverableResponse:
         source_counts=row.source_counts_json,
         generated_at=row.generated_at,
         download_url=f"/api/projects/{project_id}/deliverables/{row.id}/file",
+        is_stale=bool(changes),
+        stale_changes=changes,
     )
 
 
@@ -209,10 +218,9 @@ def list_deliverables(
     ⚠️ 파일이 남아 있는지는 확인하지 않는다. 목록에서 건마다 디스크를 보면 파일
     수만큼 접근이 생긴다. 없어진 파일은 받으려 할 때 `410` 으로 알린다.
     """
-    return [
-        _to_response(access.project.id, row)
-        for row in service.list_history(access.project.id)
-    ]
+    rows = service.list_history(access.project.id)
+    changes = service.stale_changes(access.project.id, rows)
+    return [_to_response(access.project.id, row, changes.get(row.id)) for row in rows]
 
 
 @router.delete("/deliverables/{deliverable_id}", status_code=204)

@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -249,6 +250,39 @@ class DeliverableService:
         `DELIVERABLE_FILE_MISSING` 으로 알린다.
         """
         return self._repo.list_by_project(project_id, limit=HISTORY_LIMIT)
+
+    def stale_changes(
+        self, project_id: int, rows: Sequence[Deliverable]
+    ) -> dict[int, dict[str, int]]:
+        """행마다 만든 뒤 늘어난 재료를 센다 (DLV-003-4).
+
+        판정 자체는 모델의 `stale_against` 가 한다 — 그 규칙(늘어난 것만 담는다)이
+        이미 거기 있고 테스트도 있다. 여기서 다시 구현하지 않는다.
+
+        ⚠️ **같은 (유형, 기간) 은 한 번만 센다.** 이력이 20건이면 20번 세게 되는데
+        재료를 세는 것은 유형과 기간에만 달렸다. 같은 조건으로 여러 번 만든 경우가
+        흔하므로(다시 만들기) 캐시가 대부분 맞는다.
+
+        그래도 서로 다른 조건이 많으면 조건 수 × 5 쿼리다. 이력 목록 상한이
+        100건이라 최악에는 500쿼리이고, 그만큼 쌓이면 유형별로 한 번에 세는 쿼리로
+        바꿔야 한다. 지금 그렇게 하지 않은 이유는 **세는 규칙을 미리보기와 공유해야**
+        하고(어긋나면 판정이 틀린다) 아직 이력이 그만큼 쌓이지 않아서다.
+        """
+        counted: dict[tuple[str, date | None, date | None], dict[str, int]] = {}
+        changes: dict[int, dict[str, int]] = {}
+        for row in rows:
+            key = (row.kind, row.period_from, row.period_to)
+            if key not in counted:
+                counted[key] = self.snapshot(
+                    self._count(
+                        project_id,
+                        kind=row.kind,
+                        since=row.period_from,
+                        until=row.period_to,
+                    )
+                )
+            changes[row.id] = row.stale_against(counted[key])
+        return changes
 
     def delete(self, project_id: int, deliverable_id: int) -> None:
         """이력과 파일을 지운다 (DLV-003-3).
