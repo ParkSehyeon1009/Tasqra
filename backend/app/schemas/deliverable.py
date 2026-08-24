@@ -37,30 +37,40 @@ PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
 class PreviewCounts(BaseModel):
     """산출물에 담길 재료의 건수.
 
-    ⚠ **`completed_tasks` 가 `None` 인 것은 "0건" 이 아니라 "아직 셀 수 없다" 다.**
-    `tasks` 테이블이 없다(TSK-001-1 미구현). 화면에서 0 으로 바꾸면 안 된다 —
-    사용자가 "이번 주에 완료한 일이 없다" 로 잘못 읽는다. 대시보드의 `open_tasks`
-    와 같은 규칙이다.
+    `completed_tasks` 는 리비전 0019 로 `tasks` 테이블이 생긴 뒤부터 실제로 센다.
+    전에는 셀 수 없어서 `None` 이었다 — 이제 다른 재료와 같은 `int` 이고, 0 은
+    "아직 셀 수 없다" 가 아니라 **정말 0건**이라는 뜻이다.
     """
 
     documents: int
     decisions: int
     schedule_items: int
     amount_items: int
+    # 완료한 태스크. 주간 보고서·현황 한 장의 재료다(DLV-002-1 은 tasks.completed_at
+    # 을 필수로 요구한다). 결정사항 대장·회의 안건에는 담기지 않아 0 이다.
+    completed_tasks: int
     # 기간과 무관하다. 지금 남아 있는 승인 대기 건수다.
     pending_suggestions: int
-    # 셀 수 없으면 None. 위 경고 참고.
-    completed_tasks: int | None = None
 
     @property
     def countable_total(self) -> int:
         """셀 수 있는 재료의 합. 생성 가능 판정에 쓴다.
 
+        완료한 태스크도 **더한다.** 명세가 주간 보고서의 내용으로 "문서·태스크·
+        결정·기한·금액 변동" 을 나열하므로, 그 기간에 끝낸 일만 있어도 보고서에
+        담을 것이 있다.
+
         `pending_suggestions` 는 **더하지 않는다.** 그것은 "담길 내용" 이 아니라
         "처리해야 할 일" 이라, 승인 대기만 있고 확정된 내용이 없으면 보고서는
         비어 있다.
         """
-        return self.documents + self.decisions + self.schedule_items + self.amount_items
+        return (
+            self.documents
+            + self.decisions
+            + self.schedule_items
+            + self.amount_items
+            + self.completed_tasks
+        )
 
 
 class DeliverablePreviewResponse(BaseModel):
@@ -76,5 +86,6 @@ class DeliverablePreviewResponse(BaseModel):
     # 이 유형이 기간을 요구하는가. 화면이 날짜 입력을 띄울지 정한다.
     needs_period: bool
     # 셀 수 없는 재료의 이름. 화면이 "집계 전" 으로 표시한다.
-    # 지금은 항상 ["completed_tasks"] 다 — tasks 테이블이 생기면 빈 목록이 된다.
+    # `tasks` 테이블이 생겨 지금은 항상 빈 목록이다. **필드를 지우지 않는다** —
+    # 다음에 또 못 세는 재료가 생기면 화면을 고치지 않고 여기로 알릴 수 있다.
     uncountable: list[str] = Field(default_factory=list)

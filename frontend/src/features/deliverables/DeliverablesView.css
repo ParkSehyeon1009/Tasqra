@@ -45,7 +45,9 @@
 
 /* 건수 카드. "담길 내용" 과 "담기지 않는 것" 을 나눠서, 승인 대기가 4건인데
    못 만드는 상황이 모순처럼 보이지 않게 한다. */
-.deliverable-count-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+/* 담길 내용은 다섯이다 — 문서·완료한 태스크·결정·일정·금액. 넷이던 때는
+   repeat(4) 였는데 그대로 두면 마지막 칸만 아래로 떨어져 짝이 안 맞아 보인다. */
+.deliverable-count-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 18px; }
 .deliverable-count-grid--aside { grid-template-columns: repeat(2, 1fr); }
 .deliverable-group-heading { grid-column: 1 / -1; margin: 0; color: #65748a; font-size: 13px; font-weight: 750; }
 

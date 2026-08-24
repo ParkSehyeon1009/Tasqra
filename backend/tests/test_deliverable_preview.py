@@ -7,7 +7,7 @@
 #     ① 종류마다 세는 대상이 다른가 (이 기능의 핵심 규칙)
 #     ② 대상이 없으면 생성이 막히는가 (완료 판정)
 #     ③ 주간 보고서만 기간을 요구하는가
-#     ④ 셀 수 없는 것(completed_tasks)을 0 으로 만들지 않는가
+#     ④ 완료한 태스크를 기간·종류에 맞게 세는가 (리비전 0019 로 열린 재료)
 #     ⑤ 승인 대기가 생성 가능 판정에 섞이지 않는가
 #
 # 다른 파일과의 관계: services/deliverable_service.py · schemas/deliverable.py
@@ -29,12 +29,13 @@ from app.services.deliverable_service import DeliverableService
 WEEK = {"period_from": date(2026, 8, 14), "period_to": date(2026, 8, 20)}
 
 
-def _service(*, documents=0, decisions=0, schedules=0, amounts=0, pending=0,
+def _service(*, documents=0, decisions=0, schedules=0, amounts=0, tasks=0, pending=0,
              open_decisions=0):
     repo = MagicMock()
     repo.count_documents.return_value = documents
     repo.count_schedule_items.return_value = schedules
     repo.count_amount_items.return_value = amounts
+    repo.count_completed_tasks.return_value = tasks
     repo.count_pending_suggestions.return_value = pending
 
     # status 인자에 따라 다른 값을 준다 — 회의 안건은 미결만 센다.
@@ -48,24 +49,26 @@ def _service(*, documents=0, decisions=0, schedules=0, amounts=0, pending=0,
 # --- ① 종류마다 세는 대상이 다르다 ------------------------------------------
 
 
-def test_weekly_report_counts_all_four_kinds():
-    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2)
+def test_weekly_report_counts_all_five_kinds():
+    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2, tasks=7)
     out = service.preview(1, kind="WEEKLY_REPORT", **WEEK)
-    assert (out.counts.documents, out.counts.decisions,
-            out.counts.schedule_items, out.counts.amount_items) == (12, 5, 3, 2)
+    assert (out.counts.documents, out.counts.decisions, out.counts.schedule_items,
+            out.counts.amount_items, out.counts.completed_tasks) == (12, 5, 3, 2, 7)
     # 기간이 리포지토리까지 전달돼야 한다.
     assert repo.count_documents.call_args.kwargs["since"] == WEEK["period_from"]
     assert repo.count_documents.call_args.kwargs["until"] == WEEK["period_to"]
+    assert repo.count_completed_tasks.call_args.kwargs["since"] == WEEK["period_from"]
+    assert repo.count_completed_tasks.call_args.kwargs["until"] == WEEK["period_to"]
 
 
 def test_decision_log_counts_only_decisions_without_period():
     """결정사항 대장에 기간을 걸면 '지난주에 정한 것만' 이 되어 대장이 아니게 된다."""
-    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2)
+    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2, tasks=7)
     out = service.preview(1, kind="DECISION_LOG", **WEEK)
 
     assert out.counts.decisions == 5
     assert (out.counts.documents, out.counts.schedule_items,
-            out.counts.amount_items) == (0, 0, 0)
+            out.counts.amount_items, out.counts.completed_tasks) == (0, 0, 0, 0)
     # 기간을 무시한다 — 날짜를 줬어도 응답에 담기지 않는다.
     assert out.period_from is None and out.period_to is None
     # status 없이(=전부) 센다.
@@ -74,23 +77,24 @@ def test_decision_log_counts_only_decisions_without_period():
 
 def test_meeting_agenda_counts_only_open_decisions():
     """리비전 0007 주석: status='PENDING' 인 항목이 그대로 다음 회의 안건이 된다."""
-    service, repo = _service(decisions=5, open_decisions=2)
+    service, repo = _service(decisions=5, open_decisions=2, tasks=7)
     out = service.preview(1, kind="MEETING_AGENDA")
 
     # 전체 5건 중 미결 2건만 담긴다.
     assert out.counts.decisions == 2
     assert repo.count_decisions.call_args.kwargs["status"] == "PENDING"
     assert (out.counts.documents, out.counts.schedule_items,
-            out.counts.amount_items) == (0, 0, 0)
+            out.counts.amount_items, out.counts.completed_tasks) == (0, 0, 0, 0)
 
 
 def test_project_status_counts_all_without_period():
     """현황 한 장은 '현재 상태' 라 기간이 없다."""
-    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2)
+    service, repo = _service(documents=12, decisions=5, schedules=3, amounts=2, tasks=7)
     out = service.preview(1, kind="PROJECT_STATUS", **WEEK)
-    assert out.counts.countable_total == 22
+    assert out.counts.countable_total == 29
     assert out.period_from is None
     assert repo.count_documents.call_args.kwargs["since"] is None
+    assert repo.count_completed_tasks.call_args.kwargs["since"] is None
 
 
 # --- ② 대상이 없으면 생성이 막힌다 (완료 판정) ------------------------------
@@ -168,22 +172,48 @@ def test_unknown_kind_is_rejected():
         service.preview(1, kind="SOMETHING_ELSE")
 
 
-# --- ④ 셀 수 없는 것을 0 으로 만들지 않는다 ---------------------------------
+# --- ④ 완료한 태스크를 센다 (리비전 0019 로 열린 재료) ----------------------
 
 
-def test_completed_tasks_is_none_not_zero():
-    """tasks 테이블이 없다. 0 으로 두면 '완료한 일이 없다' 로 잘못 읽힌다."""
-    service, _ = _service(documents=5)
+def test_completed_tasks_is_counted_not_null():
+    """tasks 테이블이 생겼다. 더 이상 '셀 수 없다' 가 아니다."""
+    service, _ = _service(documents=5, tasks=4)
     out = service.preview(1, kind="WEEKLY_REPORT", **WEEK)
-    assert out.counts.completed_tasks is None
-    assert "completed_tasks" in out.uncountable
+    assert out.counts.completed_tasks == 4
+    assert out.uncountable == []
 
 
-def test_uncountable_is_reported_even_when_generatable():
-    service, _ = _service(documents=5)
+def test_zero_completed_tasks_means_really_zero():
+    """0 은 '집계 전' 이 아니라 그 기간에 끝낸 일이 없다는 뜻이다."""
+    service, _ = _service(documents=5, tasks=0)
     out = service.preview(1, kind="WEEKLY_REPORT", **WEEK)
+    assert out.counts.completed_tasks == 0
+    assert out.uncountable == []
+
+
+def test_completed_tasks_alone_allows_generation():
+    """명세가 주간 보고서 내용에 태스크를 넣으므로 태스크만 있어도 만들 수 있다."""
+    service, _ = _service(tasks=2)
+    out = service.preview(1, kind="WEEKLY_REPORT", **WEEK)
+    assert out.counts.countable_total == 2
     assert out.can_generate is True
-    assert out.uncountable == ["completed_tasks"]
+    assert out.blocked_reason is None
+
+
+def test_blocked_reason_mentions_tasks_for_weekly_report():
+    """막힌 이유가 세는 대상과 같아야 한다 — 태스크도 셌으므로 문장에 있어야 한다."""
+    service, _ = _service()
+    out = service.preview(1, kind="WEEKLY_REPORT", **WEEK)
+    assert "태스크" in out.blocked_reason
+
+
+def test_decision_kinds_do_not_count_tasks():
+    """결정사항 대장·회의 안건에는 태스크가 담기지 않는다."""
+    for kind in ("DECISION_LOG", "MEETING_AGENDA"):
+        service, repo = _service(decisions=3, open_decisions=1, tasks=9)
+        out = service.preview(1, kind=kind)
+        assert out.counts.completed_tasks == 0, kind
+        repo.count_completed_tasks.assert_not_called()
 
 
 # --- ⑤ 승인 대기는 생성 가능 판정에 섞이지 않는다 ---------------------------
@@ -193,7 +223,7 @@ def test_pending_does_not_count_toward_total():
     """승인 대기만 있으면 보고서는 비어 있다. 담길 내용이 아니다."""
     counts = PreviewCounts(
         documents=0, decisions=0, schedule_items=0, amount_items=0,
-        pending_suggestions=7,
+        completed_tasks=0, pending_suggestions=7,
     )
     assert counts.countable_total == 0
 
@@ -207,9 +237,10 @@ def test_pending_is_shown_regardless_of_period():
     repo.count_pending_suggestions.assert_called_once_with(1)
 
 
-def test_countable_total_sums_four_kinds():
+def test_countable_total_sums_five_kinds():
+    """완료한 태스크까지 다섯을 더한다. 승인 대기는 아무리 많아도 더하지 않는다."""
     counts = PreviewCounts(
         documents=12, decisions=5, schedule_items=3, amount_items=2,
-        pending_suggestions=99,
+        completed_tasks=7, pending_suggestions=99,
     )
-    assert counts.countable_total == 22
+    assert counts.countable_total == 29
