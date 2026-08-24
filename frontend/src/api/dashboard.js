@@ -21,16 +21,12 @@ import { http } from './http'
 //   documents: { total, processing, extracted, completed, failed },
 //   review_pending,            // OCR 검수가 필요한 문서 수
 //   pending_amount_items,      // 승인 대기 금액 항목 수
-//   open_tasks,                // null 이면 "아직 셀 수 없다" (0 건이 아니다)
+//   open_tasks,                // 완료되지 않은 태스크 수
 //   document_types: [{ document_type, count }],   // document_type: null = 미분류
 //   recent_documents: [{ id, filename, file_type, document_type,
 //                        status, review_status, created_at }]
 // }
 //
-// open_tasks 가 null 인 이유: 세려면 tasks 테이블이 필요한데 그 테이블이 아직
-// 없다(TSK-001-1 태스크 CRUD 미구현). decisions 와 혼동하지 말 것 — 그것은
-// 결정사항이고 승인 대기 쪽이다.
-// 화면에서 0 으로 바꾸지 말 것 — 사용자가 "할 일이 없다" 고 잘못 읽는다.
 export async function getDashboard(projectId, { recentLimit = 5 } = {}) {
   const { data } = await http.get(`/api/projects/${projectId}/dashboard`, {
     params: { recent_limit: recentLimit },

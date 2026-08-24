@@ -22,6 +22,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { getDashboard } from '../../api/dashboard'
+import { listTasks } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
 import { getDocumentPrimaryAction, getDocumentStatus, getReviewStatus } from '../../utils/documentStatus'
 import { getDocumentTypeLabel } from '../../utils/documentType'
@@ -42,6 +43,10 @@ export default function DashboardView({ projectId, documents, members }) {
     // 요청을 계속 보낼 이유가 없다. useWorkspaceData 의 문서 목록 폴링과 같은
     // 간격이라 두 값이 크게 어긋나지 않는다.
     refetchInterval: query => (query.state.data?.documents?.processing > 0 ? 3_000 : false),
+  })
+  const tasksQuery = useQuery({
+    queryKey: ['projects', projectId, 'tasks'],
+    queryFn: () => listTasks(projectId),
   })
   const data = dashboardQuery.data
   const counts = data?.documents
@@ -69,8 +74,7 @@ export default function DashboardView({ projectId, documents, members }) {
       {/* 금액 승인 대기는 amount_items 만 센다. 금액 화면이 아직 없어서 이동
           대상이 없다 — onOpen 을 주지 않아 클릭되지 않는 카드로 둔다. */}
       <SummaryCard label='금액 승인 대기' value={data?.pending_amount_items} note='금액 항목 기준'/>
-      {/* open_tasks 는 null 이다. 0 으로 바꾸면 "할 일이 없다" 로 잘못 읽힌다. */}
-      <SummaryCard label='열린 태스크' value={data?.open_tasks ?? null} note='아직 집계 전'/>
+      <SummaryCard label='열린 태스크' value={data?.open_tasks} onOpen={() => navigate(`/projects/${projectId}/board`)}/>
       <SummaryCard label='참여자' value={members.length} onOpen={() => navigate(`/projects/${projectId}/settings`)}/>
     </section>
 
@@ -88,7 +92,7 @@ export default function DashboardView({ projectId, documents, members }) {
             : <div className='dashboard-empty-state'><strong>현재 검수가 필요한 문서가 없습니다.</strong><p>검수할 문서가 생기면 이곳에 우선 표시됩니다.</p></div>}
         {reviewPending > shownReview.length && <div className="dashboard-panel-footer"><span>외 {formatNumber(reviewPending - shownReview.length)}건이 더 있습니다.</span><button onClick={goDocuments}>전체 보기 →</button></div>}
       </section>
-      <ActionTaskPanel tasks={[]} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
+      <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
 
     <DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)}/>

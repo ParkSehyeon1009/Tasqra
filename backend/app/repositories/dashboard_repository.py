@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.models.amount import AmountItem
 from app.models.document import Document
+from app.models.task import Task
 
 # 승인 대기로 셀 상태. amount_items.decision 의 값이다.
 # APPROVED · EDITED 는 사람이 이미 판단한 것이고 REJECTED 는 거절한 것이라
@@ -115,5 +116,13 @@ class DashboardRepository:
             .join(Document, Document.id == AmountItem.document_id)
             .where(Document.project_id == project_id)
             .where(AmountItem.decision == PENDING_DECISION)
+        )
+        return int(self._db.execute(stmt).scalar_one())
+
+    def count_open_tasks(self, project_id: int) -> int:
+        stmt: Select = (
+            select(func.count())
+            .select_from(Task)
+            .where(Task.project_id == project_id, Task.status != "DONE")
         )
         return int(self._db.execute(stmt).scalar_one())
