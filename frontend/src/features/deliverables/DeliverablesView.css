@@ -1,5 +1,6 @@
 /* =============================================================================
-   이 파일의 책임: 산출물 미리보기 화면(DLV-001-2)의 표현만 담는다.
+   이 파일의 책임: 산출물 조건 선택(DLV-001-1)과 생성 대상 미리보기
+     (DLV-001-2) 화면의 표현을 담는다.
    다른 파일과의 관계: DeliverablesView.jsx 가 import 한다. 색·반경·그림자는
      대시보드(styles/workspace.css)와 같은 값을 쓴다 — 두 화면이 나란히 쓰이므로
      따로 정하면 같은 제품이 아닌 것처럼 보인다.
@@ -29,6 +30,19 @@
 .deliverable-period-note { flex: 1 1 240px; margin: 0 0 9px; color: #758197; font-size: 12px; line-height: 1.5; }
 .deliverable-period-note strong { color: #2c326b; }
 
+/* 출력 형식 선택. DB CHECK 값(XLSX·HTML·MD)을 그대로 쓰고 기본 선택은 없다.
+   유형 버튼과 같은 상호작용을 쓰되, 형식은 셋이라 별도 그룹으로 분리한다. */
+.deliverable-format-fieldset { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid #e8edf4; }
+.deliverable-control-heading { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.deliverable-control-heading > strong { color: #2c326b; font-size: 14px; }
+.deliverable-control-heading > span { color: #758197; font-size: 12px; }
+.deliverable-format-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.deliverable-format { display: block; min-height: 66px; padding: 11px 13px; border: 1px solid #d2d9e7; border-radius: 10px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.deliverable-format:hover, .deliverable-format:focus-visible { border-color: #756de8; background: #f7f6ff; }
+.deliverable-format.is-active { border-color: #4a43ae; background: #f5f4ff; box-shadow: inset 0 0 0 1px #4a43ae; }
+.deliverable-format strong { display: block; color: #2c326b; font-size: 14px; }
+.deliverable-format span { display: block; margin-top: 4px; color: #758197; font-size: 12px; line-height: 1.4; }
+
 /* 건수 카드. "담길 내용" 과 "담기지 않는 것" 을 나눠서, 승인 대기가 4건인데
    못 만드는 상황이 모순처럼 보이지 않게 한다. */
 .deliverable-count-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
@@ -55,9 +69,9 @@
 .deliverable-generate-button:disabled { border-color: #d2d9e7; background: #eef1f6; color: #97a1b3; cursor: not-allowed; }
 
 @media (max-width: 900px) {
-  .deliverable-kind-group, .deliverable-count-grid { grid-template-columns: repeat(2, 1fr); }
+  .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid { grid-template-columns: repeat(2, 1fr); }
   .deliverable-generate { flex-direction: column; align-items: stretch; }
 }
 @media (max-width: 560px) {
-  .deliverable-kind-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }
+  .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }
 }
