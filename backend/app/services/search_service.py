@@ -46,6 +46,7 @@ from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.embedding.protocol import EmbeddingClientProtocol
+from app.rerank.protocol import RerankerProtocol
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.search import (
@@ -66,11 +67,15 @@ class SearchService:
         chunk_repository: ChunkRepository,
         project_repository: ProjectRepository,
         embedding_client: EmbeddingClientProtocol,
+        reranker: RerankerProtocol | None = None,
     ) -> None:
         self._db = db
         self._chunks = chunk_repository
         self._projects = project_repository
         self._embedder = embedding_client
+        # 없으면 임베딩 순서를 그대로 쓴다. 기본이 None 인 이유는
+        # dependencies.get_reranker() 주석 참고 — CPU 에서는 켜면 안 된다.
+        self._reranker = reranker
 
     # --- 공개 API -----------------------------------------------------------
 
@@ -90,6 +95,12 @@ class SearchService:
             logger.warning("질의 임베딩이 비어 있다 user_id=%s", user_id)
             return self._empty(request, scope, started, model=embedded.model)
 
+        # 리랭커가 있으면 후보를 넉넉히 뽑아 넘긴다. 재정렬은 받은 것 안에서만
+        # 순서를 바꾸므로, limit 만큼만 뽑으면 고를 여지가 없다.
+        depth = request.limit
+        if self._reranker is not None:
+            depth = max(request.limit, settings.RERANK_CANDIDATE_POOL)
+
         rows = self._chunks.search_by_vector(
             project_ids=scope,
             vector=list(embedded.vectors[0]),
@@ -97,19 +108,33 @@ class SearchService:
             # 가짜 임베더로 만든 청크가 섞여, 서로 다른 벡터 공간의 거리를
             # 에러 없이 계산해 버린다.
             embedding_model=embedded.model,
-            limit=request.limit,
+            limit=depth,
             document_id=request.document_id,
             ef_search=settings.SEARCH_EF_SEARCH,
         )
+
+        # ⚠️ 임계값은 **재정렬 전에** 적용한다. 재정렬하면 거리 오름차순이 깨져서
+        #   "여기부터는 전부 임계값 아래" 라는 전제가 무너진다. 순서가 섞인 뒤에
+        #   같은 방식으로 자르면 유효한 결과가 조용히 잘려 나간다.
+        #   임계값은 임베딩 거리에 대한 조건이므로 여기서 거르는 것이 맞기도 하다.
+        if request.min_similarity is not None:
+            cutoff = 1.0 - request.min_similarity
+            kept = 0
+            for _, _, _, _, distance in rows:
+                if distance > cutoff:
+                    break  # 거리 오름차순이라 여기부터는 전부 아래다
+                kept += 1
+            rows = rows[:kept]
+
+        rows = self._apply_rerank(request.query.strip(), rows, request.limit)
 
         results: list[SearchResultItem] = []
         for chunk, filename, project_id, project_name, distance in rows:
             # pgvector 의 <=> 는 코사인 거리(0~2)다. 사람이 읽기 쉬운 유사도로
             # 바꾼다. 정규화된 벡터에서 거리 0 = 유사도 1 이다.
+            # ⚠️ 유사도는 임베딩 기준 값이다. 리랭커가 순서를 바꿔도 이 값은
+            #   그대로이므로, 재정렬 후에는 유사도가 내림차순이 아닐 수 있다.
             similarity = 1.0 - distance
-            if request.min_similarity is not None and similarity < request.min_similarity:
-                # 거리 오름차순이므로 여기부터는 전부 임계값 아래다.
-                break
             results.append(
                 SearchResultItem(
                     chunk_id=chunk.id,
@@ -303,14 +328,19 @@ class SearchService:
         results = self._fuse(vector_rows, keyword_rows, term, request.limit)
 
         took_ms = int((time.perf_counter() - started) * 1000)
+        # 리랭커 이름을 함께 남긴다. 리랭커는 **켜져 있어도 조용히 안 붙을 수
+        # 있어서**(경로가 갈리거나 로딩에 실패하거나) 화면만 봐서는 구분되지
+        # 않는다. 검색 한 줄로 확인되게 해 둔다.
         logger.info(
-            "하이브리드 검색 user_id=%s 범위=%s 벡터=%d 키워드=%d 합=%d 후보폭=%d %dms",
+            "하이브리드 검색 user_id=%s 범위=%s 벡터=%d 키워드=%d 합=%d 후보폭=%d "
+            "리랭커=%s %dms",
             user_id,
             scope,
             len(vector_rows),
             len(keyword_rows),
             len(results),
             depth,
+            self._reranker.model_name if self._reranker else "없음",
             took_ms,
         )
         return SearchResponse(
@@ -339,6 +369,47 @@ class SearchService:
         )
 
     # --- 내부 ---------------------------------------------------------------
+
+    def _rerank_order(self, query: str, texts: list[str]) -> list[int] | None:
+        """재정렬한 순서를 돌려준다. 재정렬하지 않았으면 None 이다.
+
+        리랭커가 없거나 후보가 1개 이하면 할 일이 없다.
+
+        ⚠️ 리랭킹이 실패해도 검색 자체는 살린다. 임베딩 순서만으로도 쓸 만한
+        결과가 나오므로(문서 단위 k=10 97.2%), 재정렬 실패로 검색 전체를
+        죽이는 것은 손해다. 대신 경고를 남겨 조용히 넘어가지 않게 한다.
+
+        ⚠️ **본문 전체를 넘겨야 한다.** 크로스 인코더는 질의와 문단을 함께 읽고
+        점수를 매기므로, 잘린 발췌를 주면 우리가 잰 수치(k=5 96.3%)와 다른
+        조건이 된다. 호출하는 쪽은 snippet 이 아니라 chunk.text 를 준다.
+        """
+        if self._reranker is None or len(texts) <= 1:
+            return None
+
+        try:
+            return self._reranker.rerank(query, texts)
+        except Exception:  # noqa: BLE001 - 재정렬 실패로 검색을 죽이지 않는다
+            logger.warning(
+                "리랭킹 실패, 원래 순서를 그대로 쓴다 (모델 %s)",
+                self._reranker.model_name,
+                exc_info=True,
+            )
+            return None
+
+    def _rerank_pool_size(self, limit: int) -> int:
+        """재정렬에 넘길 후보 수.
+
+        `limit` 보다 작으면 안 된다 — 돌려줄 개수만큼은 재정렬을 거쳐야
+        하위 결과만 원래 순서로 남는 일이 없다.
+        """
+        return max(limit, settings.RERANK_CANDIDATE_POOL)
+
+    def _apply_rerank(self, query: str, rows: list[tuple], limit: int) -> list[tuple]:
+        """리랭커가 있으면 후보를 재정렬하고 상위 limit 개를 돌려준다."""
+        order = self._rerank_order(query, [row[0].text for row in rows])
+        if order is None:
+            return rows[:limit]
+        return [rows[i] for i in order][:limit]
 
     def _resolve_scope(self, user_id: int, requested: list[int] | None) -> list[int]:
         """검색할 프로젝트 id 목록을 정한다.
@@ -393,7 +464,9 @@ class SearchService:
         term: str,
         limit: int,
     ) -> list[SearchResultItem]:
-        """두 결과를 RRF 로 합친다 (SRH-004).
+        """두 결과를 RRF 로 합치고, 리랭커가 있으면 그 위에서 재정렬한다.
+
+        (SRH-004 + SRH-002-1)
 
         `점수 = Σ 1/(k + 순위)` · 순위는 **1부터**다.
 
@@ -442,10 +515,22 @@ class SearchService:
 
         # 점수 내림차순. 같으면 문서·순서로 고정한다 — 같은 질의에 순서가 흔들리면
         # 회귀 테스트를 쓸 수 없다.
-        ordered = sorted(
+        fused_order = sorted(
             merged.values(),
             key=lambda e: (-e["fused"], e["chunk"].document_id, e["chunk"].seq),
-        )[:limit]
+        )
+
+        # --- 재정렬 (SRH-002-1) -------------------------------------------
+        # ⚠️ 리랭킹은 **융합 다음**이다. RRF 가 "무엇을 후보로 볼지"를 정하고,
+        #   리랭커는 그 후보 안에서 "최종 순서"를 정한다. 후보에 없는 정답은 어떤
+        #   리랭커도 1등으로 못 올리므로(이 함수 docstring 참고) limit 보다
+        #   넉넉히 잘라 넘긴다.
+        #
+        # ⚠️ 발췌(snippet)가 아니라 chunk.text 를 넘긴다 — 이유는
+        #   _rerank_order() 주석 참고.
+        pool = fused_order[: self._rerank_pool_size(limit)]
+        order = self._rerank_order(term, [e["chunk"].text for e in pool])
+        ordered = (fused_order if order is None else [pool[i] for i in order])[:limit]
 
         results: list[SearchResultItem] = []
         for e in ordered:
@@ -495,6 +580,11 @@ class SearchService:
                     #
                     # ⚠ **정렬은 위에서 반올림하지 않은 e["fused"] 로 한다.**
                     # 여기서 끊는 것은 표시용이므로 순서에 영향이 없다.
+                    #
+                    # ⚠ 리랭커가 켜져 있으면 **이 값은 내림차순이 아니다.**
+                    # 최종 순서는 리랭커가 정하고 fused_score 는 융합 단계의
+                    # 값 그대로다. 화면에서 "점수가 뒤죽박죽" 으로 보이면
+                    # 고장이 아니라 재정렬이 일어났다는 뜻이다.
                     fused_score=round(e["fused"], 8),
                     vector_rank=e["vector_rank"],
                     keyword_rank=e["keyword_rank"],

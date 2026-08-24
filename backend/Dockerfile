@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY ./app ./app
 COPY alembic.ini .
 COPY ./migrations ./migrations
+# 파인튜닝 LoRA 어댑터(각 27MB). 베이스 모델은 여기 없다 — 첫 실행 때 HF 에서
+# 받아 캐시된다. 자세한 내용은 adapters/README.md 참고.
+COPY ./adapters ./adapters
 
 RUN mkdir -p /app/uploads
 

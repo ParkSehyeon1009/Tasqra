@@ -34,7 +34,10 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.embedding.fake_client import FakeEmbeddingClient
 from app.embedding.local_client import LocalEmbeddingClient
+from app.embedding.local_model_client import LocalModelEmbeddingClient
 from app.embedding.protocol import EmbeddingClientProtocol
+from app.rerank.local_model_reranker import LocalModelReranker
+from app.rerank.protocol import RerankerProtocol
 from app.extractors.docx_extractor import DocxExtractor
 from app.extractors.fake_extractor import FakeExtractor
 from app.extractors.hwpx_extractor import HwpxExtractor
@@ -98,9 +101,28 @@ def get_embedding_client() -> EmbeddingClientProtocol:
     # 만드는 것도 그래서다 — uvicorn --reload 환경에서 매번 다시 만들면 못 쓴다.
     if settings.USE_FAKE_EMBEDDING:
         return FakeEmbeddingClient(dimension=settings.EMBEDDING_DIM)
-    # 실제 경로는 OpenAI 호환 /v1/embeddings 서버(Ollama 등)를 부른다.
-    # 컨테이너 안에 모델을 올리지 않으므로 이미지와 메모리가 늘지 않는다.
-    return LocalEmbeddingClient(settings)
+    if settings.EMBEDDING_PROVIDER == "local-http":
+        # OpenAI 호환 /v1/embeddings 서버(Ollama 등)를 부른다.
+        # 컨테이너 안에 모델을 올리지 않으므로 이미지와 메모리가 늘지 않는다.
+        return LocalEmbeddingClient(settings)
+    # 기본은 직접 로드다. 서버를 따로 띄우지 않아도 되고, 파인튜닝 어댑터를
+    # 저장소에서 바로 읽는다.
+    return LocalModelEmbeddingClient(settings)
+
+
+@lru_cache
+def get_reranker() -> RerankerProtocol | None:
+    """검색 후보 재정렬기. 꺼져 있으면 None 이다.
+
+    ⚠️ 기본값이 꺼짐인 이유는 비용이다. 후보 10건 재정렬에
+    GPU 527ms / CPU 8,511ms 가 걸린다. CPU 에서 켜면 검색이 사실상 멈춘다.
+    끄고 limit 을 10 으로 두면 문서 단위 k=10 이 97.2% 로, 리랭커를 켠
+    k=5(96.3%)보다 오히려 높다. 리랭커가 사는 것은 정확도가 아니라
+    LLM 에 넘길 청크 수다.
+    """
+    if not settings.RERANK_ENABLED:
+        return None
+    return LocalModelReranker(settings)
 
 
 def get_chunk_repository(db: Session = Depends(get_db)) -> ChunkRepository:
@@ -188,6 +210,7 @@ def get_search_service(
         chunk_repository=chunk_repository,
         project_repository=project_repository,
         embedding_client=get_embedding_client(),
+        reranker=get_reranker(),
     )
 
 

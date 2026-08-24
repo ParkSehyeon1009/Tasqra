@@ -57,7 +57,36 @@ def _row(chunk, score):
     return (chunk, "입찰공고.pdf", 1, "우리사업", score)
 
 
-def _service(*, vector_rows=(), keyword_rows=(), member_ids=(1,), vectors=((0.1,),)):
+class _ReversingReranker:
+    """받은 순서를 그대로 뒤집는 가짜 리랭커.
+
+    실제 모델을 올리지 않는다. 여기서 볼 것은 재정렬 품질이 아니라
+    **리랭커가 불리기는 하는가 · 무엇을 받는가** 이고, 뒤집기는 "순서가
+    실제로 바뀌었다"를 한눈에 확인할 수 있는 가장 단순한 변형이다.
+    """
+
+    model_name = "fake-reverse"
+
+    def __init__(self) -> None:
+        self.seen: list[list[str]] = []
+
+    def rerank(self, query: str, passages: list[str]) -> list[int]:
+        self.seen.append(list(passages))
+        return list(reversed(range(len(passages))))
+
+
+class _BrokenReranker:
+    """항상 터지는 가짜 리랭커. 재정렬 실패가 검색을 죽이지 않는지 본다."""
+
+    model_name = "fake-broken"
+
+    def rerank(self, query: str, passages: list[str]) -> list[int]:
+        raise RuntimeError("모델이 죽었다")
+
+
+def _service(
+    *, vector_rows=(), keyword_rows=(), member_ids=(1,), vectors=((0.1,),), reranker=None
+):
     db = MagicMock()
     chunks = MagicMock()
     projects = MagicMock()
@@ -71,7 +100,7 @@ def _service(*, vector_rows=(), keyword_rows=(), member_ids=(1,), vectors=((0.1,
     ]
     chunks.search_by_vector.return_value = list(vector_rows)
     chunks.search_by_keyword.return_value = list(keyword_rows)
-    return SearchService(db, chunks, projects, embedder), chunks, embedder
+    return SearchService(db, chunks, projects, embedder, reranker), chunks, embedder
 
 
 def _ask(service, query="계약금액", **kw):
@@ -317,3 +346,108 @@ def test_similarity_is_trigram_when_keyword_only():
     item = _ask(service).results[0]
     assert item.match_kind == "keyword"
     assert item.similarity == pytest.approx(0.8, abs=1e-6)
+
+
+# --- ⑥ 리랭킹 (SRH-002-1) ----------------------------------------------------
+#
+# 이 묶음이 생긴 이유가 있다. 리랭킹을 search() 에만 붙여 두어서, 웹 검색창이
+# 부르는 search_hybrid() 는 리랭커를 **한 번도 거치지 않았다.**
+# RERANK_ENABLED=true 로 켜도 그랬고, 에러도 로그도 안 났다. 결과는 멀쩡히
+# 나오므로 화면으로는 알 방법이 없었다.
+#
+# 기존 테스트가 못 잡은 이유는 단순하다 — 리랭커를 넘기는 경우가 없었다.
+# 아래는 그 빈틈을 메운다.
+
+
+def test_hybrid_path_actually_calls_the_reranker():
+    """웹이 쓰는 경로가 리랭커를 거치는가. 위 주석의 회귀 테스트다."""
+    reranker = _ReversingReranker()
+    service, _, _ = _service(
+        vector_rows=[_row(_chunk(1), 0.1), _row(_chunk(2), 0.2), _row(_chunk(3), 0.3)],
+        reranker=reranker,
+    )
+
+    ids = [item.chunk_id for item in _ask(service).results]
+
+    assert reranker.seen, "리랭커가 한 번도 불리지 않았다"
+    # 뒤집는 리랭커이므로 융합 순서(1·2·3)가 그대로면 재정렬이 안 된 것이다.
+    assert ids == [3, 2, 1]
+
+
+def test_reranker_receives_full_text_not_snippet():
+    """발췌가 아니라 청크 본문을 넘겨야 한다.
+
+    크로스 인코더는 질의와 문단을 **함께 읽고** 점수를 매긴다. 잘린 발췌를
+    주면 우리가 측정한 조건과 달라지므로, snippet 이 만들어지기 전에 걸어야
+    한다. 이 테스트가 그 순서를 고정한다.
+    """
+    body = "제7조(대가의 지급) 계약상대자는 " + "가" * 2000
+    reranker = _ReversingReranker()
+    service, _, _ = _service(
+        vector_rows=[_row(_chunk(1, text=body), 0.1), _row(_chunk(2), 0.2)],
+        reranker=reranker,
+    )
+
+    _ask(service)
+
+    assert body in reranker.seen[0]
+
+
+def test_reranker_pool_is_never_smaller_than_limit():
+    """돌려줄 개수만큼은 재정렬을 거쳐야 한다.
+
+    limit 보다 좁게 넘기면 상위 몇 개만 재정렬되고 나머지는 융합 순서로
+    남아, 한 응답 안에 기준이 다른 두 순서가 섞인다.
+    """
+    rows = [_row(_chunk(i), i / 100) for i in range(1, 13)]
+    reranker = _ReversingReranker()
+    service, _, _ = _service(vector_rows=rows, reranker=reranker)
+
+    result = _ask(service, limit=12)
+
+    assert len(reranker.seen[0]) >= 12
+    assert [item.chunk_id for item in result.results] == list(range(12, 0, -1))
+
+
+def test_reranker_may_look_wider_than_limit():
+    """반대로 후보는 limit 보다 넓을 수 있다.
+
+    리랭커는 받은 것 안에서만 순서를 바꾼다. limit 만큼만 넘기면 고를 여지가
+    없으므로 RERANK_CANDIDATE_POOL 만큼은 보게 한다.
+    """
+    rows = [_row(_chunk(i), i / 100) for i in range(1, 13)]
+    reranker = _ReversingReranker()
+    service, _, _ = _service(vector_rows=rows, reranker=reranker)
+
+    result = _ask(service, limit=3)
+
+    assert len(reranker.seen[0]) == settings.RERANK_CANDIDATE_POOL
+    # 후보 10개를 뒤집었으니 10·9·8 이 위로 온다. limit 만 넘겼다면 3·2·1 이다.
+    assert [item.chunk_id for item in result.results] == [10, 9, 8]
+
+
+def test_search_survives_a_broken_reranker():
+    """재정렬이 실패해도 검색은 살아야 한다.
+
+    융합 순서만으로도 쓸 만한 결과가 나오므로, 재정렬 실패로 검색 전체를
+    죽이는 것은 손해다. 대신 경고 로그를 남긴다.
+    """
+    service, _, _ = _service(
+        vector_rows=[_row(_chunk(1), 0.1), _row(_chunk(2), 0.2)],
+        reranker=_BrokenReranker(),
+    )
+
+    ids = [item.chunk_id for item in _ask(service).results]
+
+    assert ids == [1, 2]
+
+
+def test_no_reranker_keeps_fusion_order():
+    """리랭커가 없으면 융합 순서 그대로다. 기본값(꺼짐)의 동작을 고정한다."""
+    service, _, _ = _service(
+        vector_rows=[_row(_chunk(1), 0.1), _row(_chunk(2), 0.2), _row(_chunk(3), 0.3)]
+    )
+
+    ids = [item.chunk_id for item in _ask(service).results]
+
+    assert ids == [1, 2, 3]
