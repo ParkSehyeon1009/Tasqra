@@ -1,6 +1,7 @@
 // =============================================================================
-// 이 파일의 책임: 산출물 생성 대상 미리보기 화면이다(DLV-001-2). 산출물 유형과
-//   기간을 고르면 담길 내용이 몇 건인지 보여주고, 담을 것이 없으면 생성을 막는다.
+// 이 파일의 책임: 산출물 조건 선택(DLV-001-1)과 생성 대상 미리보기
+//   (DLV-001-2) 화면이다. 유형·기간·출력 형식을 고르고, 담길 내용이 몇 건인지
+//   확인한 뒤 조건이 빠졌거나 담을 것이 없으면 생성을 막는다.
 // 다른 파일과의 관계: api/deliverable.js 로 건수를 받는다. 표기 규칙은
 //   utils/format.js 를 쓴다. WorkspacePage 의 '산출물' 탭에서 그린다.
 // Spring 비교: 서버가 만든 뷰 모델을 그대로 그리는 화면이다. 판단을 화면에서
@@ -48,6 +49,15 @@ const KINDS = [
   ['PROJECT_STATUS', '프로젝트 현황', '지금 상태 전부'],
 ]
 
+// 출력 형식. 값은 Deliverable 모델의 ck_deliverable_format CHECK 와 같아야 한다.
+// 기본 선택을 두지 않는다 — DLV-001-1 완료 판정이 "형식을 고르지 않으면 생성
+// 버튼이 비활성화된다" 이므로, 사용자가 한 번 명시적으로 골라야 한다.
+const FORMATS = [
+  ['XLSX', 'XLSX', '표 계산과 편집에 적합'],
+  ['HTML', 'HTML', '브라우저에서 바로 확인'],
+  ['MD', 'Markdown', '텍스트 기반 기록과 공유'],
+]
+
 // 산출물에 실제로 담기는 재료.
 const CONTENT_COUNTS = [
   ['documents', '문서'],
@@ -85,6 +95,8 @@ const [DEFAULT_FROM, DEFAULT_TO] = thisWeek()
 
 export default function DeliverablesView({ projectId, notify }) {
   const [kind, setKind] = useState('WEEKLY_REPORT')
+  // 기본값 없음. 사용자가 출력 형식을 명시적으로 골라야 한다(DLV-001-1).
+  const [format, setFormat] = useState('')
   const [periodFrom, setPeriodFrom] = useState(DEFAULT_FROM)
   const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
 
@@ -136,6 +148,22 @@ export default function DeliverablesView({ projectId, notify }) {
           <strong>{selected?.[1]}</strong>은 기간을 쓰지 않습니다. 날짜를 바꿔도 결과가 같습니다.
         </p>}
       </div>
+
+      <div className='deliverable-format-fieldset'>
+        <div className='deliverable-control-heading'>
+          <strong>출력 형식</strong>
+          <span>하나를 선택해야 만들 수 있습니다.</span>
+        </div>
+        <div className='deliverable-format-group' role='group' aria-label='출력 형식'>
+          {FORMATS.map(([value, label, description]) => <button
+            className={'deliverable-format' + (value === format ? ' is-active' : '')}
+            type='button'
+            key={value}
+            aria-pressed={value === format}
+            onClick={() => setFormat(value)}
+          ><strong>{label}</strong><span>{description}</span></button>)}
+        </div>
+      </div>
     </section>
 
     {previewQuery.isError && <section className='panel deliverable-notice'>
@@ -167,7 +195,7 @@ export default function DeliverablesView({ projectId, notify }) {
       />)}
     </section>
 
-    <GeneratePanel preview={preview} loading={previewQuery.isPending} notify={notify}/>
+    <GeneratePanel preview={preview} loading={previewQuery.isPending} format={format} notify={notify}/>
   </>
 }
 
@@ -191,23 +219,31 @@ function CountCard({ label, value, note, unknown }) {
 // 알린다. 버튼을 아예 없애지 않는 이유: 없으면 "대상이 없으면 생성이 방지된다" 를
 // 화면에서 확인할 수 없다. 대신 **버튼 아래에 준비 중임을 늘 적어** 눌러 보고 나서
 // 알게 되는 일이 없게 한다.
-function GeneratePanel({ preview, loading, notify }) {
-  const blocked = preview ? !preview.can_generate : true
+//
+// `format` 은 서버 미리보기와 무관한 **사용자 입력 조건**이다. can_generate 는
+// 담을 내용이 있는지만 판단하므로, 화면이 형식 누락을 별도로 막아야 한다.
+// 기본값을 두지 않아 사용자가 한 번 명시적으로 고르게 한다(DLV-001-1).
+function GeneratePanel({ preview, loading, format, notify }) {
+  const contentBlocked = preview ? !preview.can_generate : true
+  const formatMissing = !format
+  const disabled = loading || contentBlocked || formatMissing
   return <section className='panel deliverable-generate'>
     <div>
       <h2>산출물 만들기</h2>
       {loading
         ? <p>담길 내용을 확인하는 중입니다.</p>
-        : blocked
-          ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
-          : <p>담길 내용이 있습니다. 만들 수 있습니다.</p>}
-      <p className='deliverable-generate-note'>만들기 기능은 아직 붙지 않았습니다. 지금은 담길 내용 확인까지만 됩니다.</p>
+        : formatMissing
+          ? <p className='deliverable-blocked'>출력 형식을 선택해야 만들 수 있습니다.</p>
+          : contentBlocked
+            ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
+            : <p>담길 내용이 있습니다. <strong>{format}</strong> 형식으로 만들 수 있습니다.</p>}
+      <p className='deliverable-generate-note'>만들기 기능은 아직 붙지 않았습니다. 지금은 조건 선택과 담길 내용 확인까지만 됩니다.</p>
     </div>
     <button
       type='button'
       className='deliverable-generate-button'
-      disabled={blocked || loading}
-      onClick={() => notify?.('info', '준비 중입니다', '담길 내용 확인까지만 되어 있습니다. 만들기는 다음 작업에서 붙습니다.')}
+      disabled={disabled}
+      onClick={() => notify?.('info', '준비 중입니다', `선택한 출력 형식은 ${format}입니다. 만들기는 다음 작업에서 붙습니다.`)}
     >만들기</button>
   </section>
 }
