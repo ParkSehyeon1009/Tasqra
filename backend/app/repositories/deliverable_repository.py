@@ -341,3 +341,32 @@ class DeliverableRepository:
             Deliverable.id == deliverable_id, Deliverable.project_id == project_id
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+
+    def list_by_project(self, project_id: int, *, limit: int = 100) -> list[Deliverable]:
+        """만든 순서의 역순으로 이력을 돌려준다 (DLV-003-3).
+
+        정렬 기준이 `generated_at` 내림차순인 이유는 리비전 0007 의 인덱스
+        `ix_deliverable_recent(project_id, generated_at)` 가 그 순서를 받쳐 주기
+        때문이다. 같은 시각이면 id 로 고정한다 — 순서가 흔들리면 목록이 새로고침
+        때마다 달라 보인다.
+
+        페이지를 나누지 않는다. 산출물은 프로젝트당 수십 건 규모이고 화면이
+        목록으로 한 번에 보여준다. 늘어나면 그때 문서 목록처럼 페이징을 붙인다 —
+        지금 넣으면 쓰지 않는 파라미터가 계약에 남는다.
+        """
+        stmt = (
+            select(Deliverable)
+            .where(Deliverable.project_id == project_id)
+            .order_by(Deliverable.generated_at.desc(), Deliverable.id.desc())
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars())
+
+    def remove(self, deliverable: Deliverable) -> None:
+        """이력 한 건을 지운다. 커밋은 서비스가 한다.
+
+        파일은 여기서 지우지 않는다 — 리포지토리는 DB 만 다룬다. 파일과 DB 를
+        지우는 순서는 서비스가 정해야 한다(deliverable_service.delete 주석 참고).
+        """
+        self._db.delete(deliverable)

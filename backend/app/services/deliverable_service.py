@@ -68,6 +68,9 @@ logger = logging.getLogger(__name__)
 # 못한다. 잘렸다는 사실은 source_counts 와 표의 행 수 차이로 드러난다.
 MATERIAL_ROW_LIMIT = 200
 
+# 이력 목록에 돌려줄 건수 상한. 페이징을 붙이지 않은 이유는 리포지토리 주석 참고.
+HISTORY_LIMIT = 100
+
 # 갱신 판정(DLV-003-4)에 쓸 스냅샷 키. **미리보기의 건수와 같은 이름**이어야
 # 나중에 다시 세어 비교할 수 있다. 승인 대기는 넣지 않는다 — 담기는 재료가
 # 아니라 처리해야 할 일이고, 승인 여부로 값이 오가면 "재료가 늘었다" 가 흐려진다.
@@ -237,6 +240,37 @@ class DeliverableService:
             project_id, kind, deliverable_format, since, until, row.file_size,
         )
         return row
+
+    def list_history(self, project_id: int) -> list[Deliverable]:
+        """만든 산출물 이력 (DLV-003-3).
+
+        파일이 남아 있는지는 여기서 보지 않는다. 목록은 자주 불리는데 건마다
+        디스크를 확인하면 파일 수만큼 접근이 생긴다. 없어진 파일은 받으려 할 때
+        `DELIVERABLE_FILE_MISSING` 으로 알린다.
+        """
+        return self._repo.list_by_project(project_id, limit=HISTORY_LIMIT)
+
+    def delete(self, project_id: int, deliverable_id: int) -> None:
+        """이력과 파일을 지운다 (DLV-003-3).
+
+        ⚠️ 순서가 중요하다 — **이력을 먼저 지우고 파일을 나중에 지운다.**
+        거꾸로 하면 파일을 지운 뒤 커밋이 실패했을 때 "목록에 있는데 받을 수 없는"
+        행이 남는다. 이 순서라면 실패해도 남는 것은 아무도 가리키지 않는 파일이고,
+        그것은 사용자에게 보이지 않는다.
+
+        파일 삭제가 실패해도 예외를 올리지 않는다. 사용자가 요청한 것은 "이력에서
+        지우기" 이고 그것은 이미 됐다.
+        """
+        row = self._repo.get(project_id, deliverable_id)
+        if row is None:
+            raise BusinessError(ErrorCode.DELIVERABLE_NOT_FOUND)
+
+        path = row.file_path
+        with transactional(self._db) as db:  # type: ignore[arg-type]
+            self._repo.remove(row)
+            db.flush()
+        self._remove_quietly(path)
+        logger.info("산출물 삭제 project_id=%s id=%s", project_id, deliverable_id)
 
     def open_file(self, project_id: int, deliverable_id: int) -> Deliverable:
         """다운로드할 산출물을 찾는다 (DLV-003-3).

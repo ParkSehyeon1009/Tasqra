@@ -191,3 +191,45 @@ def download_deliverable(
         filename=f"{row.title}.{extension}",
         media_type="text/markdown; charset=utf-8",
     )
+
+
+
+@router.get("/deliverables", response_model=list[DeliverableResponse])
+def list_deliverables(
+    access: ProjectAccess = Depends(get_project_access),
+    service: DeliverableService = Depends(get_deliverable_service),
+) -> list[DeliverableResponse]:
+    """만든 산출물 이력 (DLV-003-3). 계약서 44행.
+
+    최근에 만든 것이 먼저 온다. 페이지를 나누지 않는다 — 산출물은 프로젝트당
+    수십 건 규모이고 화면이 한 번에 보여준다.
+
+    조회는 `VIEWER` 에게도 열어 둔다. 만드는 것과 보는 것은 다른 권한이다.
+
+    ⚠️ 파일이 남아 있는지는 확인하지 않는다. 목록에서 건마다 디스크를 보면 파일
+    수만큼 접근이 생긴다. 없어진 파일은 받으려 할 때 `410` 으로 알린다.
+    """
+    return [
+        _to_response(access.project.id, row)
+        for row in service.list_history(access.project.id)
+    ]
+
+
+@router.delete("/deliverables/{deliverable_id}", status_code=204)
+def delete_deliverable(
+    deliverable_id: int,
+    access: ProjectAccess = Depends(get_project_editor_access),
+    service: DeliverableService = Depends(get_deliverable_service),
+) -> None:
+    """산출물을 이력에서 지우고 파일도 지운다. 계약서 46행.
+
+    편집 권한이 필요하다. 만들 수 없는 사람이 지울 수 있으면 안 된다.
+
+    이력을 먼저 지우고 파일을 나중에 지운다 — 거꾸로 하면 실패했을 때 "목록에
+    있는데 받을 수 없는" 행이 남는다. 자세한 이유는 서비스 주석에 있다.
+
+    오류
+      `404 DELIVERABLE_NOT_FOUND`  이 프로젝트에 그 산출물이 없다
+      `403 PROJECT_FORBIDDEN`      VIEWER 다
+    """
+    service.delete(access.project.id, deliverable_id)
