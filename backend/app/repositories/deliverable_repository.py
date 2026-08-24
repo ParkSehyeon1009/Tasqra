@@ -29,10 +29,11 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.amount import AmountItem
 from app.models.decision import Decision
+from app.models.deliverable import Deliverable
 from app.models.document import Document
 from app.models.schedule import ScheduleItem
 from app.models.task import Task
@@ -206,3 +207,166 @@ class DeliverableRepository:
         for stmt in (amounts, decisions, schedules):
             total += int(self._db.execute(stmt).scalar() or 0)
         return total
+
+
+    # --- 산출물에 담을 실제 행 (DLV-002-x) ----------------------------------
+    #
+    # ⚠ 세는 메서드와 **같은 조건**을 써야 한다. 조건이 갈리면 미리보기가 12건이라
+    #   했는데 보고서에 9건이 담기는 일이 생긴다. 그래서 아래 목록 메서드는 위
+    #   count_* 와 나란히 두고 필터를 그대로 옮겼다.
+    #
+    # ⚠ 상한을 둔다
+    #   보고서 한 장에 수천 행을 넣으면 파일도 크고 사람이 읽지도 못한다. 서비스가
+    #   limit 을 넘겨 자르고, 잘렸다는 사실은 건수(source_counts)와 표의 행 수가
+    #   다른 것으로 드러난다.
+
+    def list_documents(
+        self,
+        project_id: int,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        limit: int = 200,
+    ) -> list[Document]:
+        stmt = select(Document).where(Document.project_id == project_id)
+        if since is not None:
+            stmt = stmt.where(func.date(Document.created_at) >= since)
+        if until is not None:
+            stmt = stmt.where(func.date(Document.created_at) <= until)
+        stmt = stmt.order_by(Document.created_at, Document.id).limit(limit)
+        return list(self._db.execute(stmt).scalars())
+
+    def list_completed_tasks(
+        self,
+        project_id: int,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        limit: int = 200,
+    ) -> list[Task]:
+        stmt = (
+            select(Task)
+            .options(joinedload(Task.assignee))
+            .where(Task.project_id == project_id, Task.status == "DONE")
+        )
+        if since is not None:
+            stmt = stmt.where(func.date(Task.completed_at) >= since)
+        if until is not None:
+            stmt = stmt.where(func.date(Task.completed_at) <= until)
+        stmt = stmt.order_by(Task.completed_at, Task.id).limit(limit)
+        return list(self._db.execute(stmt).unique().scalars())
+
+    def list_decisions(
+        self,
+        project_id: int,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        status: str | None = None,
+        limit: int = 200,
+    ) -> list[Decision]:
+        stmt = select(Decision).where(Decision.project_id == project_id)
+        if status is not None:
+            stmt = stmt.where(Decision.status == status)
+        if since is not None:
+            stmt = stmt.where(Decision.decided_on >= since)
+        if until is not None:
+            stmt = stmt.where(Decision.decided_on <= until)
+        # 결정일이 NULL 인 행은 기간을 줄 때만 빠진다(count_decisions 와 같다).
+        # 정렬에서도 NULL 을 뒤로 보내 표 앞쪽에 날짜 없는 행이 몰리지 않게 한다.
+        stmt = stmt.order_by(Decision.decided_on.is_(None), Decision.decided_on, Decision.id)
+        return list(self._db.execute(stmt.limit(limit)).scalars())
+
+    def list_schedule_items(
+        self,
+        project_id: int,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        limit: int = 200,
+    ) -> list[ScheduleItem]:
+        stmt = select(ScheduleItem).where(ScheduleItem.project_id == project_id)
+        if since is not None or until is not None:
+            starts_ok = ScheduleItem.starts_on.is_not(None)
+            ends_ok = ScheduleItem.ends_on.is_not(None)
+            if since is not None:
+                starts_ok = starts_ok & (ScheduleItem.starts_on >= since)
+                ends_ok = ends_ok & (ScheduleItem.ends_on >= since)
+            if until is not None:
+                starts_ok = starts_ok & (ScheduleItem.starts_on <= until)
+                ends_ok = ends_ok & (ScheduleItem.ends_on <= until)
+            stmt = stmt.where(or_(starts_ok, ends_ok))
+        stmt = stmt.order_by(ScheduleItem.starts_on, ScheduleItem.ends_on, ScheduleItem.id)
+        return list(self._db.execute(stmt.limit(limit)).scalars())
+
+    def list_amount_items(
+        self,
+        project_id: int,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        limit: int = 200,
+    ) -> list[AmountItem]:
+        stmt = (
+            select(AmountItem)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+        )
+        if since is not None:
+            stmt = stmt.where(func.date(Document.created_at) >= since)
+        if until is not None:
+            stmt = stmt.where(func.date(Document.created_at) <= until)
+        stmt = stmt.order_by(AmountItem.document_id, AmountItem.id).limit(limit)
+        return list(self._db.execute(stmt).scalars())
+
+    # --- 산출물 이력 --------------------------------------------------------
+
+    def add(self, deliverable: Deliverable) -> Deliverable:
+        """이력 한 건을 넣는다. 커밋은 서비스가 transactional 로 한다.
+
+        flush 까지만 하는 이유: 응답에 id 가 필요하고, 커밋 시점은 서비스가
+        정해야 한다(파일 저장과 함께 묶인다).
+        """
+        self._db.add(deliverable)
+        self._db.flush()
+        return deliverable
+
+    def get(self, project_id: int, deliverable_id: int) -> Deliverable | None:
+        """프로젝트를 함께 조건에 넣는다.
+
+        id 만으로 찾으면 남의 프로젝트 산출물을 내 프로젝트 경로로 받을 수 있다.
+        권한은 라우터가 프로젝트 단위로만 보므로 그 안에 있는지는 여기서 본다.
+        """
+        stmt = select(Deliverable).where(
+            Deliverable.id == deliverable_id, Deliverable.project_id == project_id
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
+
+    def list_by_project(self, project_id: int, *, limit: int = 100) -> list[Deliverable]:
+        """만든 순서의 역순으로 이력을 돌려준다 (DLV-003-3).
+
+        정렬 기준이 `generated_at` 내림차순인 이유는 리비전 0007 의 인덱스
+        `ix_deliverable_recent(project_id, generated_at)` 가 그 순서를 받쳐 주기
+        때문이다. 같은 시각이면 id 로 고정한다 — 순서가 흔들리면 목록이 새로고침
+        때마다 달라 보인다.
+
+        페이지를 나누지 않는다. 산출물은 프로젝트당 수십 건 규모이고 화면이
+        목록으로 한 번에 보여준다. 늘어나면 그때 문서 목록처럼 페이징을 붙인다 —
+        지금 넣으면 쓰지 않는 파라미터가 계약에 남는다.
+        """
+        stmt = (
+            select(Deliverable)
+            .where(Deliverable.project_id == project_id)
+            .order_by(Deliverable.generated_at.desc(), Deliverable.id.desc())
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars())
+
+    def remove(self, deliverable: Deliverable) -> None:
+        """이력 한 건을 지운다. 커밋은 서비스가 한다.
+
+        파일은 여기서 지우지 않는다 — 리포지토리는 DB 만 다룬다. 파일과 DB 를
+        지우는 순서는 서비스가 정해야 한다(deliverable_service.delete 주석 참고).
+        """
+        self._db.delete(deliverable)

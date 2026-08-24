@@ -17,14 +17,20 @@
 #   format 을 받지 않는다.
 # =============================================================================
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "DELIVERABLE_FORMATS",
+    "DELIVERABLE_KIND_LABELS",
     "DELIVERABLE_KINDS",
+    "FORMAT_FILE_TYPES",
     "PERIOD_REQUIRED_KINDS",
+    "SUPPORTED_DELIVERABLE_FORMATS",
+    "DeliverableCreateRequest",
     "DeliverablePreviewResponse",
+    "DeliverableResponse",
     "PreviewCounts",
 ]
 
@@ -32,6 +38,32 @@ __all__ = [
 DELIVERABLE_KINDS = ("WEEKLY_REPORT", "DECISION_LOG", "MEETING_AGENDA", "PROJECT_STATUS")
 # 기간이 필수인 유형. DB CHECK(ck_deliverable_period_required)와 같은 판단이다.
 PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
+
+# models/deliverable.py 의 _FORMAT 과 같아야 한다. 리비전 0021 이 PDF 를 더했다.
+DELIVERABLE_FORMATS = ("XLSX", "HTML", "MD", "PDF")
+# 실제로 만들 수 있는 형식. **DB 가 허용하는 것과 다르다** — 허용값은 넷인데
+# 만드는 코드는 아직 둘이다. 나머지는 501 로 분명히 알린다. 값이 틀린 것(400)과
+# 서버가 아직 못 하는 것(501)은 다른 상황이다.
+#
+# XLSX·PDF 를 아직 안 한 이유는 **새 라이브러리가 필요해서**다. MD·HTML 은
+# 문자열만 만들면 되고 의존성이 0 이다. 팀 이미지가 이미 11.1GB 라 라이브러리를
+# 더 얹는 판단은 따로 받는 편이 낫다.
+SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML")
+
+# 형식별 파일 확장자와 MIME 타입. 저장(서비스)과 내려보내기(라우터)가 같은 값을
+# 봐야 해서 한 곳에 둔다 — 갈리면 .md 파일을 text/html 로 주는 일이 생긴다.
+FORMAT_FILE_TYPES = {
+    "MD": ("md", "text/markdown; charset=utf-8"),
+    "HTML": ("html", "text/html; charset=utf-8"),
+}
+
+# 제목에 쓰는 사람이 읽는 이름. 화면의 KINDS 목록과 문구를 맞춘다.
+DELIVERABLE_KIND_LABELS = {
+    "WEEKLY_REPORT": "주간 보고서",
+    "DECISION_LOG": "결정사항 대장",
+    "MEETING_AGENDA": "다음 회의 안건",
+    "PROJECT_STATUS": "프로젝트 현황",
+}
 
 
 class PreviewCounts(BaseModel):
@@ -89,3 +121,74 @@ class DeliverablePreviewResponse(BaseModel):
     # `tasks` 테이블이 생겨 지금은 항상 빈 목록이다. **필드를 지우지 않는다** —
     # 다음에 또 못 세는 재료가 생기면 화면을 고치지 않고 여기로 알릴 수 있다.
     uncountable: list[str] = Field(default_factory=list)
+
+
+
+class DeliverableCreateRequest(BaseModel):
+    """산출물 만들기 요청 (POST /deliverables).
+
+    `format` 에 **기본값을 두지 않는다.** DLV-001-1 완료 판정이 "형식을 고르지
+    않으면 생성 버튼이 비활성화된다" 이므로 서버도 받지 않는다. 기본값을 두면
+    나중에 "왜 md 로 나왔지" 가 생긴다.
+
+    기간은 유형과 무관하게 받는다. 주간 보고서만 필수이고 나머지에서는 서버가
+    무시한다 — 미리보기(GET)와 같은 규칙이라 화면이 유형별 규칙을 몰라도 된다.
+
+    ⚠ `format` 을 빼거나 **빈 문자열로 보내면** `422 VALIDATION_ERROR` 다.
+    `ErrorCode.FORMAT_REQUIRED` 를 쓰지 않는다 — error_codes.py 머리말이 "요청
+    형식 오류는 Pydantic 이 먼저 막으므로 별도 코드를 두지 않는다" 로 정하고 있다.
+    둘 다 422 이고, 어느 필드가 문제인지는 검증 응답의 `errors` 가 더 정확히
+    알려준다. (`models/deliverable.py` 주석은 FORMAT_REQUIRED 를 가리키는데 그
+    규칙이 정해지기 전에 쓴 것이다.)
+
+    빈 문자열을 400(`INVALID_DOCUMENT_TYPE`)으로 두지 않는 이유
+      "값이 틀렸다" 와 "아직 고르지 않았다" 는 사용자가 할 일이 다르다. 전자는
+      잘못된 값을 고쳐야 하고 후자는 선택만 하면 된다. 빈 값에 "XLSX · HTML · MD ·
+      PDF 중 하나여야 합니다" 를 띄우면 무엇이 잘못됐는지 알기 어렵다.
+    """
+
+    # min_length=1 이 있어야 **빈 문자열이 값으로 통과하지 않는다.**
+    # 빈 값은 "고르지 않았다" 는 뜻이라 "값이 틀렸다"(400)가 아니라 422 로 막아야
+    # 한다. 없는 필드와 빈 필드가 같은 응답을 받는 것도 화면 입장에서 자연스럽다.
+    kind: str = Field(
+        min_length=1,
+        description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS",
+    )
+    format: str = Field(
+        min_length=1,
+        description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD · HTML 이다",
+    )
+    period_from: date | None = None
+    period_to: date | None = None
+
+
+class DeliverableResponse(BaseModel):
+    """만들어진 산출물 한 건.
+
+    `source_counts` 는 **만든 시점의 재료 개수 스냅샷**이다. 나중에 지금 개수와
+    비교해 "생성 후 문서가 2건 추가됨" 을 띄우는 근거가 된다(DLV-003-4).
+    미리보기의 건수와 **같은 키**를 쓴다 — 그래야 다시 세어 비교할 수 있다.
+    """
+
+    id: int
+    kind: str
+    format: str
+    title: str
+    period_from: date | None
+    period_to: date | None
+    file_size: int | None
+    source_counts: dict[str, int]
+    generated_at: datetime
+    # 파일을 받는 경로. 화면이 경로를 조립하지 않게 서버가 준다.
+    download_url: str
+
+    # --- 갱신 필요 판정 (DLV-003-4) -----------------------------------------
+    # 만든 뒤에 재료가 늘었는가. 화면이 "다시 만들기" 를 띄울 근거다.
+    is_stale: bool = False
+    # 무엇이 몇 건 늘었는지. {"documents": 2} 처럼 **늘어난 것만** 담는다.
+    # 줄어든 것은 담지 않는다 — 문서를 지웠다고 보고서를 다시 만들 이유가 없고,
+    # 이유를 못 밝히는 "갱신 필요" 는 사용자를 헷갈리게 한다.
+    #
+    # 화면이 이 값으로 문장을 만들 수 있다 — "문서 2건이 나중에 추가됨".
+    # 서버가 문장을 만들지 않는 이유는 항목 이름을 화면이 이미 번역하고 있어서다.
+    stale_changes: dict[str, int] = Field(default_factory=dict)

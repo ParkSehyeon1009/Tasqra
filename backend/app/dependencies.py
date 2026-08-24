@@ -380,9 +380,12 @@ def get_deliverable_repository(db: Session = Depends(get_db)) -> DeliverableRepo
 # get_deliverable_repository **아래에** 두어야 한다. Depends(...) 는 기본값이라
 # 함수를 정의하는 순간 평가되고, 위에 두면 import 시점에 NameError 로 앱이 안 뜬다.
 def get_deliverable_service(
+    db: Session = Depends(get_db),
     deliverable_repository: DeliverableRepository = Depends(get_deliverable_repository),
 ) -> DeliverableService:
-    # 세션을 넘기지 않는다. 미리보기는 읽기만 하고 조회는 전부 리포지토리를 거친다.
-    # ProjectRepository 도 넘기지 않는다 — 범위가 현재 프로젝트 하나로 정해져 있고
+    # 세션을 넘기는 이유는 **만들기(DLV-002-x)** 다. 파일 저장과 이력 저장을 한
+    # 트랜잭션으로 묶어야 해서 서비스가 transactional 을 쓴다. 미리보기는 여전히
+    # 읽기만 하고 조회는 전부 리포지토리를 거친다.
+    # ProjectRepository 는 넘기지 않는다 — 범위가 현재 프로젝트 하나로 정해져 있고
     # 권한은 라우터의 get_project_access 가 이미 판정했다.
-    return DeliverableService(deliverable_repository)
+    return DeliverableService(deliverable_repository, db)
