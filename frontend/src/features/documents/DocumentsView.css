@@ -1,6 +1,23 @@
+/* =============================================================================
+   이 파일의 책임: 문서 목록의 유형 필터·업로드·상태 표시 레이아웃을 담당한다.
+   다른 파일과의 관계: DocumentsView.jsx의 클래스만 표현하며 데이터 판단은 하지 않는다.
+   Spring 비교: 해당 없음(표현 전용).
+   ============================================================================= */
+
 .document-drop-target {
   position: relative;
 }
+
+.document-filter-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 13px 24px; border-top: 1px solid #e8edf4; border-bottom: 1px solid #e8edf4; background: #fafbfd; }
+.document-filter-bar label { display: grid; gap: 5px; }
+.document-filter-bar label > span { color: #65748a; font-size: 12px; font-weight: 700; }
+.document-filter-bar select { min-width: min(300px, 75vw); min-height: 38px; padding: 7px 32px 7px 10px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #2c326b; font: inherit; }
+.document-filter-bar select:focus-visible { border-color: #756de8; outline: none; }
+.document-filter-bar > button, .document-filter-empty button { min-height: 36px; padding: 8px 12px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #5148c8; font: inherit; font-weight: 700; cursor: pointer; }
+.document-filter-bar > button:hover, .document-filter-bar > button:focus-visible, .document-filter-empty button:hover, .document-filter-empty button:focus-visible { border-color: #756de8; background: #f5f4ff; }
+.document-filter-empty { display: grid; min-height: 190px; place-items: center; align-content: center; gap: 7px; padding: 28px; text-align: center; }
+.document-filter-empty strong { color: #36435a; }
+.document-filter-empty p { margin: 0 0 7px; color: #758197; font-size: 13px; }
 
 .document-upload-dialog { width: min(560px, 100%); }
 .document-upload-dialog label small { color: #758197; font-weight: 500; }
@@ -79,4 +96,4 @@
 .document-state-note { grid-column: 1 / -1; margin: -4px 0 0 48px; color: #65748a; font-size: 12px; }
 .processing-document p { margin: 4px 0 0; color: #66748a; }
 @media (max-width: 900px) { .document-list .document-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; } .document-state-stack { grid-column: 1; grid-row: 2; grid-auto-flow: column; justify-items: start; } .document-secondary-meta { grid-column: 1; grid-row: 3; grid-auto-flow: column; align-items: center; } .document-actions { grid-column: 2; grid-row: 1 / span 3; } .document-state-note { grid-column: 1 / -1; margin-left: 0; } }
-@media (max-width: 560px) { .document-row { padding: 13px; } .document-state-stack { grid-auto-flow: row; } .document-secondary-meta { grid-auto-flow: row; gap: 4px; } .document-open { align-self: end; } }
+@media (max-width: 560px) { .document-filter-bar { align-items: stretch; flex-direction: column; padding: 12px 13px; } .document-filter-bar select { width: 100%; min-width: 0; } .document-filter-bar > button { width: 100%; } .document-row { padding: 13px; } .document-state-stack { grid-auto-flow: row; } .document-secondary-meta { grid-auto-flow: row; gap: 4px; } .document-open { align-self: end; } }

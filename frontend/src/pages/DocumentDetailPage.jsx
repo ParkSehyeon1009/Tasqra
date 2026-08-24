@@ -1,6 +1,14 @@
+// =============================================================================
+// 이 파일의 책임: 문서 상세 정보와 내용·OCR 검수·분석·변경 이력 탭을 보여준다.
+// 다른 파일과의 관계: 문서 목록이 router state로 넘긴 복귀 URL을 상세와 OCR 검수
+//   화면까지 유지해, 사용자가 기존 유형 필터가 적용된 목록으로 돌아가게 한다.
+// Spring 비교: 문서 상세 Controller와 탭별 View를 조합한 화면이며, 목록 복귀 URL은
+//   RedirectAttributes처럼 다음 화면 이동에만 쓰는 탐색 상태다.
+// =============================================================================
+
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { analyzeDocument, deleteDocument, downloadDocumentSource, downloadSummary, getDocument, retryDocumentProcessing } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
@@ -16,9 +24,16 @@ import '../styles/document-detail-updates.css'
 
 const TABS = [['content', '문서 내용'], ['review', 'OCR 검수'], ['analysis', '분석 결과'], ['history', '변경 이력']]
 
+function getDocumentListUrl(projectId, candidate) {
+  const fallback = `/projects/${projectId}/documents`
+  return candidate === fallback || candidate?.startsWith(`${fallback}?`) ? candidate : fallback
+}
+
 export default function DocumentDetailPage({ user, onLogout, notify }) {
   const { projectId, documentId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const documentListUrl = getDocumentListUrl(projectId, location.state?.documentListUrl)
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -29,21 +44,22 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const document = documentQuery.data
   const canEdit = projectQuery.data?.role !== 'VIEWER'
   const analyzeMutation = useMutation({ mutationFn: () => analyzeDocument(projectId, documentId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: documentKey }); notify('success', '문서 분석 완료', '현재 텍스트를 기준으로 분석 결과를 생성했습니다.') }, onError: error => notify('error', '문서 분석 실패', error.message) })
-  const deleteMutation = useMutation({ mutationFn: () => deleteDocument(projectId, documentId), onSuccess: () => { queryClient.removeQueries({ queryKey: documentKey }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); notify('success', '문서 삭제 완료', `${document.filename} 문서를 삭제했습니다.`); navigate(`/projects/${projectId}/documents`, { replace: true }) }, onError: error => notify('error', '문서 삭제 실패', error.message) })
+  const deleteMutation = useMutation({ mutationFn: () => deleteDocument(projectId, documentId), onSuccess: () => { queryClient.removeQueries({ queryKey: documentKey }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', '문서 삭제 완료', `${document.filename} 문서를 삭제했습니다.`); navigate(documentListUrl, { replace: true }) }, onError: error => notify('error', '문서 삭제 실패', error.message) })
   const downloadMutation = useMutation({ mutationFn: () => downloadDocumentSource(projectId, documentId, document.filename), onError: error => notify('error', '원본 다운로드 실패', error.message) })
   const summaryDownloadMutation = useMutation({ mutationFn: () => downloadSummary(projectId, documentId, `${document.filename.replace(/\.[^.]+$/, '')}_요약.txt`), onSuccess: () => notify('success', '분석 결과 다운로드 완료', '최신 요약과 분류 결과를 저장했습니다.'), onError: error => notify('error', '분석 결과 다운로드 실패', error.message) })
-  const retryMutation = useMutation({ mutationFn: () => retryDocumentProcessing(projectId, documentId), onSuccess: () => { queryClient.setQueryData(documentKey, current => ({ ...current, status: 'PENDING', processing_error: null })); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); notify('success', '문서 재처리 접수', `${document.filename} 처리를 다시 시작했습니다.`) }, onError: error => notify('error', '문서 재처리 실패', error.message) })
+  const retryMutation = useMutation({ mutationFn: () => retryDocumentProcessing(projectId, documentId), onSuccess: () => { queryClient.setQueryData(documentKey, current => ({ ...current, status: 'PENDING', processing_error: null })); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', '문서 재처리 접수', `${document.filename} 처리를 다시 시작했습니다.`) }, onError: error => notify('error', '문서 재처리 실패', error.message) })
 
   if (projectQuery.isPending || documentQuery.isPending) return <LoadingState label="문서 상세 화면을 불러오는 중..."/>
-  if (projectQuery.isError || documentQuery.isError || !document) return <div className="detail-not-found"><h1>문서를 열 수 없습니다.</h1><p>문서가 없거나 프로젝트 접근 권한이 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
+  if (projectQuery.isError) return <div className="detail-not-found"><h1>프로젝트에 접근할 수 없습니다.</h1><p>프로젝트가 없거나 접근 권한이 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
+  if (documentQuery.isError || !document) return <div className="detail-not-found"><h1>문서를 열 수 없습니다.</h1><p>문서가 없거나 삭제되었을 수 있습니다.</p><button onClick={() => navigate(documentListUrl)}>문서 목록으로 돌아가기</button></div>
   return <div className="document-detail-page">
     <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
     <div className="document-detail-shell">
-      <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(`/projects/${projectId}/documents`)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
-      <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key })}>{label}{key === 'analysis' && document.analyses.length > 0 && <b>{document.analyses.length}</b>}</button>)}</nav>
+      <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
+      <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}{key === 'analysis' && document.analyses.length > 0 && <b>{document.analyses.length}</b>}</button>)}</nav>
       <main className="document-tab-body">
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
-        {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`)}/>}
+        {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
         {activeTab === 'analysis' && <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>

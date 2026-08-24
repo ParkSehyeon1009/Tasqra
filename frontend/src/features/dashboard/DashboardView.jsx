@@ -25,7 +25,7 @@ import { getDashboard } from '../../api/dashboard'
 import { listTasks } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
 import { getDocumentPrimaryAction, getDocumentStatus, getReviewStatus } from '../../utils/documentStatus'
-import { getDocumentTypeLabel } from '../../utils/documentType'
+import { getDocumentTypeLabel, isSupportedDocumentTypeFilter, UNCLASSIFIED_DOCUMENT_TYPE } from '../../utils/documentType'
 import { formatDateShort, formatNumber } from '../../utils/format'
 import ActionTaskPanel from './ActionTaskPanel'
 
@@ -51,6 +51,11 @@ export default function DashboardView({ projectId, documents, members }) {
   const data = dashboardQuery.data
   const counts = data?.documents
   const goDocuments = () => navigate(`/projects/${projectId}/documents`)
+  const goDocumentsByType = documentType => {
+    const filter = documentType ?? UNCLASSIFIED_DOCUMENT_TYPE
+    if (!isSupportedDocumentTypeFilter(filter)) return
+    navigate(`/projects/${projectId}/documents?document_type=${encodeURIComponent(filter)}`)
+  }
 
   // 서버 건수를 우선 쓰고, 아직 안 왔으면 넘겨받은 목록으로 임시 표시한다.
   const needsReview = documents.filter(document => ['PENDING', 'IN_PROGRESS'].includes(document.review_status))
@@ -95,7 +100,7 @@ export default function DashboardView({ projectId, documents, members }) {
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
 
-    <DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)}/>
+    <DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)} onOpenType={goDocumentsByType}/>
 
     <section className='panel dashboard-recent-panel'>
       <div className='panel-head'><div><h2>최근 문서</h2><p>최근에 업로드된 문서의 현재 상태입니다.</p></div><span>{formatNumber(counts?.total ?? null)}건</span></div>
@@ -120,23 +125,26 @@ function SummaryCard({ label, value, emphasis, note, onOpen }) {
   return <button className={className} type='button' onClick={onOpen}>{body}</button>
 }
 
-// 문서 유형 분포.
-//
-// 각 칸에서 "그 유형만 걸러진 문서 목록" 으로 이동하지 않는다. DocumentsView 에
-// 유형 필터가 없기 때문이다(GET /documents 는 document_type 파라미터를 받지만
-// 화면이 쓰지 않는다). 이동할 수 없는 것을 누를 수 있게 두면 고장으로 읽히므로
-// 지금은 표시만 한다 — DocumentsView 에 필터가 붙으면 그때 연결한다.
-function DocumentTypePanel({ types, total, loaded }) {
+// 문서 유형 분포. 각 행은 그 유형만 걸러진 문서 목록으로 이동한다.
+// null은 URL 전용 __UNCLASSIFIED__ 값으로 보내고 Repository가 IS NULL로 번역한다.
+function DocumentTypePanel({ types, total, loaded, onOpenType }) {
   const rows = types ?? []
   const max = rows.reduce((top, row) => Math.max(top, row.count), 0)
   return <section className='panel dashboard-type-panel'>
-    <div className='panel-head'><div><h2>문서 유형 분포</h2><p>이 프로젝트에 쌓인 문서를 유형별로 셉니다.</p></div><span>{rows.length}종</span></div>
+    <div className='panel-head'><div><h2>문서 유형 분포</h2><p>유형을 선택하면 해당 문서만 모아 볼 수 있습니다.</p></div><span>{rows.length}종</span></div>
     {rows.length
-      ? <ul className='dashboard-type-list'>{rows.map(row => <li className='dashboard-type-item' key={row.document_type ?? '__unclassified__'}>
-          <span className={'dashboard-type-name' + (row.document_type ? '' : ' is-unclassified')}>{getDocumentTypeLabel(row.document_type)}</span>
-          <span className='dashboard-type-bar' aria-hidden='true'><i style={{ width: `${max ? (row.count / max) * 100 : 0}%` }}/></span>
-          <span className='dashboard-type-count'>{formatNumber(row.count)}건{total ? ` · ${Math.round((row.count / total) * 100)}%` : ''}</span>
-        </li>)}</ul>
+      ? <ul className='dashboard-type-list'>{rows.map(row => {
+          const filter = row.document_type ?? UNCLASSIFIED_DOCUMENT_TYPE
+          const supported = isSupportedDocumentTypeFilter(filter)
+          const label = getDocumentTypeLabel(row.document_type)
+          return <li key={filter}>
+            <button className='dashboard-type-item' type='button' disabled={!supported} onClick={() => onOpenType(filter)} title={supported ? undefined : '현재 지원하지 않는 문서 유형입니다.'} aria-label={supported ? `${label} 문서 ${formatNumber(row.count)}건 보기` : `${label} 문서 유형 필터 미지원`}>
+              <span className={'dashboard-type-name' + (row.document_type ? '' : ' is-unclassified')}>{label}</span>
+              <span className='dashboard-type-bar' aria-hidden='true'><i style={{ width: `${max ? (row.count / max) * 100 : 0}%` }}/></span>
+              <span className='dashboard-type-count'>{formatNumber(row.count)}건{total ? ` · ${Math.round((row.count / total) * 100)}%` : ''}</span>
+            </button>
+          </li>
+        })}</ul>
       : <div className='dashboard-empty-state'><strong>{loaded ? '집계할 문서가 없습니다.' : '유형 분포를 불러오는 중입니다.'}</strong><p>문서를 업로드하면 유형별 건수가 표시됩니다.</p></div>}
   </section>
 }
