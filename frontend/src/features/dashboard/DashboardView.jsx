@@ -109,7 +109,7 @@ function AttentionRow({ kind, title, description, count, urgent = false, onOpen 
 
 function ProcessingStatusPanel({ counts, loaded, onOpen }) {
   const total = counts?.total ?? 0
-  const rows = [['처리 완료',counts?.completed,'success'],['처리 중',counts?.processing,'progress'],['처리 실패',counts?.failed,'danger']]
+  const rows = [['처리 완료',counts?.completed,'success'],['텍스트 추출 완료',counts?.extracted,'ready'],['처리 중',counts?.processing,'progress'],['처리 실패',counts?.failed,'danger']]
   return <section className='panel dashboard-status-panel'><div className='panel-head'><div><h2>처리 상태</h2><p>전체 문서의 처리 단계별 비율입니다.</p></div><span>{formatNumber(counts?.total ?? null)}건</span></div>{loaded ? <div className='dashboard-status-list'>{rows.map(([label,value,tone]) => <button onClick={onOpen} key={label}><span>{label}</span><i><b className={`is-${tone}`} style={{ width:`${total ? (value / total) * 100 : 0}%` }}/></i><strong>{formatNumber(value)}건 · {total ? Math.round((value / total) * 100) : 0}%</strong></button>)}</div> : <div className='dashboard-empty-state'><strong>처리 상태를 불러오는 중입니다.</strong></div>}</section>
 }
 

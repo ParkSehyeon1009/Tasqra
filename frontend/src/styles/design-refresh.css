@@ -186,6 +186,7 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
 .dashboard-status-list button>i { height:8px; overflow:hidden; border-radius:99px; background:#eef1f7; }
 .dashboard-status-list button>i>b { display:block; height:100%; min-width:3px; border-radius:99px; background:var(--c-accent); }
 .dashboard-status-list button>i>b.is-success { background:var(--c-success); }
+.dashboard-status-list button>i>b.is-ready { background:#5b78b8; }
 .dashboard-status-list button>i>b.is-danger { background:var(--c-danger); }
 .dashboard-status-list button>strong { color:var(--c-text-muted); font-size:12px; white-space:nowrap; }
 
