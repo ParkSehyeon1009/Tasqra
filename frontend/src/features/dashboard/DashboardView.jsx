@@ -75,17 +75,13 @@ export default function DashboardView({ projectId, documents, members }) {
       <SummaryCard label='처리 중' value={counts?.processing} onOpen={goDocuments}/>
       <SummaryCard label='처리 완료' value={counts?.completed} onOpen={goDocuments}/>
       <SummaryCard label='처리 실패' value={counts?.failed} emphasis={counts?.failed > 0} onOpen={goDocuments}/>
-      <SummaryCard label='OCR 검수' value={reviewPending} emphasis={reviewPending > 0} onOpen={goDocuments}/>
-      {/* 금액 승인 대기는 amount_items 만 센다. 금액 화면이 아직 없어서 이동
-          대상이 없다 — onOpen 을 주지 않아 클릭되지 않는 카드로 둔다. */}
-      <SummaryCard label='금액 승인 대기' value={data?.pending_amount_items} note='금액 항목 기준'/>
       <SummaryCard label='열린 태스크' value={data?.open_tasks} onOpen={() => navigate(`/projects/${projectId}/board`)}/>
-      <SummaryCard label='참여자' value={members.length} onOpen={() => navigate(`/projects/${projectId}/settings`)}/>
     </section>
 
     <div className="dashboard-top-grid">
       <section className='panel dashboard-next-actions'>
-        <div className='panel-head'><div><h2>OCR 확인 필요</h2><p>검수 후 최종 텍스트에 반영할 문서입니다.</p></div><span>{formatNumber(reviewPending)}건</span></div>
+        <div className='panel-head'><div><h2>확인이 필요한 일</h2><p>사람이 확인해야 다음 단계로 넘어가는 항목입니다.</p></div><span>{formatNumber((reviewPending ?? 0) + (data?.pending_amount_items ?? 0))}건</span></div>
+        <div className='dashboard-attention-summary'><button onClick={goDocuments}><span>문서</span><div><strong>OCR 검수</strong><small>검수 후 최종 본문에 반영됩니다.</small></div><b>{formatNumber(reviewPending)}건</b></button><div><span>금액</span><div><strong>승인 대기</strong><small>승인 전에는 산출물에 반영되지 않습니다.</small></div><b>{formatNumber(data?.pending_amount_items ?? null)}건</b></div></div>
         {/* 미리보기 항목은 넘겨받은 문서 목록(첫 페이지)에서 고르고 건수는 서버
             값을 쓴다. 그래서 "서버는 5건이라는데 이 페이지에는 하나도 없다" 가
             생길 수 있다 — 그때 "없습니다" 를 띄우면 배지의 5건과 모순된다.
@@ -95,7 +91,7 @@ export default function DashboardView({ projectId, documents, members }) {
           : reviewPending > 0
             ? <div className='dashboard-empty-state'><strong>검수가 필요한 문서가 {formatNumber(reviewPending)}건 있습니다.</strong><p>최근 목록에는 없습니다. 전체 문서에서 확인해 주세요.</p></div>
             : <div className='dashboard-empty-state'><strong>현재 검수가 필요한 문서가 없습니다.</strong><p>검수할 문서가 생기면 이곳에 우선 표시됩니다.</p></div>}
-        {reviewPending > shownReview.length && <div className="dashboard-panel-footer"><span>외 {formatNumber(reviewPending - shownReview.length)}건이 더 있습니다.</span><button onClick={goDocuments}>전체 보기 →</button></div>}
+        <div className="dashboard-panel-footer"><span>참여자 {formatNumber(members.length)}명</span><button onClick={goDocuments}>{reviewPending > shownReview.length ? `외 ${formatNumber(reviewPending - shownReview.length)}건 보기 →` : '전체 문서 보기 →'}</button></div>
       </section>
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>

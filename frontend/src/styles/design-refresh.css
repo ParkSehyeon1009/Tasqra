@@ -21,12 +21,12 @@ body { background: var(--c-bg-canvas); }
 .app-frame > .app-header .app-header__brand,
 .app-frame > .app-header .app-header__divider,
 .app-frame > .app-header .app-header__project { display: none; }
-.app-header__context { display:flex; min-width:0; align-items:center; gap:8px; color:var(--c-text-muted); font-size:12px; }
-.app-header__context span { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-header__context { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:8px; color:var(--c-text-muted); font-size:12px; }
+.app-header__context span { max-width:min(52vw,620px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .app-header__context i { color:var(--c-border-strong); font-style:normal; }
-.app-header__context strong { color:var(--c-text-strong); }
-.app-frame > .app-header .app-header__nav { width: 100%; }
-.app-frame > .app-header .app-header__nav > a:first-child { margin-right: auto; color: var(--c-text-muted); font-size: 13px; }
+.app-header__context strong { flex:0 0 auto; color:var(--c-text-strong); white-space:nowrap; }
+.app-frame > .app-header .app-header__nav { width:auto; margin-left:auto; }
+.app-frame > .app-header .app-header__nav > a:first-child { display:none; }
 .header-icon-button,.profile-button,.logout-button { border-color: var(--c-border); box-shadow: var(--c-shadow-sm); }
 .profile-button i,.profile-summary>i { background: var(--c-accent-soft); color: var(--c-accent); }
 
@@ -85,8 +85,11 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
 .task-column header { padding:2px 3px 11px; }
 .task-column h2 { color:var(--c-text-strong); font-size:14px; }
 .task-column header span { width:24px; min-width:24px; height:24px; border:1px solid var(--c-border); color:var(--c-text-muted); }
-.task-card-list { gap:9px; margin-top:0; }
-.task-board-card { padding:14px; border-color:var(--c-border); border-top-width:3px; border-radius:10px; box-shadow:var(--c-shadow-sm); }
+.task-card-list { display:grid!important; width:100%; grid-template-columns:minmax(0,1fr); gap:9px; margin-top:0; }
+.task-board-card { width:100%; min-width:0; padding:14px; border-color:var(--c-border); border-top-width:3px; border-radius:10px; box-shadow:var(--c-shadow-sm); }
+.task-board-card-top { min-width:0; }
+.task-board-card-top>div { margin-left:auto; }
+.task-board-card-top>span { background:var(--c-accent-soft); color:var(--c-accent); }
 .task-board-card h3 { margin-top:9px; color:var(--c-text-strong); font-size:14px; }
 .task-board-card footer { margin-top:14px; padding-top:10px; }
 
@@ -155,8 +158,19 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
 .dashboard-top-grid { grid-template-columns:minmax(0,1.08fr) minmax(360px,.92fr); gap:16px; }
 .dashboard-next-actions,.dashboard-task-panel,.dashboard-recent-panel,.dashboard-type-panel { border-radius:var(--c-radius); }
 .dashboard-document-item { padding:13px 0; }
-.dashboard-task-grid { gap:9px; }
-.dashboard-task-card { min-height:150px; padding:13px; border-radius:10px; }
+.dashboard-task-grid { grid-template-columns:1fr; gap:9px; }
+.dashboard-task-card { min-height:112px; padding:13px; border-radius:10px; }
+.dashboard-task-card>p { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.dashboard-attention-summary { margin:14px 0 4px; border-block:1px solid var(--c-border); }
+.dashboard-attention-summary>button,.dashboard-attention-summary>div { display:grid; width:100%; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:11px; padding:12px 0; border:0; border-top:1px solid var(--c-border); background:transparent; color:inherit; text-align:left; }
+.dashboard-attention-summary>*:first-child { border-top:0; }
+.dashboard-attention-summary>button { cursor:pointer; }
+.dashboard-attention-summary>button:hover { background:var(--c-accent-soft); }
+.dashboard-attention-summary>*>span { padding:4px 7px; border-radius:99px; background:var(--c-accent-soft); color:var(--c-accent); font-size:10px; font-weight:800; }
+.dashboard-attention-summary>*>div strong,.dashboard-attention-summary>*>div small { display:block; }
+.dashboard-attention-summary>*>div strong { color:var(--c-text-strong); font-size:13px; }
+.dashboard-attention-summary>*>div small { margin-top:2px; color:var(--c-text-muted); font-size:11px; }
+.dashboard-attention-summary>*>b { color:var(--c-text-strong); font-size:14px; white-space:nowrap; }
 .dashboard-recent-list { grid-template-columns:repeat(3,minmax(0,1fr)); }
 
 /* Documents */
@@ -263,4 +277,5 @@ body.tasqra-rail-mini .project-sidebar__menus button { justify-content:center; p
   .tabs { top: 60px; padding-inline: 14px; }
   .workspace-main { padding: 24px 16px 48px; }
 }
+@media(max-width:640px){.app-frame>.app-header{gap:8px}.app-header__context span{max-width:34vw}.app-header__context{font-size:11px}.profile-button span,.logout-button{display:none}}
 @media(max-width:1100px){.settings-layout{grid-template-columns:1fr}.task-board.board{grid-template-columns:1fr}}
