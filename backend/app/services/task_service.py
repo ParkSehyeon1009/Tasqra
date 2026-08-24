@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ class TaskService:
         values["title"] = values["title"].strip()
         if not values["title"]:
             raise BusinessError(ErrorCode.INVALID_TASK_TITLE)
+        self._validate_due_on(values.get("due_on"))
         self._validate_assignee(project_id, values.get("assignee_id"))
         with transactional(self._db):
             task = self._tasks.create(Task(project_id=project_id, created_by=user_id, **values))
@@ -40,6 +41,8 @@ class TaskService:
             values["title"] = values["title"].strip()
         if "assignee_id" in values:
             self._validate_assignee(project_id, values["assignee_id"])
+        if "due_on" in values:
+            self._validate_due_on(values["due_on"])
 
         next_status = values.get("status", task.status)
         if next_status == "DONE" and task.status != "DONE":
@@ -61,3 +64,8 @@ class TaskService:
     def _validate_assignee(self, project_id: int, assignee_id: int | None) -> None:
         if assignee_id is not None and not self._tasks.is_project_member(project_id, assignee_id):
             raise BusinessError(ErrorCode.TASK_ASSIGNEE_NOT_MEMBER)
+
+    @staticmethod
+    def _validate_due_on(due_on: date | None) -> None:
+        if due_on is not None and due_on < date.today():
+            raise BusinessError(ErrorCode.INVALID_TASK_DUE_DATE)
