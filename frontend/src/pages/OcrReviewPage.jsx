@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { useBlocker, useNavigate, useParams } from 'react-router-dom'
-import { completeOcrReview, createOcrElement, getDocument, getOcrPageImage, getOcrReview, mergeOcrElementGroups, mergeOcrElements, reprocessOcrElement, setOcrElementDeletion, setOcrElementExclusion, splitOcrElement, undoOcrElementMerge, updateOcrElementsBatch } from '../api/document'
+import { completeOcrReview, createOcrElement, getDocument, getOcrPageImage, getOcrReview, mergeOcrElementGroups, mergeOcrElements, reprocessOcrElement, setOcrElementDeletion, setOcrElementExclusion, undoOcrElementMerge, updateOcrElementsBatch } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
@@ -27,7 +27,6 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const [mergeSelection, setMergeSelection] = useState([])
   const [mergePreview, setMergePreview] = useState(null)
   const [lastMerge, setLastMerge] = useState(null)
-  const [splitPreview, setSplitPreview] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [elementFilter, setElementFilter] = useState('ALL')
   const [createMode, setCreateMode] = useState(false)
@@ -246,17 +245,6 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     onError: error => { reviewQuery.refetch(); notify('error', '단락별 박스 병합 취소', `${error.message} 모든 단락을 병합 전 상태로 유지했습니다.`) },
   })
 
-  const splitMutation = useMutation({
-    mutationFn: preview => splitOcrElement(projectId, documentId, preview.element.id, { version: preview.element.version, orientation: preview.orientation, ratio: preview.ratio, first_text: preview.firstText, second_text: preview.secondText }),
-    onSuccess: async result => {
-      setSplitPreview(null)
-      setSelectedId(result.created[0]?.id ?? null)
-      await reviewQuery.refetch()
-      notify('success', 'OCR 박스 분할 완료', '새 박스 2개를 만들고 서버의 좌표를 다시 확인했습니다.')
-    },
-    onError: error => notify('error', 'OCR 박스 분할 실패', error.message),
-  })
-
   function toggleMergeSelection(element) {
     setMergeSelection(current => current.includes(element.id) ? current.filter(id => id !== element.id) : [...current, element.id])
   }
@@ -269,16 +257,6 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     const selectedElements = effectivePageElements.filter(element => mergeSelection.includes(element.id))
     const texts = selectedElements.slice().sort((a, b) => a.reading_order - b.reading_order).map(element => element.text).filter(Boolean)
     setMergePreview({ elements: selectedElements, texts, joinWithSpace: true, text: texts.join(' ') })
-  }
-
-  function openSplitPreview() {
-    if (!selected || selected.is_excluded || selected.is_deleted) return
-    if (hasUnsavedChanges) {
-      notify('error', '박스 분할 전 저장 필요', '텍스트나 좌표 변경 내용을 먼저 저장해 주세요.')
-      return
-    }
-    const [firstText, secondText] = suggestTextSplit(selected.text)
-    setSplitPreview({ element: selected, orientation: 'HORIZONTAL', ratio: 0.5, firstText, secondText })
   }
 
   function applyReOcrResult() {
@@ -322,8 +300,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     {canEdit && <section className='ocr-paragraph-merge-actions'><div><strong>단락 박스 정리</strong><span>자동 단락 제안과 직접 조정한 경계를 기준으로 박스와 텍스트를 합칩니다.</span></div><button type='button' disabled={!mergeableParagraphGroups.length || paragraphMergeMutation.isPending} onClick={mergeSuggestedParagraphs}>{paragraphMergeMutation.isPending ? '단락 병합 중...' : `단락별 박스 병합 (${mergeableParagraphGroups.length})`}</button>{selectedMergeOperation && <button type='button' className='restore' disabled={undoMergeMutation.isPending} onClick={() => undoMergeMutation.mutate({ operationId: selectedMergeOperation.operation_id, pageId: selectedMergeOperation.page_id })}>{undoMergeMutation.isPending ? '나누는 중...' : '선택 박스 원래대로 나누기'}</button>}</section>}
-    {canEdit && selected && !selected.is_deleted && !selected.is_excluded && <div className='ocr-direct-split-action'><button type='button' disabled={splitMutation.isPending} onClick={openSplitPreview}>선택 박스 직접 나누기</button></div>}
-    <section className='ocr-structure-history'><button type='button' onClick={() => setHistoryOpen(current => !current)}>병합·분할 이력 {review.structure_history?.length ?? 0}건 {historyOpen ? '접기' : '보기'}</button>{historyOpen && <ul>{(review.structure_history ?? []).map(event => <li key={event.id}><strong>{structureEventLabel(event)}</strong><span>{new Date(event.created_at).toLocaleString('ko-KR')}</span></li>)}</ul>}</section>
+    <section className='ocr-structure-history'><button type='button' onClick={() => setHistoryOpen(current => !current)}>병합 이력 {review.structure_history?.length ?? 0}건 {historyOpen ? '접기' : '보기'}</button>{historyOpen && <ul>{(review.structure_history ?? []).map(event => <li key={event.id}><strong>{structureEventLabel(event)}</strong><span>{new Date(event.created_at).toLocaleString('ko-KR')}</span></li>)}</ul>}</section>
     <main className='ocr-review-workspace ocr-review-layout'>
       <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{mergeMode ? '합칠 인접 박스를 원본 화면에서 차례로 선택하세요.' : createMode ? '원본에서 원하는 영역을 대각선으로 드래그하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} mergeMode={mergeMode} mergeSelection={mergeSelection} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => mergeMode ? toggleMergeSelection(element) : selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
       <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div>{canEdit && <div className='ocr-batch-reocr'><span>일괄 재OCR</span><button type='button' disabled={!lowConfidenceElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(lowConfidenceElements)}>낮은 신뢰도 {lowConfidenceElements.length}개</button><button type='button' disabled={!effectivePageElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(effectivePageElements.filter(element => !element.is_deleted))}>현재 페이지 전체</button>{batchReOcrMutation.isPending && <small>선택 영역을 순서대로 처리하고 있습니다...</small>}</div>}{canEdit && <div className='ocr-merge-toolbar'><button type='button' className={mergeMode ? 'active' : ''} onClick={() => { setMergeMode(current => !current); setMergeSelection([]) }}>{mergeMode ? '병합 선택 취소' : '박스 병합'}</button>{mergeMode && <><span>{mergeSelection.length}개 선택</span><button type='button' className='primary' disabled={mergeSelection.length < 2 || mergeMutation.isPending} onClick={mergeSelectedElements}>선택 박스 병합</button></>}{availableLastMerge && <button type='button' disabled={undoMergeMutation.isPending} onClick={() => undoMergeMutation.mutate(availableLastMerge)}>{undoMergeMutation.isPending ? '되돌리는 중...' : '최근 병합 되돌리기'}</button>}</div>}<ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending || batchReOcrMutation.isPending || mergeMutation.isPending || undoMergeMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)} mergeMode={mergeMode} mergeSelection={mergeSelection} onToggleMerge={toggleMergeSelection}/></aside>
@@ -331,7 +308,6 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     {reOcrResult && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setReOcrResult(null)}><section className='reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='reocr-title'>재OCR 결과 비교</h2><p>새 인식 결과를 확인한 뒤 적용하세요. 적용 후에도 하단 저장 버튼을 눌러야 확정됩니다.</p><div className='reocr-comparison'><div><span>현재 텍스트</span><pre>{reOcrResult.original_text}</pre></div><div><span>새 인식 결과 {reOcrResult.confidence == null ? '' : `· ${Math.round(reOcrResult.confidence * 100)}%`}</span><pre>{reOcrResult.recognized_text}</pre></div></div><div className='reocr-dialog-actions'><button onClick={() => setReOcrResult(null)}>취소</button><button className='primary' onClick={applyReOcrResult}>새 결과 적용</button></div></section></div>}
     {batchReOcrResults && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setBatchReOcrResults(null)}><section className='reocr-dialog batch-reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='batch-reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='batch-reocr-title'>일괄 재OCR 결과</h2><p>성공한 결과를 검토하고 한꺼번에 변경 초안으로 적용할 수 있습니다.</p><ul>{batchReOcrResults.map(item => <li key={item.element.id} className={item.status === 'SUCCESS' ? 'success' : 'failed'}><div><strong>{item.element.text || '(빈 텍스트)'}</strong><span>{item.status === 'SUCCESS' ? '→ ' + item.result.recognized_text : item.error}</span></div><small>{item.status === 'SUCCESS' ? (item.result.confidence == null ? '신뢰도 정보 없음' : `신뢰도 ${Math.round(item.result.confidence * 100)}%`) : '실패'}</small></li>)}</ul><div className='reocr-dialog-actions'><button onClick={() => setBatchReOcrResults(null)}>취소</button><button className='primary' disabled={!batchReOcrResults.some(item => item.status === 'SUCCESS')} onClick={applyBatchReOcrResults}>성공 결과 전체 적용</button></div></section></div>}
     {mergePreview && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setMergePreview(null)}><section className='reocr-dialog merge-preview-dialog' role='dialog' aria-modal='true' aria-labelledby='merge-preview-title' onMouseDown={event => event.stopPropagation()}><h2 id='merge-preview-title'>박스 병합 미리보기</h2><p>{mergePreview.elements.length}개 박스가 아래 텍스트로 합쳐집니다.</p><label className='merge-linebreak-option'><input type='checkbox' checked={mergePreview.joinWithSpace} onChange={event => setMergePreview(current => ({ ...current, joinWithSpace: event.target.checked, text: current.texts.join(event.target.checked ? ' ' : '\n') }))}/>박스 사이 줄바꿈 없이 연결</label><pre>{mergePreview.text}</pre><div className='reocr-dialog-actions'><button onClick={() => setMergePreview(null)}>취소</button><button className='primary' disabled={mergeMutation.isPending} onClick={() => mergeMutation.mutate(mergePreview)}>{mergeMutation.isPending ? '병합 중...' : '이대로 병합'}</button></div></section></div>}
-    {splitPreview && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setSplitPreview(null)}><section className='reocr-dialog split-preview-dialog' role='dialog' aria-modal='true' aria-labelledby='split-preview-title' onMouseDown={event => event.stopPropagation()}><h2 id='split-preview-title'>OCR 박스 직접 나누기</h2><p>분할 방향과 위치, 두 박스에 저장할 텍스트를 확인하세요.</p><div className={'split-box-preview ' + splitPreview.orientation.toLowerCase()}><span style={splitPreview.orientation === 'VERTICAL' ? { left: `${splitPreview.ratio * 100}%` } : { top: `${splitPreview.ratio * 100}%` }}/></div><div className='split-controls'><label>분할 방향<select value={splitPreview.orientation} onChange={event => setSplitPreview(current => ({ ...current, orientation: event.target.value }))}><option value='HORIZONTAL'>위·아래로 나누기</option><option value='VERTICAL'>왼쪽·오른쪽으로 나누기</option></select></label><label>분할 위치 <strong>{Math.round(splitPreview.ratio * 100)}%</strong><input type='range' min='10' max='90' value={Math.round(splitPreview.ratio * 100)} onChange={event => setSplitPreview(current => ({ ...current, ratio: Number(event.target.value) / 100 }))}/></label></div><div className='split-texts'><label>첫 번째 박스 텍스트<textarea value={splitPreview.firstText} onChange={event => setSplitPreview(current => ({ ...current, firstText: event.target.value }))}/></label><label>두 번째 박스 텍스트<textarea value={splitPreview.secondText} onChange={event => setSplitPreview(current => ({ ...current, secondText: event.target.value }))}/></label></div><div className='reocr-dialog-actions'><button onClick={() => setSplitPreview(null)}>취소</button><button className='primary' disabled={splitMutation.isPending || !splitPreview.firstText.trim() || !splitPreview.secondText.trim()} onClick={() => splitMutation.mutate(splitPreview)}>{splitMutation.isPending ? '나누는 중...' : '이대로 나누기'}</button></div></section></div>}
   </div>
 }
 
@@ -491,24 +467,8 @@ function paragraphMergeGroups(elements) {
   return groups
 }
 
-function suggestTextSplit(text) {
-  const lines = text.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
-  if (lines.length > 1) {
-    const middle = Math.ceil(lines.length / 2)
-    return [lines.slice(0, middle).join('\n'), lines.slice(middle).join('\n')]
-  }
-  const words = text.trim().split(/\s+/).filter(Boolean)
-  if (words.length > 1) {
-    const middle = Math.ceil(words.length / 2)
-    return [words.slice(0, middle).join(' '), words.slice(middle).join(' ')]
-  }
-  const middle = Math.max(1, Math.ceil(text.length / 2))
-  return [text.slice(0, middle).trim(), text.slice(middle).trim()]
-}
-
 function structureEventLabel(event) {
   if (event.event_type === 'MERGE') return `박스 ${event.details.source_count}개 병합`
   if (event.event_type === 'UNMERGE') return `병합 박스를 원본 ${event.details.restored_count}개로 복원`
-  if (event.event_type === 'SPLIT') return `박스 직접 분할 · ${event.details.orientation === 'VERTICAL' ? '좌우' : '상하'} ${Math.round(event.details.ratio * 100)}%`
   return event.event_type
 }
