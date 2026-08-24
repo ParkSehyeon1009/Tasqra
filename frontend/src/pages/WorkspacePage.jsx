@@ -139,9 +139,8 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
 
   return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" multiple accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
     <div className="workspace-shell">
-      <ProjectSidebar projects={projects} activeProjectId={project.id} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onCreate={() => setCreating(true)}/>
+      <ProjectSidebar projects={projects} activeProjectId={project.id} activeTab={tab} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${project.id}/${key}`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
-        <nav className="tabs" aria-label="프로젝트 메뉴">{TABS.map(([key,label]) => <button className={tab === key ? 'active' : ''} onClick={() => navigate(`/projects/${project.id}/${key}`)} key={key}>{label}</button>)}</nav>
         <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} documentType={documentType} onDocumentTypeChange={changeDocumentType} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
       </section>
     </div>

@@ -1,0 +1,99 @@
+/* Tasqra navy visual refresh. Imported last so existing feature behavior stays intact. */
+:root {
+  --c-accent: #3557d4;
+  --c-accent-strong: #2743ad;
+  --c-accent-soft: #eef2ff;
+  --c-accent-bg: rgba(53, 87, 212, .09);
+  --c-accent-border: rgba(53, 87, 212, .28);
+  --tasqra-rail: #0d1730;
+  --tasqra-rail-end: #131f3f;
+  --tasqra-rail-text: #e6ecf8;
+  --tasqra-rail-muted: #8b9bbd;
+  --tasqra-header-h: 64px;
+  --tasqra-rail-w: 262px;
+}
+
+body { background: var(--c-bg-canvas); }
+.app-frame { background: var(--c-bg-canvas); }
+.app-frame > .app-header { position: fixed; inset: 0 0 auto var(--tasqra-rail-w); height: var(--tasqra-header-h); padding: 0 28px; border-bottom: 1px solid var(--c-border); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }
+.app-frame > .app-header .app-header__brand,
+.app-frame > .app-header .app-header__divider,
+.app-frame > .app-header .app-header__project { display: none; }
+.app-frame > .app-header .app-header__nav { width: 100%; }
+.app-frame > .app-header .app-header__nav > a:first-child { margin-right: auto; color: var(--c-text-muted); font-size: 13px; }
+.header-icon-button,.profile-button,.logout-button { border-color: var(--c-border); box-shadow: var(--c-shadow-sm); }
+.profile-button i,.profile-summary>i { background: var(--c-accent-soft); color: var(--c-accent); }
+
+.workspace-shell { padding-top: var(--tasqra-header-h); }
+.project-sidebar { top: 0 !important; bottom: 0; width: var(--tasqra-rail-w) !important; height: 100vh !important; padding: 22px 14px 18px; border: 0; background: linear-gradient(180deg,var(--tasqra-rail),var(--tasqra-rail-end)); color: var(--tasqra-rail-text); }
+.project-sidebar::before,.project-sidebar::after { content:none; }
+.project-sidebar__brand { display:flex; align-items:center; gap:10px; margin:0 4px 24px; color:#fff; }
+.project-sidebar__brand > span { display:grid; width:30px; height:30px; flex:0 0 auto; place-items:center; border-radius:50%; background:linear-gradient(135deg,#7fb3ff,#3f5bd9); color:#fff; font-size:13px; font-weight:900; box-shadow:0 0 0 1px rgba(159,194,255,.6),0 0 16px rgba(96,140,255,.22); }
+.project-sidebar__brand strong { display:block; font-size:18px; line-height:1.1; }
+.project-sidebar__brand small { display:block; margin-top:3px; color:var(--tasqra-rail-muted); font-size:8px; letter-spacing:.12em; }
+.project-sidebar__heading { padding: 0 6px 8px; color: var(--tasqra-rail-muted); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.project-sidebar__heading button { display:grid; width:26px; height:26px; padding:0; place-items:center; border:1px dashed rgba(255,255,255,.14); border-radius:7px; background:transparent; color:var(--tasqra-rail-muted); cursor:pointer; }
+.project-sidebar__list { gap: 4px; }
+.project-sidebar__project { border-radius:9px; }
+.project-sidebar__list .project-sidebar__project-button { min-height:42px; padding:9px 9px; border:1px solid transparent; color:#c3cee3; font-weight:700; }
+.project-sidebar__list .project-sidebar__project-button:hover { background:rgba(255,255,255,.06); color:#fff; }
+.project-sidebar__project-button b { margin-left:auto; color:var(--tasqra-rail-muted); font-size:11px; }
+.project-sidebar__menus { margin:0 0 6px 14px; padding-left:9px; border-left:1px solid rgba(255,255,255,.09); }
+.project-sidebar__list .project-sidebar__menus button { min-height:36px; padding:7px 9px; border:1px solid transparent; border-radius:8px; color:var(--tasqra-rail-muted); font-size:12px; }
+.project-sidebar__list .project-sidebar__menus button:hover { background:rgba(255,255,255,.055); color:#fff; }
+.project-sidebar__list .project-sidebar__menus button.is-active { border-color:rgba(126,153,255,.16); background:rgba(99,131,255,.18); color:#fff; font-weight:750; }
+.project-sidebar__menus button i { display:grid; width:16px; flex:0 0 auto; place-items:center; color:inherit; font-style:normal; font-size:14px; }
+.project-sidebar__marker { width: 8px; height: 8px; border-radius: 50%; background: #5b8cff; box-shadow: 0 0 0 4px rgba(91,140,255,.1); }
+.project-sidebar__list button small { background: rgba(255,255,255,.08); color: var(--tasqra-rail-muted); }
+.project-sidebar__create { margin-top: 14px; border-color: rgba(255,255,255,.15); background: rgba(255,255,255,.035); color: #b8c4dc; }
+.project-sidebar__create:hover { border-color: rgba(126,153,255,.5); background: rgba(99,131,255,.14); color: #fff; }
+.workspace-content { margin-left: var(--tasqra-rail-w) !important; background: var(--c-bg-canvas); }
+.standalone-workspace-content { min-height:100vh; margin-left:var(--tasqra-rail-w); padding-top:var(--tasqra-header-h); background:var(--c-bg-canvas); }
+.tabs { top: var(--tasqra-header-h); height: 54px; gap: 8px; padding: 8px 30px; border-bottom: 1px solid var(--c-border); background: rgba(255,255,255,.96); }
+.tabs button { padding: 0 14px; border: 0; border-radius: 8px; color: var(--c-text-muted); font-size: 13px; }
+.tabs button:hover { background: var(--c-bg-hover); color: var(--c-text-strong); }
+.tabs button.active { background: var(--c-accent-soft); color: var(--c-accent); }
+.workspace-main { max-width: 1440px; padding: 34px clamp(24px,3vw,46px) 64px; }
+.workspace-shell > .project-empty-main { min-height:100vh; margin-left:var(--tasqra-rail-w); padding-top:var(--tasqra-header-h); background:var(--c-bg-canvas); }
+
+.page-heading { margin-bottom: 24px; }
+.page-heading .eyebrow { color: var(--c-accent); font-size: 10px; letter-spacing: .14em; }
+.page-heading h1 { margin-bottom: 6px; color: var(--c-text-strong); font-size: clamp(27px,3vw,34px); letter-spacing: -.035em; }
+.page-heading p { margin-bottom: 0; color: var(--c-text-muted); font-size: 14px; }
+.panel,.stat-card,.dashboard-summary-card { border-color: var(--c-border); border-radius: var(--c-radius); background: var(--c-bg); box-shadow: var(--c-shadow-sm); }
+.panel { padding: 20px; }
+.panel-head h2 { color: var(--c-text-strong); font-size: 16px; }
+.primary { border-radius: 9px; background: var(--c-accent); box-shadow: 0 5px 14px rgba(53,87,212,.16); }
+.primary:hover:not(:disabled) { background: var(--c-accent-strong); }
+.dashboard-summary-card { min-height: 110px; padding: 16px; }
+.dashboard-summary-card > strong { color: var(--c-text-strong); font-size: 29px; }
+.dashboard-summary-card.is-emphasis { border-color: #e8c98a; background: var(--c-warning-bg); }
+.dashboard-task-card { border-color: var(--c-border); border-top-width: 3px; background: #fff; }
+.dashboard-board-link,.dashboard-document-item button { color: var(--c-accent); }
+.dashboard-board-link:hover,.dashboard-document-item button:hover { border-color: var(--c-accent-border); background: var(--c-accent-soft); }
+.task-board-card,.deliverable-card,.search-result-card { box-shadow: var(--c-shadow-sm); }
+.drop-zone { border-color: #aebdf3; background: linear-gradient(180deg,#f8faff,#eef2ff); color: var(--c-accent); }
+
+.document-detail-page { min-height:100vh; background:var(--c-bg-canvas); }
+.document-detail-page > .app-header { height:var(--tasqra-header-h); border-bottom:1px solid var(--c-border); background:#fff; }
+.document-detail-shell { width:min(1180px,calc(100% - 40px)); }
+.document-detail-header { border-color:var(--c-border); border-radius:var(--c-radius); box-shadow:var(--c-shadow-sm); }
+.document-detail-header h1 { color:var(--c-text-strong); letter-spacing:-.025em; }
+.document-detail-tabs { border-color:var(--c-border); background:transparent; }
+.document-detail-tabs button { color:var(--c-text-muted); }
+.document-detail-tabs button.active { border-color:var(--c-accent); color:var(--c-accent); }
+.detail-card { border-color:var(--c-border); border-radius:var(--c-radius); box-shadow:var(--c-shadow-sm); }
+
+@media (max-width: 900px) {
+  .app-frame > .app-header { position: sticky; inset: auto; height: 60px; padding: 0 14px; }
+  .workspace-shell { padding-top: 0; }
+  .project-sidebar { position: relative !important; width: 100% !important; height: auto !important; padding: 12px 14px; background: var(--tasqra-rail); }
+  .project-sidebar__brand { display:none; }
+  .project-sidebar__heading { padding: 0 0 7px; }
+  .project-sidebar__create { margin-top: 8px; }
+  .workspace-content { margin-left: 0 !important; }
+  .standalone-workspace-content { margin-left:0; padding-top:0; }
+  .workspace-shell > .project-empty-main { min-height:calc(100vh - 60px); margin-left:0; padding-top:0; }
+  .tabs { top: 60px; padding-inline: 14px; }
+  .workspace-main { padding: 24px 16px 48px; }
+}
