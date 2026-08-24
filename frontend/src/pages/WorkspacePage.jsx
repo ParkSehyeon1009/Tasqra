@@ -137,7 +137,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
     setSearchParams(nextSearchParams)
   }
 
-  return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project}/><input ref={fileInputRef} hidden type="file" multiple accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
+  return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project} section={TABS.find(([key]) => key === tab)?.[1]}/><input ref={fileInputRef} hidden type="file" multiple accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
     <div className="workspace-shell">
       <ProjectSidebar projects={projects} activeProjectId={project.id} activeTab={tab} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${project.id}/${key}`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">

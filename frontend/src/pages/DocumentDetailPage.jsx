@@ -56,7 +56,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   if (projectQuery.isError) return <div className="detail-not-found"><h1>프로젝트에 접근할 수 없습니다.</h1><p>프로젝트가 없거나 접근 권한이 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
   if (documentQuery.isError || !document) return <div className="detail-not-found"><h1>문서를 열 수 없습니다.</h1><p>문서가 없거나 삭제되었을 수 있습니다.</p><button onClick={() => navigate(documentListUrl)}>문서 목록으로 돌아가기</button></div>
   return <div className="app-frame document-detail-page">
-    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
+    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data} section="문서 상세"/>
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>

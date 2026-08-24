@@ -1,3 +1,3 @@
 export default function Logo() {
-  return <div className="logo"><span>TQ</span><strong>Tasqra</strong></div>
+  return <div className="logo"><svg className="logo-mark" width="36" height="36" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="tasqra-public-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7fb3ff"/><stop offset="1" stopColor="#3f5bd9"/></linearGradient></defs><circle cx="16" cy="15" r="9.5" fill="url(#tasqra-public-logo)"/><ellipse cx="16" cy="16" rx="14.5" ry="5.6" fill="none" stroke="#7ca6eb" strokeWidth="1.5" opacity=".9" transform="rotate(-22 16 16)"/><path d="M11.4 11.2h9.2M16 11.2v9.6" stroke="#fff" strokeWidth="2.4" strokeLinecap="round"/><circle cx="26" cy="7" r="1.1" fill="#7ca6eb"/><circle cx="6" cy="24" r=".8" fill="#7ca6eb"/></svg><strong>Tasqra</strong></div>
 }

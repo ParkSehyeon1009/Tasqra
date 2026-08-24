@@ -312,7 +312,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const selectedIndex = effectivePageElements.findIndex(element => element.id === effectiveSelectedId)
   const effectivePage = { ...page, elements: effectivePageElements.map(element => ({ ...element, is_merge_result: undoableMergeBySurvivor.has(element.id) })) }
   return <div className='app-frame ocr-review-page'>
-    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
+    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data} section="OCR 검수"/>
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab='documents' onSelect={project => navigate(`/projects/${project.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className='standalone-workspace-content'>
     <header className='ocr-review-toolbar'>
