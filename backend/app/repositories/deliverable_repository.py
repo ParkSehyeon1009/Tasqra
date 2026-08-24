@@ -12,17 +12,16 @@
 #   dashboard_repository 머리말과 같다 — 목록을 받아 화면에서 세면 페이지 상한
 #   때문에 숫자가 조용히 틀린다.
 #
-# ⚠ 완료 태스크는 셀 수 없다
-#   `tasks` 테이블이 아직 없다(TSK-001-1 태스크 CRUD 미구현). 마이그레이션
-#   어디에도 create_table("tasks") 가 없고 모델도 없다.
+# ⚠ 완료 태스크를 이제 센다 (전에는 셀 수 없었다)
+#   `tasks` 테이블이 리비전 0019 로 생겼다(TSK-001-1·TSK-001-2 구현). 그래서
+#   count_completed_tasks 를 두고, 서비스의 UNCOUNTABLE 이 빈 목록이 됐다.
 #   **`decisions` · `schedule_items` 와 혼동하지 말 것** — 그 둘은 리비전 0007 로
-#   있고 8/20 에 ORM 모델도 생겼다. 뜻도 "결정사항" 과 "일정" 이라 태스크가 아니다.
-#   그래서 count_tasks 같은 메서드를 두지 않았다. 없는 것을 0 으로 세면 "완료한
-#   태스크가 0건" 과 "아직 셀 수 없다" 를 구별할 수 없다.
+#   있고 뜻도 "결정사항" 과 "일정" 이라 태스크가 아니다.
 #
 # ⚠ 기간 필터를 어느 컬럼에 걸지가 종류마다 다르다
 #   문서는 created_at, 결정은 decided_on, 일정은 due_on(kind 마다 다른 컬럼),
-#   금액은 문서를 거쳐야 한다. 한 컬럼으로 통일할 수 없어서 메서드를 나눴다.
+#   태스크는 completed_at, 금액은 문서를 거쳐야 한다. 한 컬럼으로 통일할 수
+#   없어서 메서드를 나눴다.
 # =============================================================================
 
 from __future__ import annotations
@@ -36,6 +35,7 @@ from app.models.amount import AmountItem
 from app.models.decision import Decision
 from app.models.document import Document
 from app.models.schedule import ScheduleItem
+from app.models.task import Task
 
 __all__ = ["DeliverableRepository"]
 
@@ -121,6 +121,37 @@ class DeliverableRepository:
                 starts_ok = starts_ok & (ScheduleItem.starts_on <= until)
                 ends_ok = ends_ok & (ScheduleItem.ends_on <= until)
             stmt = stmt.where(or_(starts_ok, ends_ok))
+        return int(self._db.execute(stmt).scalar() or 0)
+
+    # --- 태스크 -------------------------------------------------------------
+
+    def count_completed_tasks(
+        self, project_id: int, *, since: date | None = None, until: date | None = None
+    ) -> int:
+        """완료한 태스크 수. 기간은 `completed_at` 으로 본다.
+
+        `status == 'DONE'` 을 함께 거는 이유
+          `completed_at` 만 보면 완료를 되돌린 태스크가 남는다. 반대로 상태만
+          보면 "이번 주에 완료" 가 아니라 "지금 완료 상태" 를 세게 된다. 둘을
+          함께 걸어야 주간 보고서의 "이 기간에 끝낸 일" 이 된다.
+          task_service 가 DONE 으로 옮길 때 `completed_at` 을 찍고 DONE 에서
+          빼낼 때 NULL 로 지우므로 두 조건이 어긋나지 않는다.
+
+        기간을 주면 `completed_at` 이 NULL 인 행은 빠진다 — `count_decisions` 의
+        `decided_on` 과 같은 판단이다. 완료 시각을 모르는 태스크를 "이번 주에
+        끝낸 일" 로 넣으면 보고서가 틀린다.
+
+        `completed_at` 은 timestamptz 이고 인자는 date 다. `count_documents` 와
+        같은 이유로 `func.date()` 로 날짜만 비교한다 — 그러지 않으면 종료일 당일에
+        끝낸 태스크가 빠진다.
+        """
+        stmt = select(func.count()).select_from(Task).where(
+            Task.project_id == project_id, Task.status == "DONE"
+        )
+        if since is not None:
+            stmt = stmt.where(func.date(Task.completed_at) >= since)
+        if until is not None:
+            stmt = stmt.where(func.date(Task.completed_at) <= until)
         return int(self._db.execute(stmt).scalar() or 0)
 
     # --- 금액 ---------------------------------------------------------------

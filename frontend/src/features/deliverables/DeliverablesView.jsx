@@ -61,9 +61,16 @@ const FORMATS = [
   ['PDF', 'PDF', '그대로 인쇄하고 공유'],
 ]
 
-// 산출물에 실제로 담기는 재료.
+// 산출물에 실제로 담기는 재료. 순서는 명세가 나열한 순서다 —
+// "문서·태스크·결정·기한·금액"(DLV-001-2).
+//
+// 완료한 태스크가 여기로 올라온 이유
+//   전에는 "담기지 않는 것" 에 있었다. tasks 테이블이 없어 셀 수 없었기 때문이다
+//   (응답이 null 이었다). 리비전 0019 로 테이블이 생겨 이제 실제로 세고, 주간
+//   보고서의 재료이므로 담길 내용에 둔다.
 const CONTENT_COUNTS = [
   ['documents', '문서'],
+  ['completed_tasks', '완료한 태스크'],
   ['decisions', '결정사항'],
   ['schedule_items', '일정'],
   ['amount_items', '금액 항목'],
@@ -73,7 +80,6 @@ const CONTENT_COUNTS = [
 // 적지 않으면 "4건이 있는데 왜 못 만드나" 가 된다.
 const ASIDE_COUNTS = [
   ['pending_suggestions', '승인 대기', '승인하면 담깁니다'],
-  ['completed_tasks', '완료한 태스크', null],
 ]
 
 /** Date 를 'YYYY-MM-DD' 로. toISOString() 을 쓰지 않는다 — 그것은 UTC 라서
@@ -204,7 +210,7 @@ export default function DeliverablesView({ projectId, notify }) {
 
 // 값이 null·undefined 면 '—' 를 보여준다. 0 과 구별하기 위한 것이다.
 //   0    — 실제로 0건이다
-//   —    — 아직 못 받았거나(로딩) 셀 수 없다(완료한 태스크)
+//   —    — 아직 못 받았거나(로딩) 셀 수 없다(응답의 uncountable 에 있는 재료)
 // 둘을 같은 '—' 로 두되 **셀 수 없는 것에는 이유를 적는다.** 대시보드의
 // SummaryCard 와 같은 규칙이다. 0 으로 바꾸면 사용자가 "없다" 로 잘못 읽는다.
 function CountCard({ label, value, note, unknown }) {

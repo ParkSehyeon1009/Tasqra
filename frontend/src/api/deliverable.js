@@ -19,21 +19,21 @@ import { http } from './http'
 // 응답: {
 //   kind, period_from, period_to,
 //   counts: {
-//     documents, decisions, schedule_items, amount_items,   // 담기는 것
+//     documents, completed_tasks, decisions, schedule_items, amount_items,  // 담기는 것
 //     pending_suggestions,      // 담기지 않는다. 처리해야 할 일이다
-//     completed_tasks,          // null 이면 "아직 셀 수 없다" (0 건이 아니다)
 //   },
 //   can_generate,               // false 면 만들 수 없다
 //   blocked_reason,             // 그 이유. 화면이 그대로 보여줄 수 있는 문장이다
 //   needs_period,               // 이 유형이 기간을 쓰는가
-//   uncountable: ['completed_tasks'],   // 셀 수 없는 재료의 이름
+//   uncountable: [],            // 셀 수 없는 재료의 이름. 지금은 비어 있다
 // }
 //
-// ⚠️ completed_tasks 가 null 인 이유: 세려면 tasks 테이블이 필요한데 아직 없다
-//   (TSK-001-1 태스크 CRUD 미구현). **화면에서 0 으로 바꾸지 말 것** — 사용자가
-//   "이번 주에 완료한 일이 없다" 로 잘못 읽는다. 대시보드의 open_tasks 와 같은
-//   규칙이다. 어느 항목이 그런지는 응답의 uncountable 이 알려주므로 화면이
-//   필드 이름을 외우지 않아도 된다.
+// completed_tasks 는 이제 실제 건수다
+//   전에는 tasks 테이블이 없어 null 이었다. 리비전 0019 로 테이블이 생겨 세므로
+//   0 은 "집계 전" 이 아니라 그 기간에 끝낸 일이 없다는 뜻이다.
+//   **uncountable 처리는 지우지 않는다** — 다음에 또 못 세는 재료가 생기면
+//   서버가 그 이름을 담아 보내고 화면은 고치지 않아도 된다. 화면이 필드 이름을
+//   외우지 않게 하려고 둔 장치다.
 //
 // can_generate 를 화면이 계산하지 않는 이유
 //   건수를 보고 화면이 스스로 판단하면 같은 규칙이 서버와 화면 두 곳에 생긴다.

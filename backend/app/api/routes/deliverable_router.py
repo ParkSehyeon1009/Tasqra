@@ -58,7 +58,7 @@ def preview_deliverable(
 
     | kind | 기간 | 담기는 것 |
     |---|---|---|
-    | `WEEKLY_REPORT` | **필수** | 기간 안의 문서·결정·일정·금액 |
+    | `WEEKLY_REPORT` | **필수** | 기간 안의 문서·완료한 태스크·결정·일정·금액 |
     | `DECISION_LOG` | 무시 | 결정 **전부** |
     | `MEETING_AGENDA` | 무시 | **미결 결정만** (`status='PENDING'`) |
     | `PROJECT_STATUS` | 무시 | 현재 상태 전부 |
@@ -66,8 +66,12 @@ def preview_deliverable(
     `can_generate` 가 `false` 면 만들 수 없고 `blocked_reason` 에 이유가 있다.
     화면이 그 문장을 그대로 보여줄 수 있다.
 
-    **`counts.completed_tasks` 가 `null` 인 것은 0건이 아니라 "아직 셀 수 없다"** 다
-    (`tasks` 테이블 미구현). 화면에서 0 으로 바꾸면 안 된다.
+    `counts.completed_tasks` 는 리비전 0019 로 `tasks` 테이블이 생긴 뒤부터 실제
+    건수다. 상태가 `DONE` 이고 `completed_at` 이 기간에 드는 태스크만 센다. 전에는
+    셀 수 없어 `null` 이었고, 지금은 0 이 정말 0건이라는 뜻이다.
+
+    `uncountable` 은 셀 수 없는 재료의 이름이며 지금은 빈 목록이다. 다음에 못 세는
+    재료가 생기면 여기에 담아 보낸다.
 
     오류
       `422 PERIOD_REQUIRED`         주간 보고서인데 기간이 없다

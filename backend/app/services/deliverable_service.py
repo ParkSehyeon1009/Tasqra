@@ -15,12 +15,12 @@
 #
 # ⚠ 종류마다 세는 대상이 다르다 — 이것이 이 파일의 핵심이다
 #
-#   | kind           | 기간   | 무엇을 담나                          |
-#   |----------------|--------|--------------------------------------|
-#   | WEEKLY_REPORT  | 필수   | 기간 안의 문서·결정·일정·금액 변동   |
-#   | DECISION_LOG   | 없음   | 결정 **전부**(확정·미결·뒤집힘)      |
-#   | MEETING_AGENDA | 없음   | **미결 결정만**(status='PENDING')    |
-#   | PROJECT_STATUS | 없음   | 현재 상태 전부                        |
+#   | kind           | 기간   | 무엇을 담나                                |
+#   |----------------|--------|--------------------------------------------|
+#   | WEEKLY_REPORT  | 필수   | 기간 안의 문서·태스크·결정·일정·금액 변동  |
+#   | DECISION_LOG   | 없음   | 결정 **전부**(확정·미결·뒤집힘)            |
+#   | MEETING_AGENDA | 없음   | **미결 결정만**(status='PENDING')          |
+#   | PROJECT_STATUS | 없음   | 현재 상태 전부                              |
 #
 #   결정사항 대장에 기간을 걸면 "지난주에 정한 것만" 이 되어 대장이 아니게 된다.
 #   회의 안건에 확정된 결정을 넣으면 이미 끝난 것을 또 논의하게 된다.
@@ -50,8 +50,10 @@ from app.schemas.deliverable import (
 
 logger = logging.getLogger(__name__)
 
-# tasks 테이블이 없어 셀 수 없는 재료. 생기면 이 목록이 빈다.
-UNCOUNTABLE = ["completed_tasks"]
+# 셀 수 없는 재료. `tasks` 테이블이 리비전 0019 로 생겨 지금은 비어 있다.
+# 상수를 지우지 않고 빈 목록으로 두는 이유: 응답의 uncountable 계약을 유지하면
+# 다음에 못 세는 재료가 생겨도 화면을 고치지 않고 여기에 이름만 더하면 된다.
+UNCOUNTABLE: list[str] = []
 
 __all__ = ["DeliverableService", "UNCOUNTABLE"]
 
@@ -124,6 +126,7 @@ class DeliverableService:
                 decisions=self._repo.count_decisions(project_id, status="PENDING"),
                 schedule_items=0,
                 amount_items=0,
+                completed_tasks=0,
                 pending_suggestions=pending,
             )
 
@@ -134,10 +137,11 @@ class DeliverableService:
                 decisions=self._repo.count_decisions(project_id),
                 schedule_items=0,
                 amount_items=0,
+                completed_tasks=0,
                 pending_suggestions=pending,
             )
 
-        # WEEKLY_REPORT · PROJECT_STATUS — 네 종류를 모두 담는다.
+        # WEEKLY_REPORT · PROJECT_STATUS — 다섯 종류를 모두 담는다.
         # 주간 보고서는 기간이 있고 현황 한 장은 없다(since·until 이 None).
         return PreviewCounts(
             documents=self._repo.count_documents(project_id, since=since, until=until),
@@ -146,6 +150,9 @@ class DeliverableService:
                 project_id, since=since, until=until
             ),
             amount_items=self._repo.count_amount_items(
+                project_id, since=since, until=until
+            ),
+            completed_tasks=self._repo.count_completed_tasks(
                 project_id, since=since, until=until
             ),
             pending_suggestions=pending,
@@ -171,5 +178,5 @@ class DeliverableService:
         if kind == "DECISION_LOG":
             return "기록된 결정사항이 없습니다."
         if kind == "WEEKLY_REPORT":
-            return "선택한 기간에 문서·결정·일정·금액 변동이 없습니다."
+            return "선택한 기간에 문서·태스크·결정·일정·금액 변동이 없습니다."
         return "프로젝트에 담을 내용이 아직 없습니다."
