@@ -1,8 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 금액 관련 조회 엔드포인트다. 지금은 과거 유사 사업의 단가
-#   선례 조회 하나뿐이다(SRH-002-3).
-# 다른 파일과의 관계: services/amount_precedent_service.py 를 부르고
-#   schemas/amount_precedent.py 를 돌려준다.
+# 이 파일의 책임: 금액 관련 조회 엔드포인트다. 둘 있다 —
+#   ① 과거 유사 사업의 단가 선례 조회 (SRH-002-3)
+#   ② 프로젝트 금액 현황 (AMT-002-2 집계 + AMT-002-1 검산)
+# 다른 파일과의 관계: services/amount_precedent_service.py ·
+#   services/amount_summary_service.py 를 부르고 schemas/amount_precedent.py ·
+#   schemas/amount_summary.py 를 돌려준다.
 # Spring 비교: @RestController + @GetMapping 이다. Depends 는 생성자 주입에
 #   해당하고, ProjectAccess 는 인터셉터가 넣어 주는 인증·권한 컨텍스트다.
 #
@@ -23,9 +25,17 @@
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import ProjectAccess, get_amount_precedent_service, get_project_access
+from app.dependencies import (
+    ProjectAccess,
+    get_amount_precedent_service,
+    get_amount_summary_service,
+    get_project_access,
+    get_project_amount_access,
+)
 from app.schemas.amount_precedent import AmountPrecedentResponse
+from app.schemas.amount_summary import AmountSummaryResponse
 from app.services.amount_precedent_service import AmountPrecedentService
+from app.services.amount_summary_service import AmountSummaryService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["amount"])
 
@@ -43,3 +53,46 @@ def list_amount_precedents(
         item_name=item_name,
         limit=limit,
     )
+
+
+@router.get("/amount-summary", response_model=AmountSummaryResponse)
+def get_amount_summary(
+    access: ProjectAccess = Depends(get_project_amount_access),
+    service: AmountSummaryService = Depends(get_amount_summary_service),
+) -> AmountSummaryResponse:
+    """프로젝트 금액 현황 (`AMT-002-2` 집계 · `AMT-002-1` 검산).
+
+    경로는 팀 API 계약서 50행에 정해져 있던 것을 그대로 씁니다.
+
+    **승인된 항목만 셉니다** (`APPROVED`·`EDITED`). `PENDING`·`REJECTED` 는
+    빠집니다 — *"승인 전에는 어디에도 반영되지 않고"*(`AMT-001-2` 완료 판정).
+    `EDITED` 를 넣는 것은 사람이 값을 고쳐 확정한 것이라서입니다.
+
+    응답에 **합계에 들어가지 않은 것**도 담습니다.
+
+    | 필드 | 뜻 |
+    |---|---|
+    | `excluded_no_amount` | 문서에 금액이 안 적혀 더할 수 없던 항목 수 |
+    | `unverifiable_line_count` | 수량·단가가 없어 검산 못 한 항목 수 (오류 아님) |
+    | `line_mismatches` | 수량 x 단가와 금액이 어긋난 항목 |
+
+    합계만 주면 사용자가 그것을 전부로 읽습니다. **금액이 안 적힌 항목을 0 으로
+    더하지 않는 이유**가 그것입니다 — 합계는 그대로지만 "모른다" 는 사실이 사라져
+    사업 규모를 작게 오해합니다.
+
+    ⚠️ **문서에 적힌 합계와의 대조는 하지 않습니다.** 그 값이 DB 에 없습니다 —
+    `amount_items` 는 항목만 담고 문서 합계를 저장하지 않습니다. 대조는 추출
+    시점에만 가능하고, 계약서도 `amount_check` 를 분석 응답 안에 두고 있습니다.
+
+    **부가세는 `item_total` 에서 빠집니다.** 부가세는 공급가액에서 파생된 값이라
+    항목들과 같은 층이 아니고, 함께 더하면 세금이 두 번 계산됩니다. 필요하면
+    `total_with_vat` 를 씁니다.
+
+    금액 항목이 없어도 오류가 아닙니다 — 0원과 빈 집계를 돌려줍니다.
+
+    오류
+      `403 PROJECT_FORBIDDEN`   VIEWER 다. 금액 열람 정책이 미결이라 지금은 막는다
+      `409 CURRENCY_MISMATCH`   통화가 섞여 있다. 환율을 적용하지 않으므로 합칠 수 없다
+      `404`                     내가 멤버가 아닌 프로젝트
+    """
+    return service.summarize(access.project.id)

@@ -2,9 +2,17 @@
 # 이 파일의 책임: 금액 계산을 전담한다. 항목 합계, 부가세 분리, 문서에 적힌
 #   합계와의 대조(AMT-002-1), 수량x단가 검산, 원가 구분별·프로젝트 단위 집계
 #   (AMT-002-2)를 수행한다.
-# 다른 파일과의 관계: schemas/amount.py의 AmountExtractionOut을 입력으로 받는다.
+# 다른 파일과의 관계: services/amount_protocol.py 의 AmountLine·AmountDocument
+#   **모양**만 요구한다. 그 모양을 만족하는 것이 둘 있다 —
+#     · schemas/amount.py 의 AmountItemOut·AmountExtractionOut (LLM 추출 경로)
+#     · services/amount_summary_service.py 의 내부 dataclass (DB 조회 경로)
 #   services/amount_normalizer.py가 정규화하고 스키마가 검증한 값만 들어온다.
 #   여기 결과를 amount_items 테이블과 화면(AMT-003-3 계산식 표시)이 쓴다.
+#
+#   ⚠️ 입력을 AmountItemOut 으로 못 묶는 이유: 그 스키마는 source_quote 와
+#   confidence 를 필수로 요구하는데 DB 는 둘을 NULL 로 허용한다. 계산기는 그
+#   둘을 쓰지 않으므로 요구를 실제로 쓰는 만큼으로 좁혔다. 자세한 근거는
+#   amount_protocol.py 머리말에 있다.
 # Spring 비교: 순수 도메인 서비스다. @Service 이지만 Repository를 주입받지 않는
 #   계산 전용 클래스에 해당한다. 스프링에서도 이런 계층은 @SpringBootTest 없이
 #   순수 JUnit으로 테스트한다. 여기서도 DB·컨테이너 없이 pytest로 검증된다.
@@ -27,7 +35,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable
 
 from app.models.enums import AmountCategory
-from app.schemas.amount import AmountExtractionOut, AmountItemOut
+from app.services.amount_protocol import AmountDocument, AmountLine
 
 @dataclass(frozen=True)
 class TotalCheck:
@@ -64,10 +72,10 @@ class LineCheck:
     difference: int | None
     matches: bool | None   # None = 검사 불가 (수량이나 단가가 없다)
 
-def _is_vat(item: AmountItemOut) -> bool:
+def _is_vat(item: AmountLine) -> bool:
     return item.category == AmountCategory.VAT
 
-def sum_items(items: Iterable[AmountItemOut]) -> int:
+def sum_items(items: Iterable[AmountLine]) -> int:
     """부가세를 제외한 항목 합계.
 
     VAT를 빼는 것이 이 함수의 존재 이유다. 부가세는 공급가액에서 파생된
@@ -75,11 +83,11 @@ def sum_items(items: Iterable[AmountItemOut]) -> int:
     """
     return sum(item.amount for item in items if not _is_vat(item))
 
-def sum_vat(items: Iterable[AmountItemOut]) -> int:
+def sum_vat(items: Iterable[AmountLine]) -> int:
     """부가세 항목 합계."""
     return sum(item.amount for item in items if _is_vat(item))
 
-def check_total(extraction: AmountExtractionOut) -> TotalCheck:
+def check_total(extraction: AmountDocument) -> TotalCheck:
     """항목 합계와 문서에 적힌 합계를 대조한다 (AMT-002-1).
 
     이 프로젝트에서 정확도를 수치로 증명할 수 있는 유일한 기능이다.
@@ -96,7 +104,7 @@ def check_total(extraction: AmountExtractionOut) -> TotalCheck:
     difference = item_total - stated
     return TotalCheck(item_total, vat_total, stated, difference, difference == 0)
 
-def verify_line(item: AmountItemOut) -> LineCheck:
+def verify_line(item: AmountLine) -> LineCheck:
     """수량 x 단가가 금액과 맞는지 검산한다.
 
     둘 중 하나라도 없으면 검사할 수 없다(matches=None). 제경비처럼 비율로
@@ -113,10 +121,10 @@ def verify_line(item: AmountItemOut) -> LineCheck:
     return LineCheck(item.item_name, expected, item.amount, difference,
                      difference == 0)
 
-def verify_lines(items: Iterable[AmountItemOut]) -> list[LineCheck]:
+def verify_lines(items: Iterable[AmountLine]) -> list[LineCheck]:
     return [verify_line(item) for item in items]
 
-def aggregate_by_category(items: Iterable[AmountItemOut]) -> dict[str, int]:
+def aggregate_by_category(items: Iterable[AmountLine]) -> dict[str, int]:
     """원가 구분별 합계. VAT도 별도 키로 포함한다.
 
     구분이 없는 항목(category=None)은 OTHER로 모은다. 버리지 않는 이유는
@@ -129,7 +137,7 @@ def aggregate_by_category(items: Iterable[AmountItemOut]) -> dict[str, int]:
     return result
 
 def aggregate_project(
-    extractions: Iterable[AmountExtractionOut],
+    extractions: Iterable[AmountDocument],
 ) -> dict[str, object]:
     """여러 문서의 금액을 프로젝트 단위로 합친다 (AMT-002-2).
 
