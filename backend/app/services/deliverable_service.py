@@ -52,16 +52,26 @@ from app.repositories.deliverable_repository import DeliverableRepository
 from app.schemas.deliverable import (
     DELIVERABLE_FORMATS,
     DELIVERABLE_KINDS,
+    FORMAT_FILE_TYPES,
     PERIOD_REQUIRED_KINDS,
     SUPPORTED_DELIVERABLE_FORMATS,
     DeliverablePreviewResponse,
     PreviewCounts,
 )
+from app.services.deliverable_html import render_html
 from app.services.deliverable_markdown import (
     DeliverableMaterials,
     build_title,
     render_markdown,
 )
+
+# 형식별 본문 생성 함수. 형식을 늘릴 때 **여기와 SUPPORTED_DELIVERABLE_FORMATS**
+# 두 곳만 고치면 된다. if 문으로 늘리면 형식이 늘 때마다 분기가 깊어진다.
+# Spring 비교: Map<String, Renderer> 로 전략을 주입하는 것과 같다.
+RENDERERS = {
+    "MD": render_markdown,
+    "HTML": render_html,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +214,9 @@ class DeliverableService:
         materials = self._materials(project_id, kind=kind, since=since, until=until)
         title = build_title(kind, since, until)
         generated_at = datetime.now(timezone.utc)
-        body = render_markdown(
+        # 형식별 본문 생성기는 RENDERERS 에서 고른다. 절을 고르는 규칙은 어느
+        # 형식이든 같다(build_document) — 한쪽에만 절을 더하는 실수를 막는다.
+        body = RENDERERS[deliverable_format](
             kind=kind,
             title=title,
             period_from=since,
@@ -213,7 +225,8 @@ class DeliverableService:
             generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
         )
 
-        path = self._write_file(project_id, body)
+        extension, _ = FORMAT_FILE_TYPES[deliverable_format]
+        path = self._write_file(project_id, body, extension)
         try:
             with transactional(self._db) as db:  # type: ignore[arg-type]
                 row = self._repo.add(
@@ -362,7 +375,7 @@ class DeliverableService:
         )
 
     @staticmethod
-    def _write_file(project_id: int, body: str) -> str:
+    def _write_file(project_id: int, body: str, extension: str) -> str:
         """산출물 파일을 저장하고 경로를 돌려준다.
 
         프로젝트별 폴더에 uuid 이름으로 둔다. 제목을 파일명에 쓰지 않는 이유는
@@ -371,7 +384,7 @@ class DeliverableService:
         """
         directory = os.path.join(settings.UPLOAD_DIR, "deliverables", str(project_id))
         os.makedirs(directory, exist_ok=True)
-        path = os.path.join(directory, f"{uuid.uuid4().hex}.md")
+        path = os.path.join(directory, f"{uuid.uuid4().hex}.{extension}")
         with open(path, "w", encoding="utf-8") as file:
             file.write(body)
         return path

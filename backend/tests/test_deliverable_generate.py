@@ -26,7 +26,11 @@ import pytest
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
-from app.services.deliverable_markdown import DeliverableMaterials, cell, render_markdown
+from app.services.deliverable_markdown import (
+    DeliverableMaterials,
+    clean,
+    render_markdown,
+)
 from app.services.deliverable_service import SNAPSHOT_KEYS, DeliverableService
 
 WEEK = {"period_from": date(2026, 8, 14), "period_to": date(2026, 8, 20)}
@@ -147,7 +151,7 @@ def test_period_required_is_checked_before_writing():
 
 def test_unsupported_format_is_not_ready_not_invalid():
     """DB 가 허용하는 값이다. 값이 틀린 것과 서버가 아직 못 하는 것을 구분한다."""
-    for unsupported in ("XLSX", "HTML", "PDF"):
+    for unsupported in ("XLSX", "PDF"):
         service, repo = _service(documents=3)
         with pytest.raises(BusinessError) as err:
             service.generate(
@@ -242,11 +246,26 @@ def test_empty_section_says_so_instead_of_empty_table():
     assert "이 기간에 완료한 태스크가 없습니다." in body
 
 
-def test_pipe_in_value_does_not_break_table():
+def test_clean_keeps_value_and_removes_newlines():
+    """구조 단계에서는 형식별 escape 를 하지 않는다. 줄바꿈만 없앤다."""
+    assert clean("두\n줄") == "두 줄"
+    assert clean(None) == "—"
+    # `|` 는 여기서 바꾸지 않는다 — Markdown 포매터의 몫이다.
+    assert clean("A|B") == "A|B"
+
+
+def test_pipe_in_value_does_not_break_markdown_table():
     """문서 이름에 | 가 있으면 표가 깨진다. 지우지 않고 전각으로 바꾼다."""
-    assert cell("A|B") == "A｜B"
-    assert cell("두\n줄") == "두 줄"
-    assert cell(None) == "—"
+    body = render_markdown(
+        kind="PROJECT_STATUS",
+        title="t",
+        period_from=None,
+        period_to=None,
+        materials=DeliverableMaterials(documents=[_document("A|B.pdf")]),
+        generated_at_text="2026-08-24 15:00",
+    )
+    assert "A｜B.pdf" in body
+    assert "A|B.pdf" not in body
 
 
 def test_amount_none_is_dash_not_zero():

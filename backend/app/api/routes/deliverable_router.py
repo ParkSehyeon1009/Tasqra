@@ -40,6 +40,7 @@ from app.dependencies import (
     get_project_editor_access,
 )
 from app.schemas.deliverable import (
+    FORMAT_FILE_TYPES,
     DeliverableCreateRequest,
     DeliverablePreviewResponse,
     DeliverableResponse,
@@ -140,13 +141,19 @@ def create_deliverable(
     **미리보기와 같은 규칙으로 센다.** 만들기가 자기만의 집계를 갖지 않으므로
     "미리보기는 12건이라 했는데 보고서는 9건" 이 생기지 않는다.
 
-    ⚠️ 지금 만들 수 있는 형식은 **Markdown 하나**다. `XLSX`·`HTML`·`PDF` 는 DB 가
+    ⚠️ 지금 만들 수 있는 형식은 **`MD`·`HTML`** 둘이다. `XLSX`·`PDF` 는 DB 가
     허용하는 값이지만 만드는 코드가 아직 없어 `501` 을 낸다. 값이 틀린 것(400)과
     서버가 아직 못 하는 것(501)은 다른 상황이라 구분한다.
+
+    두 형식은 **같은 내용**이다. 절을 고르는 규칙이 한 곳(build_document)에 있고
+    형식별 파일은 표를 그리는 방법만 안다.
 
     ⚠️ 개요 문장은 아직 비어 있다. `DLV-002-1` 완료 판정의 "LLM 호출은 개요 1회"
     가 붙지 않았다. 표는 모두 실제 자료이고, 개요 자리에 비었다고 적는다 —
     없는 문장을 지어내지 않는다.
+
+    ⚠️ HTML 산출물의 모든 칸은 escape 한다. 문서 이름은 사용자가 올린 파일에서 온
+    값이라 `<script>` 가 들어올 수 있다. 다운로드도 첨부로 내려간다.
 
     편집 권한이 필요하다(`VIEWER` 는 만들 수 없다). 읽기 전용 참여자가 프로젝트에
     파일과 이력을 남기는 것은 역할의 뜻과 맞지 않는다.
@@ -192,13 +199,21 @@ def download_deliverable(
       `410 DELIVERABLE_FILE_MISSING`  이력은 있는데 파일이 사라졌다
     """
     row = service.open_file(access.project.id, deliverable_id)
-    extension = row.format.lower()
+    # 확장자와 MIME 타입을 한 곳(FORMAT_FILE_TYPES)에서 가져온다. 여기서 따로
+    # 만들면 .md 를 text/html 로 주는 것 같은 어긋남이 생긴다.
+    extension, media_type = FORMAT_FILE_TYPES.get(
+        row.format, (row.format.lower(), "application/octet-stream")
+    )
     return FileResponse(
         row.file_path,
         # 한글 제목이라 브라우저가 알아볼 수 있게 FileResponse 가 RFC 5987 로
         # 인코딩해 준다. 여기서 직접 헤더를 만들지 않는다.
+        #
+        # ⚠️ filename 을 주면 Content-Disposition 이 attachment 가 된다. HTML
+        #   산출물이 우리 도메인에서 그대로 렌더링되지 않게 하는 효과가 있다 —
+        #   본문은 이미 escape 하지만(deliverable_html 머리말) 두 겹으로 둔다.
         filename=f"{row.title}.{extension}",
-        media_type="text/markdown; charset=utf-8",
+        media_type=media_type,
     )
 
 

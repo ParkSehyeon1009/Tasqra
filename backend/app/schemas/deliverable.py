@@ -25,6 +25,7 @@ __all__ = [
     "DELIVERABLE_FORMATS",
     "DELIVERABLE_KIND_LABELS",
     "DELIVERABLE_KINDS",
+    "FORMAT_FILE_TYPES",
     "PERIOD_REQUIRED_KINDS",
     "SUPPORTED_DELIVERABLE_FORMATS",
     "DeliverableCreateRequest",
@@ -41,9 +42,20 @@ PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
 # models/deliverable.py 의 _FORMAT 과 같아야 한다. 리비전 0021 이 PDF 를 더했다.
 DELIVERABLE_FORMATS = ("XLSX", "HTML", "MD", "PDF")
 # 실제로 만들 수 있는 형식. **DB 가 허용하는 것과 다르다** — 허용값은 넷인데
-# 만드는 코드는 아직 Markdown 하나다. 나머지는 501 로 분명히 알린다. 값이
-# 틀린 것(400)과 서버가 아직 못 하는 것(501)은 다른 상황이다.
-SUPPORTED_DELIVERABLE_FORMATS = ("MD",)
+# 만드는 코드는 아직 둘이다. 나머지는 501 로 분명히 알린다. 값이 틀린 것(400)과
+# 서버가 아직 못 하는 것(501)은 다른 상황이다.
+#
+# XLSX·PDF 를 아직 안 한 이유는 **새 라이브러리가 필요해서**다. MD·HTML 은
+# 문자열만 만들면 되고 의존성이 0 이다. 팀 이미지가 이미 11.1GB 라 라이브러리를
+# 더 얹는 판단은 따로 받는 편이 낫다.
+SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML")
+
+# 형식별 파일 확장자와 MIME 타입. 저장(서비스)과 내려보내기(라우터)가 같은 값을
+# 봐야 해서 한 곳에 둔다 — 갈리면 .md 파일을 text/html 로 주는 일이 생긴다.
+FORMAT_FILE_TYPES = {
+    "MD": ("md", "text/markdown; charset=utf-8"),
+    "HTML": ("html", "text/html; charset=utf-8"),
+}
 
 # 제목에 쓰는 사람이 읽는 이름. 화면의 KINDS 목록과 문구를 맞춘다.
 DELIVERABLE_KIND_LABELS = {
