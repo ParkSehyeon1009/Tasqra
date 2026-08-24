@@ -1,0 +1,63 @@
+/* =============================================================================
+   이 파일의 책임: 산출물 미리보기 화면(DLV-001-2)의 표현만 담는다.
+   다른 파일과의 관계: DeliverablesView.jsx 가 import 한다. 색·반경·그림자는
+     대시보드(styles/workspace.css)와 같은 값을 쓴다 — 두 화면이 나란히 쓰이므로
+     따로 정하면 같은 제품이 아닌 것처럼 보인다.
+   Spring 비교: 해당 없음(표현 전용).
+
+   기존 .panel 을 그대로 쓰고 여기서는 산출물 고유 요소만 정의한다.
+   ============================================================================= */
+
+.deliverable-controls { display: grid; gap: 18px; margin-bottom: 18px; }
+
+/* 유형 선택. 라디오처럼 하나만 고른다 — aria-pressed 로 상태를 알린다.
+   유형마다 "담기는 것" 을 함께 적는다. 그것을 모르면 결정사항 대장에서 날짜를
+   바꿔도 숫자가 안 변하는 것이 고장처럼 보인다. */
+.deliverable-kind-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.deliverable-kind { display: block; padding: 13px 14px; border: 1px solid #d2d9e7; border-radius: 12px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.deliverable-kind:hover, .deliverable-kind:focus-visible { border-color: #756de8; background: #f7f6ff; }
+.deliverable-kind.is-active { border-color: #4a43ae; background: #f5f4ff; box-shadow: inset 0 0 0 1px #4a43ae; }
+.deliverable-kind strong { display: block; color: #2c326b; font-size: 14px; }
+.deliverable-kind span { display: block; margin-top: 5px; color: #758197; font-size: 12px; line-height: 1.45; }
+
+.deliverable-period { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.deliverable-period label { display: grid; gap: 6px; }
+.deliverable-period label > span { color: #65748a; font-size: 13px; font-weight: 700; }
+.deliverable-period input { min-height: 40px; padding: 8px 11px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #2c326b; font: inherit; }
+.deliverable-period input:focus-visible { border-color: #756de8; outline: none; }
+/* 기간을 쓰지 않는 유형에서 띄우는 안내. 경고가 아니라 설명이므로 눈에 덜 띄게 둔다. */
+.deliverable-period-note { flex: 1 1 240px; margin: 0 0 9px; color: #758197; font-size: 12px; line-height: 1.5; }
+.deliverable-period-note strong { color: #2c326b; }
+
+/* 건수 카드. "담길 내용" 과 "담기지 않는 것" 을 나눠서, 승인 대기가 4건인데
+   못 만드는 상황이 모순처럼 보이지 않게 한다. */
+.deliverable-count-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.deliverable-count-grid--aside { grid-template-columns: repeat(2, 1fr); }
+.deliverable-group-heading { grid-column: 1 / -1; margin: 0; color: #65748a; font-size: 13px; font-weight: 750; }
+
+.deliverable-count-card { min-height: 112px; padding: 18px; border: 1px solid #dce3ee; border-radius: 14px; background: #fff; box-shadow: 0 4px 16px rgba(30, 43, 66, .04); }
+.deliverable-count-card > span { display: block; color: #65748a; font-size: 13px; font-weight: 700; }
+.deliverable-count-card > strong { display: block; margin: 11px 0 7px; color: #2c326b; font-size: 30px; line-height: 1; }
+.deliverable-count-card > p { margin: 0; color: #758197; font-size: 12px; line-height: 1.45; }
+/* 셀 수 없는 항목. 0 건과 헷갈리지 않게 톤을 낮추고 이유를 함께 적는다. */
+.deliverable-count-card.is-unknown { background: #fafbfd; border-style: dashed; }
+.deliverable-count-card.is-unknown > strong { color: #97a1b3; }
+
+/* 생성 영역. 막히는 것이 보이는 자리다. */
+.deliverable-generate { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.deliverable-generate h2 { margin: 0 0 7px; }
+.deliverable-generate p { margin: 0; color: #758197; font-size: 13px; line-height: 1.5; }
+/* 막힌 이유는 서버가 만든 문장을 그대로 보여준다. 읽히도록 본문색을 쓴다. */
+.deliverable-blocked { color: #2c326b !important; font-weight: 700; }
+.deliverable-generate-note { margin-top: 6px !important; font-size: 12px !important; }
+.deliverable-generate-button { flex: 0 0 auto; min-height: 42px; padding: 11px 20px; border: 1px solid #4a43ae; border-radius: 10px; background: #4a43ae; color: #fff; font: inherit; font-weight: 750; cursor: pointer; }
+.deliverable-generate-button:hover:not(:disabled), .deliverable-generate-button:focus-visible:not(:disabled) { background: #3c3696; }
+.deliverable-generate-button:disabled { border-color: #d2d9e7; background: #eef1f6; color: #97a1b3; cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .deliverable-kind-group, .deliverable-count-grid { grid-template-columns: repeat(2, 1fr); }
+  .deliverable-generate { flex-direction: column; align-items: stretch; }
+}
+@media (max-width: 560px) {
+  .deliverable-kind-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }
+}

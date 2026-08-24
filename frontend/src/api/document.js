@@ -57,6 +57,31 @@ export async function setOcrElementExclusion(projectId, documentId, elementId, i
   return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/exclusion`, { is_excluded: isExcluded, version })).data
 }
 
+export async function createOcrElement(projectId, documentId, element) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements`, element)).data
+}
+
+export async function setOcrElementDeletion(projectId, documentId, elementId, isDeleted, version) {
+  return (await http.patch(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${elementId}/deletion`, { is_deleted: isDeleted, version })).data
+}
+
+export async function reprocessOcrElement(projectId, documentId, element) {
+  const { x, y, width, height } = element
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/${element.id}/reprocess`, { x, y, width, height })).data
+}
+
+export async function mergeOcrElements(projectId, documentId, elements, joinWithSpace = true) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge`, { items: elements.map(element => ({ id: element.id, version: element.version })), join_with_space: joinWithSpace })).data
+}
+
+export async function mergeOcrElementGroups(projectId, documentId, groups, joinWithSpace = true) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge-groups`, { groups: groups.map(elements => elements.map(element => ({ id: element.id, version: element.version }))), join_with_space: joinWithSpace })).data
+}
+
+export async function undoOcrElementMerge(projectId, documentId, operationId) {
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/ocr-elements/merge/${operationId}/undo`)).data
+}
+
 export async function completeOcrReview(projectId, documentId) {
   return (await http.post(`/api/projects/${projectId}/documents/${documentId}/review/complete`)).data
 }

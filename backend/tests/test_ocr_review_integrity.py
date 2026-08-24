@@ -137,6 +137,10 @@ def batch_element(element_id, text, start, end, *, version=1, element_type="TEXT
         is_paragraph_start=False,
         element_type=element_type,
         element_type_source="AUTO",
+        x=0.1,
+        y=0.1,
+        width=0.4,
+        height=0.05,
         content_start=start,
         content_end=end,
     )
@@ -249,3 +253,24 @@ def test_batch_paragraph_change_marks_chunks_stale_once():
     assert body.is_paragraph_start is True
     assert document.ocr_revision == 4
     assert document.extracted_text.text_version == 3
+
+
+def test_batch_geometry_change_updates_box_without_changing_text_version():
+    document = editable_document()
+    document.extracted_text = SimpleNamespace(text_version=2, ocr_char_count=3)
+    element = batch_element(30, "box", 0, 3)
+    document.review_pages = [SimpleNamespace(elements=[element])]
+    service, _, repository = build_service(document=document)
+    repository.get_ocr_elements_for_update.return_value = [element]
+
+    service.update_ocr_elements_batch(
+        10,
+        20,
+        [OcrElementBatchChange(id=30, version=1, x=0.2, y=0.3, width=0.5, height=0.1)],
+        7,
+    )
+
+    assert (element.x, element.y, element.width, element.height) == (0.2, 0.3, 0.5, 0.1)
+    assert element.version == 2
+    assert document.ocr_revision == 4
+    assert document.extracted_text.text_version == 2
