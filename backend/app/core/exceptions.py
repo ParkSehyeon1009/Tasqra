@@ -15,6 +15,7 @@ from logging import getLogger
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.error_codes import ErrorCode
 from app.core.middleware import REQUEST_ID_HEADER
@@ -118,3 +119,58 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         content=body.model_dump(),
         headers={REQUEST_ID_HEADER: request_id},
         )
+
+
+
+# 라우터가 내는 HTTP 오류(없는 경로 404 · 허용되지 않은 메서드 405) 전용 핸들러
+#
+# ⚠ 왜 필요한가 — 실제로 겪었다
+#   산출물 다운로드 주소를 잘못 만들어 호출했더니 이렇게 왔다.
+#       {"detail":"Not Found"}
+#   우리 형식이 아니다. `code` 도 `request_id` 도 없어서 **로그와 이어붙일 수 없다.**
+#   우리가 HTTPException 을 직접 던지지 않아도 **라우터가 던진다.** 그래서 우리
+#   코드만 검사해서는 이 구멍이 보이지 않는다.
+#
+#   완료 판정이 "주요 오류가 **동일한 응답 형식**과 서버 로그에 남고" 이므로
+#   프레임워크가 내는 오류도 같은 형식이어야 한다.
+#
+# ⚠ 상태코드를 우리가 정하지 않는다
+#   라우터가 정한 exc.status_code 를 그대로 쓴다. 405 를 404 로 바꾸면 클라이언트가
+#   경로가 없는 것과 방식이 틀린 것을 구별할 수 없다.
+#
+# ⚠ 405 의 Allow 헤더를 지운다면 규약을 깨는 것이다
+#   Starlette 이 405 에 Allow 헤더를 붙여 준다. 우리가 응답을 새로 만들면 그것이
+#   사라지므로 exc.headers 를 옮겨 담는다.
+_ROUTE_ERROR_CODES = {
+    404: ErrorCode.ROUTE_NOT_FOUND,
+    405: ErrorCode.METHOD_NOT_ALLOWED,
+}
+
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    request_id = _request_id(request)
+    error = _ROUTE_ERROR_CODES.get(exc.status_code)
+
+    # 아는 상태코드는 우리 메시지를 쓴다. 모르는 것은 detail 을 그대로 옮긴다 —
+    # 지어내면 원인을 가린다. detail 이 비어 있으면 상태코드만 알린다.
+    if error is not None:
+        code, message = error.code, error.message
+    else:
+        code = "HTTP_ERROR"
+        message = str(exc.detail) if exc.detail else f"요청을 처리할 수 없습니다 ({exc.status_code})."
+
+    logger.warning(
+        "HTTP error: method=%s path=%s status=%s code=%s",
+        request.method,
+        request.url.path,
+        exc.status_code,
+        code,
+    )
+    headers = {REQUEST_ID_HEADER: request_id}
+    if exc.headers:
+        # 우리 헤더가 이기지 않게 먼저 깔고 덮는다.
+        headers = {**exc.headers, REQUEST_ID_HEADER: request_id}
+    body = ErrorResponse(code=code, message=message, request_id=request_id)
+    return JSONResponse(
+        status_code=exc.status_code, content=body.model_dump(), headers=headers
+    )

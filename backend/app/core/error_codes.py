@@ -111,6 +111,13 @@ class ErrorCode(Enum):
     # 메시지에 글자 수를 적지 않는다. 설정을 바꾸면 메시지가 거짓이 되기 때문이다.
     KEYWORD_TOO_SHORT = ("KEYWORD_TOO_SHORT", "검색어가 너무 짧습니다. 더 길게 입력해 주세요.", 400)
 
+    # ── 프레임워크가 내는 오류 (SYS-003-1) ──
+    # 없는 경로·허용되지 않은 메서드는 **우리 코드가 아니라 라우터**가 낸다.
+    # 핸들러를 두지 않으면 FastAPI 기본 형식({"detail": "Not Found"})으로 나가서
+    # code·request_id 가 빠진다. 응답 형식이 하나여야 화면이 한 가지만 처리한다.
+    ROUTE_NOT_FOUND = ("ROUTE_NOT_FOUND", "요청한 경로를 찾을 수 없습니다.", 404)
+    METHOD_NOT_ALLOWED = ("METHOD_NOT_ALLOWED", "이 경로에서 허용되지 않은 방식입니다.", 405)
+
     INTERNAL_ERROR = ("INTERNAL_ERROR", "서버 내부 오류가 발생했습니다.", 500)
 
     def __init__(self, code: str, message: str, status_code: int):

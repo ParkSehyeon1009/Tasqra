@@ -7,7 +7,9 @@ from starlette.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401
 from app.api.routes import amount_router, analysis_router, auth_router, dashboard_router, deliverable_router, document_router, invitation_router, project_router, search_router, task_router, upload_router
 from app.core.config import settings
-from app.core.exceptions import BusinessError, business_error_handler, unhandled_exception_handler, validation_error_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.core.exceptions import BusinessError, business_error_handler, http_exception_handler, unhandled_exception_handler, validation_error_handler
 from app.core.logging_config import setup_logging
 from app.core.middleware import RequestIdMiddleware
 
@@ -22,6 +24,9 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, all
 app.add_middleware(RequestIdMiddleware)
 app.add_exception_handler(BusinessError, business_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
+# 없는 경로(404)·허용되지 않은 메서드(405)는 라우터가 낸다. 이 핸들러가 없으면
+# FastAPI 기본 형식({"detail": ...})으로 나가 code·request_id 가 빠진다.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 @app.get("/health")
