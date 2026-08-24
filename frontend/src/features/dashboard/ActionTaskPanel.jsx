@@ -12,7 +12,7 @@ const STATUS_LABELS = {
 }
 
 export default function ActionTaskPanel({ tasks = [], loading = false, onOpenBoard }) {
-  const visibleTasks = tasks.filter(task => task.status !== 'DONE').slice(0, 4)
+  const visibleTasks = tasks.filter(task => task.status !== 'DONE').slice(0, 3)
 
   return <section className="panel dashboard-task-panel">
     <div className="panel-head"><div><h2>액션 태스크</h2><p>보드에서 우선 처리할 작업입니다.</p></div><span>{visibleTasks.length}건</span></div>

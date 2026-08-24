@@ -29,7 +29,7 @@ import { getDocumentTypeLabel, isSupportedDocumentTypeFilter, UNCLASSIFIED_DOCUM
 import { formatDateShort, formatNumber } from '../../utils/format'
 import ActionTaskPanel from './ActionTaskPanel'
 
-export default function DashboardView({ projectId, documents, members }) {
+export default function DashboardView({ projectId, documents }) {
   const navigate = useNavigate()
   const dashboardQuery = useQuery({
     queryKey: ['projects', projectId, 'dashboard'],
@@ -80,12 +80,11 @@ export default function DashboardView({ projectId, documents, members }) {
       <section className='panel dashboard-next-actions'>
         <div className='panel-head'><div><h2>확인이 필요한 일</h2><p>사람이 확인해야 다음 단계로 넘어가는 항목입니다.</p></div><span>{formatNumber(attentionTotal)}건</span></div>
         <div className='dashboard-attention-summary'>
-          <AttentionRow kind='문서' title='처리 실패' description='원인을 확인하고 문서를 다시 처리합니다.' count={counts?.failed} urgent onOpen={goDocuments}/>
-          <AttentionRow kind='문서' title='OCR 검수' description='검수 후 최종 본문에 반영됩니다.' count={reviewPending} onOpen={goDocuments}/>
-          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items}/>
-          <AttentionRow kind='태스크' title='마감 임박' description='7일 이내 마감되는 열린 태스크입니다.' count={attentionTasks} onOpen={() => navigate(`/projects/${projectId}/board`)}/>
+          <AttentionRow kind='문서' title='처리 실패' description='원인을 확인하고 문서를 다시 처리합니다.' count={counts?.failed} action='확인하기' onOpen={goDocuments}/>
+          <AttentionRow kind='문서' title='OCR 검수' description='검수 후 최종 본문에 반영됩니다.' count={reviewPending} action='검수하기' onOpen={goDocuments}/>
+          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기'/>
+          <AttentionRow kind='태스크' title='마감 임박' description='7일 이내 마감되는 열린 태스크입니다.' count={attentionTasks} action='보드 보기' onOpen={() => navigate(`/projects/${projectId}/board`)}/>
         </div>
-        <div className="dashboard-panel-footer"><span>참여자 {formatNumber(members.length)}명</span><button onClick={goDocuments}>전체 문서 보기 →</button></div>
       </section>
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
@@ -102,9 +101,8 @@ export default function DashboardView({ projectId, documents, members }) {
   </>
 }
 
-function AttentionRow({ kind, title, description, count, urgent = false, onOpen }) {
-  const content = <><span className={urgent && count > 0 ? 'is-urgent' : ''}>{kind}</span><div><strong>{title}</strong><small>{description}</small></div><b>{formatNumber(count ?? null)}건</b>{onOpen && <em>→</em>}</>
-  return onOpen ? <button onClick={onOpen}>{content}</button> : <div>{content}</div>
+function AttentionRow({ kind, title, description, count, action, onOpen }) {
+  return <div className={`dashboard-attention-row${count ? '' : ' is-empty'}`}><b>{formatNumber(count ?? null)}</b><div><strong><span>{kind}</span>{title}</strong><small>{description}</small></div><button type='button' disabled={!onOpen} onClick={onOpen}>{onOpen ? action : '준비 중'}</button></div>
 }
 
 function ProcessingStatusPanel({ counts, loaded, onOpen }) {
