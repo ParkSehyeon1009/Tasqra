@@ -1,10 +1,10 @@
 # =============================================================================
-# 이 파일의 책임: 리비전 0007 테이블 셋의 ORM 매핑이 마이그레이션과 어긋나지
-#   않는지 DB 없이 검증한다 — decisions · schedule_items · deliverables.
+# 이 파일의 책임: 리비전 0007이 만든 테이블과 리비전 0021이 확장한 산출물
+#   형식을 ORM 매핑과 대조한다 — decisions · schedule_items · deliverables.
 #
-#   **테이블은 이미 있고 모델만 새로 넣었다.** 그래서 가장 큰 위험은 "컬럼 이름이
-#   하나 틀렸다" 나 "CHECK 문구가 달라 Alembic 이 매번 제약을 다시 만든다" 다.
-#   둘 다 에러 없이 조용히 어긋나는 종류다.
+#   테이블 구조는 0007에 있고 산출물 형식의 최신 CHECK는 0021에 있다. 그래서
+#   가장 큰 위험은 "컬럼 이름이 하나 틀렸다" 또는 "최신 CHECK 값이 모델과
+#   달라 Alembic이 매번 제약을 다시 만든다"는 것이다.
 #
 #   검사하는 것
 #     ① 마이그레이션의 컬럼 이름·개수와 모델이 같은가
@@ -14,9 +14,11 @@
 #
 # 다른 파일과의 관계
 #   app/models/decision.py · schedule.py · deliverable.py
-#   migrations/versions/20260811_0007_analysis_artifacts.py  ← 유일한 근거
+#   migrations/versions/20260811_0007_analysis_artifacts.py  ← 테이블 생성 근거
+#   migrations/versions/20260824_0021_deliverable_pdf_format.py
+#     ← 산출물 출력 형식의 최신 근거
 #
-#   **마이그레이션 파일을 읽어서 비교한다.** 기대값을 손으로 적으면 두 곳을
+#   **마이그레이션 파일을 읽어서 비교한다.** 기대값을 손으로 적으면 여러 곳을
 #   고쳐야 하고, 한쪽만 고치면 테스트가 거짓으로 통과한다.
 #
 # Spring 비교: @Entity 와 Flyway 스크립트가 어긋나지 않는지 보는 검사다.
@@ -36,6 +38,12 @@ MIGRATION = (
     / "migrations"
     / "versions"
     / "20260811_0007_analysis_artifacts.py"
+)
+FORMAT_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "versions"
+    / "20260824_0021_deliverable_pdf_format.py"
 )
 
 # 리비전 0007 의 suggestion_columns() · timestamps() 가 더하는 컬럼.
@@ -145,13 +153,20 @@ def test_partial_index_on_open_decisions():
 # --- ③ 값 목록이 마이그레이션과 같다 ----------------------------------------
 
 
-def migration_tuple(name: str) -> tuple[str, ...]:
-    """마이그레이션 상단의 값 목록 상수를 읽는다."""
-    tree = ast.parse(MIGRATION.read_text(encoding="utf-8"))
+def migration_assignment(name: str, source: Path = MIGRATION):
+    """지정한 마이그레이션 상단의 상수 값을 읽는다."""
+    tree = ast.parse(source.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == name:
-            return tuple(ast.literal_eval(node.value))
+            return ast.literal_eval(node.value)
     raise AssertionError(f"{name} 을 못 찾았다")
+
+
+def migration_tuple(name: str, source: Path = MIGRATION) -> tuple[str, ...]:
+    """지정한 마이그레이션 상단의 값 목록 상수를 읽는다."""
+    value = migration_assignment(name, source)
+    assert isinstance(value, tuple), f"{name} 이 tuple 이 아니다"
+    return tuple(value)
 
 
 def check_values(model, constraint: str) -> set[str]:
@@ -184,8 +199,16 @@ def test_deliverable_kind_and_format_values():
         migration_tuple("DELIVERABLE_KIND")
     )
     assert check_values(Deliverable, "ck_deliverable_format") == set(
-        migration_tuple("DELIVERABLE_FORMAT")
+        migration_tuple("DELIVERABLE_FORMAT", FORMAT_MIGRATION)
     )
+
+
+def test_deliverable_format_migration_follows_tasks_and_preserves_old_values():
+    """0021은 액션 태스크 활동 기록 0020 뒤에 오고, 기존 3종을 보존한다."""
+    assert migration_assignment("down_revision", FORMAT_MIGRATION) == "20260824_0020"
+    assert migration_tuple(
+        "PREVIOUS_DELIVERABLE_FORMAT", FORMAT_MIGRATION
+    ) == migration_tuple("DELIVERABLE_FORMAT")
 
 
 # --- ④ 헬퍼의 판단 ----------------------------------------------------------

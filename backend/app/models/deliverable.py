@@ -1,9 +1,8 @@
 # =============================================================================
 # 이 파일의 책임: 만들어 낸 산출물 파일 한 건을 엔티티로 정의한다.
 #   "8월 11~17일 주간 보고서 XLSX" 한 건이 이 테이블의 한 행이다.
-#   리비전 0007 이 만든 deliverables 에 대응한다.
-#
-#   **테이블은 이미 있다. 이 파일은 매핑만 더한다.** 마이그레이션이 필요 없다.
+#   리비전 0007 이 만든 deliverables 에 대응하며, 리비전 0021 이 출력 형식에
+#   PDF 를 추가한다. 테이블 구조는 그대로이고 CHECK 값만 확장된다.
 #
 #   위 세 모델(amount·decision·schedule)과 성격이 다르다 — 이건 **AI 제안이
 #   아니다.** 우리가 만든 결과물이므로 승인 컬럼(decision·reason 등)이 없다.
@@ -57,9 +56,9 @@ from app.db.base import Base
 
 __all__ = ["Deliverable"]
 
-# 리비전 0007 의 DELIVERABLE_KIND · DELIVERABLE_FORMAT 과 같은 값이다.
+# 유형은 리비전 0007, 출력 형식은 최신 리비전 0021 의 CHECK 와 같은 값이다.
 _KIND = ("WEEKLY_REPORT", "DECISION_LOG", "MEETING_AGENDA", "PROJECT_STATUS")
-_FORMAT = ("XLSX", "HTML", "MD")
+_FORMAT = ("XLSX", "HTML", "MD", "PDF")
 
 # 기간이 필수인 유형. DB CHECK 와 같은 판단을 코드에서도 쓸 수 있게 둔다.
 PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
