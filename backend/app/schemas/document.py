@@ -287,21 +287,6 @@ class OcrElementMergeUndoResponse(BaseModel):
     restored: list[OcrElementResponse]
 
 
-class OcrElementSplitRequest(BaseModel):
-    version: int = Field(ge=1)
-    orientation: str = Field(pattern="^(VERTICAL|HORIZONTAL)$")
-    ratio: float = Field(ge=0.1, le=0.9)
-    first_text: str = Field(min_length=1, max_length=10000)
-    second_text: str = Field(min_length=1, max_length=10000)
-
-
-class OcrElementSplitResponse(BaseModel):
-    ocr_revision: int
-    text_version: int | None
-    deleted_ids: list[int]
-    created: list[OcrElementResponse]
-
-
 class OcrElementBatchUpdateItem(BaseModel):
     id: int = Field(ge=1)
     version: int = Field(ge=1)

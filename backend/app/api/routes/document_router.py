@@ -7,7 +7,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeGroupsRequest, OcrElementMergeGroupsResponse, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementSplitRequest, OcrElementSplitResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrStructureEventResponse, OcrUndoableMergeResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeGroupsRequest, OcrElementMergeGroupsResponse, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrStructureEventResponse, OcrUndoableMergeResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
 from app.services.extraction_service import ExtractionService
 from app.worker import enqueue_build_chunks, extract_document_task
@@ -108,11 +108,6 @@ def merge_ocr_element_groups(document_id: int, payload: OcrElementMergeGroupsReq
 def undo_ocr_merge(document_id: int, operation_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
     document, restored, deleted_ids = service.undo_ocr_merge_to_originals(access.project.id, document_id, operation_id, access.member.user_id)
     return OcrElementMergeUndoResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, deleted_ids=deleted_ids, restored=[OcrElementResponse.model_validate(item) for item in restored if not item.is_deleted])
-
-@router.post("/documents/{document_id}/ocr-elements/{element_id}/split", response_model=OcrElementSplitResponse)
-def split_ocr_element(document_id: int, element_id: int, payload: OcrElementSplitRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
-    document, created = service.split_ocr_element(access.project.id, document_id, element_id, payload.version, payload.orientation, payload.ratio, payload.first_text, payload.second_text, access.member.user_id)
-    return OcrElementSplitResponse(ocr_revision=document.ocr_revision, text_version=document.extracted_text.text_version if document.extracted_text else None, deleted_ids=[element_id], created=[OcrElementResponse.model_validate(item) for item in created])
 
 @router.post("/documents/{document_id}/review/complete", response_model=OcrReviewResponse)
 def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):

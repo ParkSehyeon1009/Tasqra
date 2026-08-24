@@ -179,7 +179,7 @@ class DocumentService:
         ]
 
     def list_ocr_structure_events(self, project_id: int, document_id: int) -> list[OcrStructureEvent]:
-        return self._db.query(OcrStructureEvent).join(Document, Document.id == OcrStructureEvent.document_id).filter(Document.project_id == project_id, Document.id == document_id).order_by(OcrStructureEvent.created_at.desc(), OcrStructureEvent.id.desc()).limit(50).all()
+        return self._db.query(OcrStructureEvent).join(Document, Document.id == OcrStructureEvent.document_id).filter(Document.project_id == project_id, Document.id == document_id, OcrStructureEvent.event_type.in_(("MERGE", "UNMERGE"))).order_by(OcrStructureEvent.created_at.desc(), OcrStructureEvent.id.desc()).limit(50).all()
 
     def list_ocr_revisions(self, project_id: int, document_id: int):
         self.get_document(project_id, document_id)
@@ -686,67 +686,6 @@ class DocumentService:
                 raise BusinessError(ErrorCode.OCR_MERGE_UNDO_UNAVAILABLE)
             final_restored = [element for element in restored_by_id.values() if not element.is_deleted]
         return document, final_restored, deleted_ids
-
-    def split_ocr_element(self, project_id: int, document_id: int, element_id: int, version: int, orientation: str, ratio: float, first_text: str, second_text: str, user_id: int) -> tuple[Document, list[OcrElement]]:
-        with transactional(self._db):
-            document = self._document_repository.get_by_id_for_update_with_review(project_id, document_id)
-            if document is None:
-                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
-            source = next((element for page in document.review_pages for element in page.elements if element.id == element_id), None)
-            if source is None or source.is_deleted:
-                raise BusinessError(ErrorCode.OCR_ELEMENT_NOT_FOUND)
-            if source.version != version:
-                raise BusinessError(ErrorCode.OCR_EDIT_CONFLICT)
-            if source.is_excluded or not source.is_in_content or orientation not in {"VERTICAL", "HORIZONTAL"} or not 0.1 <= ratio <= 0.9:
-                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
-            page = next(page for page in document.review_pages if page.id == source.page_id)
-            replacement = first_text + "\n" + second_text
-            content_start = source.content_start
-            content_changed = self._replace_ocr_content(document, source, replacement)
-            if content_start is None:
-                raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
-            if orientation == "VERTICAL":
-                geometries = [
-                    (source.x, source.y, source.width * ratio, source.height),
-                    (source.x + source.width * ratio, source.y, source.width * (1 - ratio), source.height),
-                ]
-            else:
-                geometries = [
-                    (source.x, source.y, source.width, source.height * ratio),
-                    (source.x, source.y + source.height * ratio, source.width, source.height * (1 - ratio)),
-                ]
-            for element in page.elements:
-                if element.id != source.id and element.reading_order > source.reading_order:
-                    element.reading_order += 1
-            created = []
-            offset = content_start
-            for index, (text, geometry) in enumerate(zip((first_text, second_text), geometries)):
-                child = self._document_repository.create_ocr_element(OcrElement(
-                    page_id=page.id, original_text=text, text=text,
-                    x=geometry[0], y=geometry[1], width=geometry[2], height=geometry[3],
-                    confidence=source.confidence, source="USER", element_type=source.element_type,
-                    element_type_source="USER_CORRECTED", is_paragraph_start=source.is_paragraph_start if index == 0 else False,
-                    table_id=source.table_id, table_row=source.table_row,
-                    reading_order=source.reading_order + index, version=1, is_deleted=False,
-                    is_excluded=False, content_start=offset, content_end=offset + len(text), is_in_content=True,
-                ))
-                page.elements.append(child)
-                created.append(child)
-                offset += len(text) + (1 if index == 0 else 0)
-            self._db.add(OcrElementRevision(element_id=source.id, changed_by=user_id, before_text=source.text, after_text=replacement, from_version=source.version, to_version=source.version + 1))
-            source.is_deleted = True
-            source.is_in_content = False
-            source.version += 1
-            self._db.add(OcrStructureEvent(document_id=document.id, page_id=page.id, event_type="SPLIT", details_json={"source_id": source.id, "created_ids": [item.id for item in created], "orientation": orientation, "ratio": ratio}, created_by=user_id))
-            if len(created) != 2 or any(item.width <= 0 or item.height <= 0 or item.x + item.width > 1.000001 or item.y + item.height > 1.000001 for item in created):
-                raise BusinessError(ErrorCode.OCR_INVALID_STRUCTURE)
-            document.ocr_revision += 1
-            if document.extracted_text:
-                if content_changed:
-                    document.extracted_text.text_version += 1
-                document.extracted_text.ocr_char_count = sum(len(element.text) for element in self._ordered_ocr_elements(document) if not element.is_excluded)
-            self._mark_review_in_progress(document)
-        return document, created
 
     def create_ocr_element(self, project_id: int, document_id: int, page_id: int, text: str, x: float, y: float, width: float, height: float) -> OcrElement:
         with transactional(self._db):
