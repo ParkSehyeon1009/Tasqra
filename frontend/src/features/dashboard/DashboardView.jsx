@@ -24,15 +24,12 @@ import { useNavigate } from 'react-router-dom'
 import { getDashboard } from '../../api/dashboard'
 import { listTasks } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
-import { getDocumentPrimaryAction, getDocumentStatus, getReviewStatus } from '../../utils/documentStatus'
+import { getDocumentStatus, getReviewStatus } from '../../utils/documentStatus'
 import { getDocumentTypeLabel, isSupportedDocumentTypeFilter, UNCLASSIFIED_DOCUMENT_TYPE } from '../../utils/documentType'
 import { formatDateShort, formatNumber } from '../../utils/format'
 import ActionTaskPanel from './ActionTaskPanel'
 
-// 목록에 미리 보여줄 건수. 나머지는 "외 N건" 으로 접는다.
-const PREVIEW_COUNT = 3
-
-export default function DashboardView({ projectId, documents, members }) {
+export default function DashboardView({ projectId, documents }) {
   const navigate = useNavigate()
   const dashboardQuery = useQuery({
     queryKey: ['projects', projectId, 'dashboard'],
@@ -59,8 +56,9 @@ export default function DashboardView({ projectId, documents, members }) {
 
   // 서버 건수를 우선 쓰고, 아직 안 왔으면 넘겨받은 목록으로 임시 표시한다.
   const needsReview = documents.filter(document => ['PENDING', 'IN_PROGRESS'].includes(document.review_status))
-  const shownReview = needsReview.slice(0, PREVIEW_COUNT)
   const reviewPending = data ? data.review_pending : needsReview.length
+  const attentionTasks = (tasksQuery.data ?? []).filter(task => task.status !== 'DONE' && isDueSoon(task.due_on)).length
+  const attentionTotal = (counts?.failed ?? 0) + (reviewPending ?? 0) + (data?.pending_amount_items ?? 0) + attentionTasks
 
   return <>
     <PageHeading eyebrow='PROJECT OVERVIEW' title='대시보드' description='지금 확인할 문서와 우선 처리할 액션 태스크를 확인하세요.'/>
@@ -75,32 +73,23 @@ export default function DashboardView({ projectId, documents, members }) {
       <SummaryCard label='처리 중' value={counts?.processing} onOpen={goDocuments}/>
       <SummaryCard label='처리 완료' value={counts?.completed} onOpen={goDocuments}/>
       <SummaryCard label='처리 실패' value={counts?.failed} emphasis={counts?.failed > 0} onOpen={goDocuments}/>
-      <SummaryCard label='OCR 검수' value={reviewPending} emphasis={reviewPending > 0} onOpen={goDocuments}/>
-      {/* 금액 승인 대기는 amount_items 만 센다. 금액 화면이 아직 없어서 이동
-          대상이 없다 — onOpen 을 주지 않아 클릭되지 않는 카드로 둔다. */}
-      <SummaryCard label='금액 승인 대기' value={data?.pending_amount_items} note='금액 항목 기준'/>
       <SummaryCard label='열린 태스크' value={data?.open_tasks} onOpen={() => navigate(`/projects/${projectId}/board`)}/>
-      <SummaryCard label='참여자' value={members.length} onOpen={() => navigate(`/projects/${projectId}/settings`)}/>
     </section>
 
     <div className="dashboard-top-grid">
       <section className='panel dashboard-next-actions'>
-        <div className='panel-head'><div><h2>OCR 확인 필요</h2><p>검수 후 최종 텍스트에 반영할 문서입니다.</p></div><span>{formatNumber(reviewPending)}건</span></div>
-        {/* 미리보기 항목은 넘겨받은 문서 목록(첫 페이지)에서 고르고 건수는 서버
-            값을 쓴다. 그래서 "서버는 5건이라는데 이 페이지에는 하나도 없다" 가
-            생길 수 있다 — 그때 "없습니다" 를 띄우면 배지의 5건과 모순된다.
-            세 갈래로 나눠 각각 사실에 맞는 문구를 낸다. */}
-        {shownReview.length > 0
-          ? <ul className='dashboard-document-list'>{shownReview.map(document => <NextAction document={document} key={document.id} onOpen={() => navigate(`/projects/${projectId}/documents/${document.id}/review`)}/>)}</ul>
-          : reviewPending > 0
-            ? <div className='dashboard-empty-state'><strong>검수가 필요한 문서가 {formatNumber(reviewPending)}건 있습니다.</strong><p>최근 목록에는 없습니다. 전체 문서에서 확인해 주세요.</p></div>
-            : <div className='dashboard-empty-state'><strong>현재 검수가 필요한 문서가 없습니다.</strong><p>검수할 문서가 생기면 이곳에 우선 표시됩니다.</p></div>}
-        {reviewPending > shownReview.length && <div className="dashboard-panel-footer"><span>외 {formatNumber(reviewPending - shownReview.length)}건이 더 있습니다.</span><button onClick={goDocuments}>전체 보기 →</button></div>}
+        <div className='panel-head'><div><h2>확인이 필요한 일</h2><p>사람이 확인해야 다음 단계로 넘어가는 항목입니다.</p></div><span>{formatNumber(attentionTotal)}건</span></div>
+        <div className='dashboard-attention-summary'>
+          <AttentionRow kind='문서' title='처리 실패' description='원인을 확인하고 문서를 다시 처리합니다.' count={counts?.failed} action='확인하기' onOpen={goDocuments}/>
+          <AttentionRow kind='문서' title='OCR 검수' description='검수 후 최종 본문에 반영됩니다.' count={reviewPending} action='검수하기' onOpen={goDocuments}/>
+          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기'/>
+          <AttentionRow kind='태스크' title='마감 임박' description='7일 이내 마감되는 열린 태스크입니다.' count={attentionTasks} action='보드 보기' onOpen={() => navigate(`/projects/${projectId}/board`)}/>
+        </div>
       </section>
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
 
-    <DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)} onOpenType={goDocumentsByType}/>
+    <div className='dashboard-distribution-grid'><DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)} onOpenType={goDocumentsByType}/><ProcessingStatusPanel counts={counts} loaded={Boolean(data)} onOpen={goDocuments}/></div>
 
     <section className='panel dashboard-recent-panel'>
       <div className='panel-head'><div><h2>최근 문서</h2><p>최근에 업로드된 문서의 현재 상태입니다.</p></div><span>{formatNumber(counts?.total ?? null)}건</span></div>
@@ -110,6 +99,23 @@ export default function DashboardView({ projectId, documents, members }) {
       {counts?.total > (data?.recent_documents?.length ?? 0) && <div className="dashboard-panel-footer"><span>외 {formatNumber(counts.total - data.recent_documents.length)}건이 더 있습니다.</span><button onClick={goDocuments}>전체 문서 보기 →</button></div>}
     </section>
   </>
+}
+
+function AttentionRow({ kind, title, description, count, action, onOpen }) {
+  return <div className={`dashboard-attention-row${count ? '' : ' is-empty'}`}><b>{formatNumber(count ?? null)}</b><div><strong><span>{kind}</span>{title}</strong><small>{description}</small></div><button type='button' disabled={!onOpen} onClick={onOpen}>{onOpen ? action : '준비 중'}</button></div>
+}
+
+function ProcessingStatusPanel({ counts, loaded, onOpen }) {
+  const total = counts?.total ?? 0
+  const rows = [['처리 완료',counts?.completed,'success'],['텍스트 추출 완료',counts?.extracted,'ready'],['처리 중',counts?.processing,'progress'],['처리 실패',counts?.failed,'danger']]
+  return <section className='panel dashboard-status-panel'><div className='panel-head'><div><h2>처리 상태</h2><p>전체 문서의 처리 단계별 비율입니다.</p></div><span>{formatNumber(counts?.total ?? null)}건</span></div>{loaded ? <div className='dashboard-status-list'>{rows.map(([label,value,tone]) => <button onClick={onOpen} key={label}><span>{label}</span><i><b className={`is-${tone}`} style={{ width:`${total ? (value / total) * 100 : 0}%` }}/></i><strong>{formatNumber(value)}건 · {total ? Math.round((value / total) * 100) : 0}%</strong></button>)}</div> : <div className='dashboard-empty-state'><strong>처리 상태를 불러오는 중입니다.</strong></div>}</section>
+}
+
+function isDueSoon(dueOn) {
+  if (!dueOn) return false
+  const due = new Date(`${dueOn}T23:59:59`)
+  const now = new Date()
+  return due >= now && due.getTime() - now.getTime() <= 7 * 24 * 60 * 60 * 1000
 }
 
 // 값이 null·undefined 면 "—" 를 보여준다. 0 과 구별하기 위한 것이다.
@@ -147,11 +153,6 @@ function DocumentTypePanel({ types, total, loaded, onOpenType }) {
         })}</ul>
       : <div className='dashboard-empty-state'><strong>{loaded ? '집계할 문서가 없습니다.' : '유형 분포를 불러오는 중입니다.'}</strong><p>문서를 업로드하면 유형별 건수가 표시됩니다.</p></div>}
   </section>
-}
-
-function NextAction({ document, onOpen }) {
-  const review = getReviewStatus(document.review_status)
-  return <li className='dashboard-document-item'><div><strong>{document.filename}</strong><span className={'status-badge status-' + review.tone}>{review.label}</span><p>{review.description}</p></div><button onClick={onOpen}>{getDocumentPrimaryAction(document)}</button></li>
 }
 
 function RecentDocument({ document, onOpen }) {

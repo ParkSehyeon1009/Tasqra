@@ -33,7 +33,7 @@ export default function ProjectsPage({ user, onLogout, notify }) {
 
   return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify}/>
     <div className="workspace-shell">
-      <ProjectSidebar projects={[]} onCreate={() => setCreating(true)} onSelect={() => {}}/>
+      <ProjectSidebar projects={[]} onCreate={() => setCreating(true)} onSelect={() => {}} onNavigateTab={() => {}}/>
       <main className="project-empty-main">
         {error ? <div className="error-state">{error.message}</div> : <section className="project-empty-state"><span aria-hidden="true">＋</span><h1>아직 참여 중인 프로젝트가 없습니다.</h1><p>새 프로젝트를 만들어 문서와 작업을 한곳에서 관리해 보세요.</p><button className="primary" onClick={() => setCreating(true)}>새 프로젝트 만들기</button></section>}
       </main>

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useInvitationsQuery } from '../../hooks/useInvitationsQuery'
 import Logo from './Logo'
 
-export default function AppHeader({ user, onLogout, notify, project }) {
+export default function AppHeader({ user, onLogout, notify, project, section }) {
   const [open, setOpen] = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const rootRef = useRef(null)
@@ -30,7 +30,7 @@ export default function AppHeader({ user, onLogout, notify, project }) {
 
   return <header className="app-header" ref={rootRef}>
     <Link className="app-header__brand" to={user ? '/projects' : '/'}><Logo/></Link>
-    {project && <><span className="app-header__divider">/</span><strong className="app-header__project">{project.name}</strong></>}
+    {project && <div className="app-header__context"><span>{project.name}</span>{section && <><i>/</i><strong>{section}</strong></>}</div>}
     <button className="mobile-menu-button" aria-label="메뉴 열기" aria-expanded={mobileOpen} onClick={() => setMobileOpen(value => !value)}>☰</button>
     <nav className={`app-header__nav ${mobileOpen ? 'is-open' : ''}`}>
       {!user ? <><a href="/#features">기능 소개</a><Link to="/login">로그인</Link><Link className="primary" to="/signup">무료로 시작하기</Link></> : <>

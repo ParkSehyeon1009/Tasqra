@@ -12,13 +12,22 @@ const STATUS_LABELS = {
 }
 
 export default function ActionTaskPanel({ tasks = [], loading = false, onOpenBoard }) {
-  const visibleTasks = tasks.filter(task => task.status !== 'DONE').slice(0, 4)
+  const openTasks = tasks.filter(task => task.status !== 'DONE').sort(compareTaskDeadline)
+  const visibleTasks = openTasks.slice(0, 3)
 
   return <section className="panel dashboard-task-panel">
-    <div className="panel-head"><div><h2>액션 태스크</h2><p>보드에서 우선 처리할 작업입니다.</p></div><span>{visibleTasks.length}건</span></div>
+    <div className="panel-head"><div><h2>액션 태스크</h2><p>마감이 가까운 작업부터 표시합니다.</p></div><span>{openTasks.length}건</span></div>
     {visibleTasks.length ? <div className="dashboard-task-grid">{visibleTasks.map(task => <ActionTaskCard task={task} key={task.id}/>)}</div> : <div className="dashboard-task-empty"><strong>{loading ? '액션 태스크를 불러오는 중입니다.' : '열린 액션 태스크가 없습니다.'}</strong><p>{loading ? '잠시만 기다려 주세요.' : '보드에서 태스크를 만들거나 완료 상태를 확인하세요.'}</p></div>}
     <button className="dashboard-board-link" onClick={onOpenBoard}>전체 보드 보기 →</button>
   </section>
+}
+
+function compareTaskDeadline(left, right) {
+  if (!left.due_on && !right.due_on) return Number(left.id ?? 0) - Number(right.id ?? 0)
+  if (!left.due_on) return 1
+  if (!right.due_on) return -1
+  const byDate = left.due_on.localeCompare(right.due_on)
+  return byDate || Number(left.id ?? 0) - Number(right.id ?? 0)
 }
 
 function ActionTaskCard({ task }) {

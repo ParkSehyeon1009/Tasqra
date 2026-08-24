@@ -19,6 +19,8 @@ import DocumentContentTab from '../features/document-detail/DocumentContentTab'
 import DocumentHeader from '../features/document-detail/DocumentHeader'
 import DocumentHistoryTab from '../features/document-detail/DocumentHistoryTab'
 import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
+import ProjectSidebar from '../features/projects/ProjectSidebar'
+import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
@@ -37,6 +39,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const { projects } = useProjectsQuery(notify)
   const activeTab = TABS.some(([key]) => key === params.get('tab')) ? params.get('tab') : 'content'
   const projectQuery = useQuery({ queryKey: ['project-access', projectId], queryFn: () => getProject(projectId), retry: false })
   const documentKey = ['projects', projectId, 'documents', documentId]
@@ -52,9 +55,10 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   if (projectQuery.isPending || documentQuery.isPending) return <LoadingState label="문서 상세 화면을 불러오는 중..."/>
   if (projectQuery.isError) return <div className="detail-not-found"><h1>프로젝트에 접근할 수 없습니다.</h1><p>프로젝트가 없거나 접근 권한이 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
   if (documentQuery.isError || !document) return <div className="detail-not-found"><h1>문서를 열 수 없습니다.</h1><p>문서가 없거나 삭제되었을 수 있습니다.</p><button onClick={() => navigate(documentListUrl)}>문서 목록으로 돌아가기</button></div>
-  return <div className="document-detail-page">
-    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data}/>
-    <div className="document-detail-shell">
+  return <div className="app-frame document-detail-page">
+    <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data} section="문서 상세"/>
+    <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
+    <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
       <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}{key === 'analysis' && document.analyses.length > 0 && <b>{document.analyses.length}</b>}</button>)}</nav>
       <main className="document-tab-body">
@@ -63,7 +67,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
         {activeTab === 'analysis' && <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>
-    </div>
+    </div></div>
     <ConfirmDialog open={deleteOpen} title="문서를 완전히 삭제하시겠습니까?" message="원본 파일, 추출 텍스트, OCR 수정 이력과 분석 결과가 모두 삭제되며 복구할 수 없습니다." confirmationText={document.filename} confirmLabel="문서 영구 삭제" danger onCancel={() => setDeleteOpen(false)} onConfirm={() => { setDeleteOpen(false); deleteMutation.mutate() }}/>
   </div>
 }
