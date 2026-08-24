@@ -39,6 +39,7 @@ def test_ocr_response_exposes_chunking_metadata():
         "reading_order": 0,
         "version": 1,
         "is_excluded": False,
+        "is_deleted": False,
         "content_start": 0,
         "content_end": 3,
         "is_in_content": True,

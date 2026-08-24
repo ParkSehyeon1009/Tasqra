@@ -257,6 +257,7 @@ def test_batch_paragraph_change_marks_chunks_stale_once():
 
 def test_batch_geometry_change_updates_box_without_changing_text_version():
     document = editable_document()
+    document.extracted_text = SimpleNamespace(text_version=2, ocr_char_count=3)
     element = batch_element(30, "box", 0, 3)
     document.review_pages = [SimpleNamespace(elements=[element])]
     service, _, repository = build_service(document=document)
