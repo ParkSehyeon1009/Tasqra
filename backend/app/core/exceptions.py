@@ -17,7 +17,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.error_codes import ErrorCode
+from app.core.middleware import REQUEST_ID_HEADER
 from app.schemas.error import ErrorResponse, ValidationErrorResponse, FieldError
+
+
+def _request_id(request: Request) -> str:
+    """request_id를 안전하게 꺼낸다.
+
+    RequestIdMiddleware 가 지나가기 전에 예외가 나면 `request.state.request_id`
+    자체가 없다. 그때 AttributeError 가 나면 **오류 핸들러가 오류를 내면서
+    응답 본문이 사라진다** — 원인 파악이 가장 필요한 순간에 가장 알 수 없게 된다.
+    그래서 없으면 로거 기본값과 같은 "-" 를 쓴다.
+    """
+    return getattr(request.state, "request_id", "-")
 
 
 class BusinessError(Exception):
@@ -40,12 +52,19 @@ async def business_error_handler(request: Request, exc: BusinessError) -> JSONRe
         exc.error_code.code,
         exc.error_code.status_code,
     )
+    request_id = _request_id(request)
     body = ErrorResponse(
         code= exc.error_code.code,
         message= exc.detail or exc.error_code.message,
-        request_id= request.state.request_id
+        request_id= request_id
     )
-    return JSONResponse(status_code=exc.error_code.status_code, content=body.model_dump())
+    # 오류 응답에도 헤더를 실어 준다. 본문을 읽지 못하는 경우(파일 다운로드 등)에도
+    # 사용자가 request_id 를 전달할 수 있어야 한다.
+    return JSONResponse(
+        status_code=exc.error_code.status_code,
+        content=body.model_dump(),
+        headers={REQUEST_ID_HEADER: request_id},
+    )
     
 
 # FastAPI/Pydantic의 요청 검증 실패(RequestValidationError) 전용 핸들러
@@ -62,24 +81,40 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         [e.field for e in field_errors]
     )
 
+    request_id = _request_id(request)
     body = ValidationErrorResponse(
         code="VALIDATION_ERROR",
         message="요청 데이터 검증에 실패했습니다",
-        request_id=request.state.request_id,
+        request_id=request_id,
         errors=field_errors
     )
-    return JSONResponse(status_code=422, content=body.model_dump())
+    return JSONResponse(
+        status_code=422,
+        content=body.model_dump(),
+        headers={REQUEST_ID_HEADER: request_id},
+    )
 
 
 # 그 외 예상하지 못한 모든 예외(Exception)를 잡는 최후의 보루 핸들러
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled exception occurred")
+    request_id = _request_id(request)
+    # 경로를 함께 남긴다. 미처리 예외는 traceback 만으로는 어느 요청이었는지
+    # 바로 보이지 않는 경우가 있다.
+    logger.exception(
+        "Unhandled exception occurred: method=%s path=%s",
+        request.method,
+        request.url.path,
+    )
     body = ErrorResponse(
         code= ErrorCode.INTERNAL_ERROR.code,
         message= ErrorCode.INTERNAL_ERROR.message,
-        request_id= request.state.request_id
+        request_id= request_id
     )
+    # ⚠️ 이 핸들러의 응답은 RequestIdMiddleware 바깥에서 만들어진다(Starlette 의
+    #   ServerErrorMiddleware 가 가장 바깥이다). 그래서 미들웨어가 헤더를 붙여 줄
+    #   수 없고, 여기서 직접 넣어야 500 응답에도 X-Request-ID 가 실린다.
     return JSONResponse(
-        status_code=ErrorCode.INTERNAL_ERROR.status_code, 
-        content=body.model_dump()
+        status_code=ErrorCode.INTERNAL_ERROR.status_code,
+        content=body.model_dump(),
+        headers={REQUEST_ID_HEADER: request_id},
         )
