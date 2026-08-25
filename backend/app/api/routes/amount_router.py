@@ -32,6 +32,7 @@ from app.dependencies import (
     get_project_access,
     get_project_amount_access,
 )
+from app.schemas.amount_item import AmountItemListResponse
 from app.schemas.amount_precedent import AmountPrecedentResponse
 from app.schemas.amount_summary import AmountSummaryResponse
 from app.services.amount_precedent_service import AmountPrecedentService
@@ -96,3 +97,53 @@ def get_amount_summary(
       `404`                     내가 멤버가 아닌 프로젝트
     """
     return service.summarize(access.project.id)
+
+
+
+@router.get("/amount-items", response_model=AmountItemListResponse)
+def list_amount_items(
+    limit: int = Query(200, ge=1, le=500, description="돌려줄 항목 수 상한"),
+    access: ProjectAccess = Depends(get_project_amount_access),
+    service: AmountSummaryService = Depends(get_amount_summary_service),
+) -> AmountItemListResponse:
+    """금액 항목 한 줄씩 + 항목별 검산 결과 (`AMT-003-3` 계산식·산출 근거 표시).
+
+    `amount-summary` 가 «얼마인가» 를 답하고 이 엔드포인트가 «무엇을 더했는가» 를
+    답합니다. 합계만 보면 그 숫자가 맞는지 확인할 방법이 없습니다.
+
+    **합계 응답과 같은 저장소 메서드를 씁니다** — 조회 조건이 갈라지면 "합계는
+    6건인데 목록은 4줄" 이 됩니다. 승인 상태(`APPROVED`·`EDITED`)와 정렬
+    (문서 id, 항목 id)이 둘 다 같습니다.
+
+    ### 검산 결과를 서버가 붙입니다
+
+    | 필드 | 뜻 |
+    |---|---|
+    | `expected` | 수량 × 단가. 둘 중 하나라도 없으면 `null` |
+    | `verified` | `true` 맞음 / `false` 어긋남 / **`null` 검산 불가** |
+    | `difference` | `expected - amount`. **양수면 문서 금액이 작게** 적혀 있다 |
+
+    `verified` 의 `false` 와 `null` 을 합치지 마십시오. 제경비·기술료처럼 비율로
+    산정된 항목은 수량·단가가 원래 없어서 `null` 인데, `false` 로 묶으면 정상
+    항목이 "틀린 항목" 으로 보입니다.
+
+    화면에서 수량 × 단가를 다시 곱하지 마십시오. 서버는 `ROUND_HALF_UP` 으로 원
+    단위에 맞추는데 자바스크립트 부동소수 곱셈은 큰 금액에서 1원씩 어긋납니다.
+
+    ### 금액이 안 적힌 항목도 담습니다
+
+    합계에서는 빠지지만(`excluded_no_amount`) 목록에서는 **어느 항목이 그랬는지
+    보여야** 합니다. 확인하려는 것이 바로 그것입니다. 대신 `excluded_reason` 에
+    이유를 적습니다.
+
+    ### 상한
+
+    기본 200, 최대 500 입니다. 산출내역서는 수백 줄이 흔해서 전부 내려주면 화면을
+    펼치는 순간 느려집니다. 잘렸으면 `truncated` 가 `true` 이고 `total` 에 전체
+    건수가 옵니다 — **자르고 말하지 않으면 사용자가 목록 줄 수를 전체로 읽습니다.**
+
+    오류
+      `403 PROJECT_FORBIDDEN`   VIEWER 다. 금액 열람 정책이 미결이라 지금은 막는다
+      `404`                     내가 멤버가 아닌 프로젝트
+    """
+    return service.list_items(access.project.id, limit)
