@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createTask, deleteTask, listTaskActivity, listTasks, updateTask } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
+import { splitAutoNote } from '../../utils/taskNote'
 import './BoardView.css'
 
 const COLUMNS = [['TODO', '할 일'], ['IN_PROGRESS', '진행 중'], ['DONE', '완료']]
@@ -88,7 +89,24 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
 }
 
 function TaskCard({ task, canEdit, dragging, onDragStart, onDragEnd, onEdit, onDelete }) {
-  return <article className={`task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}`} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}<footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
+  return <article className={`task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}`} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3><TaskDescription text={task.description}/><footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
+}
+
+// 설명을 그린다. 끝에 붙은 **자동 기록 블록**은 사람이 쓴 것과 구분해 색으로 낸다.
+//
+// 시스템이 붙인 문장을 사람이 쓴 설명과 같은 모양으로 두면, 누가 쓴 것인지 알 수
+// 없어서 사용자가 자기가 적은 것으로 오해한다. 금액 검산이 맞았는지 같은 상태가
+// 여기 들어오므로 눈에 띄어야 한다.
+//
+// 구분자는 utils/taskNote.js 에 있고 **백엔드 task_service.py 와 글자까지 같아야**
+// 한다. 다르면 색이 안 입고 본문에 섞여 나온다 — 에러가 없어 알아채기 어렵다.
+function TaskDescription({ text }) {
+  const [written, note] = splitAutoNote(text)
+  if (!written && !note) return null
+  return <>
+    {written && <p>{written}</p>}
+    {note && <p className='task-board-note'>{note}</p>}
+  </>
 }
 
 function TaskDialog({ task, members, pending, onClose, onSubmit }) {

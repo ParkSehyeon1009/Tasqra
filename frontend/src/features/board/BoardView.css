@@ -5,3 +5,11 @@
 .task-dialog{width:min(650px,100%)}.task-dialog>label,.task-dialog-grid label{display:grid;gap:7px;margin:14px 0;color:#344057;font-weight:750}.task-dialog-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.task-dialog input,.task-dialog textarea,.task-dialog select{width:100%;padding:11px;border:1px solid #d5deeb;border-radius:9px;background:#fff}.task-dialog>footer{display:flex;justify-content:flex-end;gap:9px;margin-top:22px}.task-dialog>footer button{padding:10px 17px;border:1px solid #d4dce8;border-radius:9px;background:#fff;font-weight:750}.task-dialog>footer .primary{border-color:#5148c8;background:#5148c8;color:#fff}
 .task-activity-dialog{width:min(720px,100%)}.task-activity-list{max-height:60vh;margin:18px 0 0;padding:0;overflow:auto;list-style:none}.task-activity-list li{display:flex;justify-content:space-between;gap:18px;padding:14px 2px;border-top:1px solid #e6ebf2}.task-activity-list strong,.task-activity-list span{display:block}.task-activity-list span{margin-top:5px;color:#65748a;font-size:13px}.task-activity-list time{flex:0 0 auto;color:#8a96a6;font-size:12px}.task-activity-empty{padding:28px 0;color:#758197;text-align:center}
 @media(max-width:700px){.task-board-heading{align-items:stretch;flex-direction:column}.task-board-heading>div:last-child{margin:0 0 12px}.task-board-heading>div:last-child button{flex:1}.task-dialog-grid{grid-template-columns:1fr}.task-activity-list li{flex-direction:column;gap:7px}}
+
+
+
+/* 자동 기록 블록. 시스템이 붙인 것이라 사람이 쓴 설명과 구분해야 한다.
+   테마에서 파생된 진한 색(--c-accent-strong)을 쓴다 — utils/theme.js 가 사용자가
+   고른 색에서 만들어 주므로 어느 테마에서도 어울린다. 빨강은 쓰지 않는다:
+   여기는 오류가 아니라 상태 알림이고, 빨강은 삭제·위험에 이미 쓰고 있다. */
+.task-board-note { margin: 9px 0 0 !important; padding: 8px 10px; border-left: 3px solid var(--c-accent-strong); border-radius: 0 8px 8px 0; background: var(--c-accent-bg); color: var(--c-accent-strong) !important; font-size: 12px !important; font-weight: 700; line-height: 1.5; white-space: pre-wrap; }

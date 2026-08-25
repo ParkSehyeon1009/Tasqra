@@ -107,3 +107,59 @@ export async function getAmountItems(projectId, { limit = 200 } = {}) {
   })
   return data
 }
+
+
+// POST /api/projects/{projectId}/amount-items/{itemId}/task
+//
+// 검산이 어긋난 금액 항목을 태스크로 만든다 (AMT-004-3 불일치 태스크 제안 ·
+// TSK-002-1 AI 제안 승인).
+//
+// **본문이 없다.** 금액이나 차액을 보내지 않고 항목 id 만 보낸다 — 서버가 그 항목을
+// 다시 검산한다. 화면이 낡은 목록을 들고 있으면 이미 고쳐진 항목으로 태스크를 만들
+// 수 있고, 그러면 근거 없는 태스크가 남는다.
+//
+// 제목·설명도 서버가 만든다. 화면마다 문구를 만들면 같은 성격의 태스크가 다르게
+// 적히고, 이 태스크는 보드에서도 읽히므로 계산 근거가 설명 안에 있어야 한다.
+//
+// 응답은 만들어진 태스크(TaskResponse)다. origin='AI_APPROVED' 이고
+// source_suggestion_id 가 이 금액 항목 id 다.
+//
+// 오류를 셋으로 나눠 받는다 — 화면이 할 일이 다르다.
+//   404 AMOUNT_ITEM_NOT_FOUND        그 항목이 없다        → 목록을 다시 받는다
+//   409 AMOUNT_NOT_MISMATCHED        어긋난 항목이 아니다   → 목록이 낡았다
+//   409 AMOUNT_TASK_ALREADY_EXISTS   이미 태스크가 있다     → 목록을 다시 받는다
+//
+// 세 경우 모두 **목록을 다시 받는 것**이 화면의 할 일이라, 실패해도 invalidate 한다.
+export async function createTaskFromMismatch(projectId, itemId) {
+  const { data } = await http.post(
+    `/api/projects/${projectId}/amount-items/${itemId}/task`,
+  )
+  return data
+}
+
+
+// PATCH /api/projects/{projectId}/amount-items/{itemId}
+//
+// 금액 항목을 고친다 (AMT-001-2 금액 항목 승인·수정). 검산이 어긋났을 때 사람이 할
+// 수 있는 일이 이것이다.
+//
+// **보낸 필드만 고친다.** 그래서 changes 에 담긴 키만 보낸다 — 「안 보냈다」와
+// 「null 로 보냈다」가 다르다. 앞은 그대로 두라는 뜻이고 뒤는 비우라는 뜻이다.
+// 제경비처럼 수량이 원래 없는 항목에서 잘못 채운 값을 지울 수 있어야 한다.
+//
+// 고칠 수 있는 것은 quantity·unit·unit_price·amount·category 다섯이다.
+// item_name·source_quote 는 문서에서 읽은 사실이라 서버가 받지 않는다.
+//
+// 고치면 decision 이 EDITED 가 된다. PENDING 이던 항목은 이때 합계에 들어온다 —
+// 사람이 값을 확인해 고쳤으면 그 자체가 승인이라는 것이 AMT-001-2 다.
+//
+// **응답이 목록의 한 줄과 같은 모양이다.** 다시 검산한 expected·verified·difference
+// 가 함께 오므로 고쳐서 맞게 됐는지 바로 알 수 있다. 화면이 수량×단가를 다시 곱해
+// 판단하지 않는다.
+export async function updateAmountItem(projectId, itemId, changes) {
+  const { data } = await http.patch(
+    `/api/projects/${projectId}/amount-items/${itemId}`,
+    changes,
+  )
+  return data
+}

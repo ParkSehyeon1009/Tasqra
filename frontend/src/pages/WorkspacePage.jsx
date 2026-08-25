@@ -169,6 +169,6 @@ function TabContent({ tab, project, data, documentType, onDocumentTypeChange, ca
   if (tab === 'deliverables') return <DeliverablesView projectId={project.id} notify={notify}/>
   // 금액도 워크스페이스 데이터를 쓰지 않는다. 합계는 서버가 내므로(AMT-002-2)
   // 화면에 넘어온 문서 목록으로 다시 세거나 더하지 않는다.
-  if (tab === 'amounts') return <AmountSummaryView projectId={project.id}/>
+  if (tab === 'amounts') return <AmountSummaryView projectId={project.id} notify={notify}/>
   return <BoardView projectId={project.id} members={data.members} canEdit={canEdit} notify={notify}/>
 }

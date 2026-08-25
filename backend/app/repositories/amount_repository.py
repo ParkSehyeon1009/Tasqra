@@ -168,6 +168,33 @@ class AmountRepository:
             for row in self._db.execute(stmt).all()
         ]
 
+    def get_item(
+        self, project_id: int, item_id: int
+    ) -> tuple[AmountItem, int, str] | None:
+        """금액 항목 하나를 문서 정보와 함께 가져온다. 없으면 None.
+
+        **`project_id` 로 반드시 함께 거른다.** 항목 id 만으로 찾으면 다른
+        프로젝트의 금액을 id 만 바꿔서 읽을 수 있다(수평 권한 상승). 경로에
+        프로젝트가 있고 의존성이 멤버십을 확인했더라도, 조회가 그 범위를 다시
+        좁혀야 한다 — 확인하는 곳과 읽는 곳이 다르면 어긋난다.
+
+        **승인 상태로 거르지 않는다.** 이 메서드는 「이 항목이 무엇인가」를 묻는
+        것이고, 승인 여부로 무엇을 할지는 부르는 쪽이 정한다.
+
+        Spring 비교: `findByIdAndDocument_Project_Id(...)` 처럼 소유 관계를 쿼리에
+        박아 두는 것과 같다.
+        """
+        stmt: Select = (
+            select(AmountItem, Document.id, Document.filename)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+            .where(AmountItem.id == item_id)
+        )
+        row = self._db.execute(stmt).first()
+        if row is None:
+            return None
+        return (row[0], int(row[1]), row[2])
+
     def stated_totals(self, project_id: int) -> dict[int, Decimal]:
         """문서에 적힌 합계를 {문서 id: 합계} 로 준다 (리비전 0022).
 

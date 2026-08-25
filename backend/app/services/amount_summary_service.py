@@ -38,6 +38,7 @@ from app.core.exceptions import BusinessError
 from app.models.amount import AmountItem
 from app.models.enums import AmountCategory
 from app.repositories.amount_repository import APPROVED_DECISIONS, AmountRepository
+from app.repositories.task_repository import TaskRepository
 from app.schemas.amount_summary import (
     AmountSummaryResponse,
     CategoryTotal,
@@ -108,8 +109,16 @@ def _to_int(value: Decimal) -> int:
 
 
 class AmountSummaryService:
-    def __init__(self, amount_repository: AmountRepository) -> None:
+    def __init__(
+        self,
+        amount_repository: AmountRepository,
+        task_repository: TaskRepository | None = None,
+    ) -> None:
         self._amounts = amount_repository
+        # 금액 항목으로 만든 태스크를 찾는 데만 쓴다 (AMT-004-3). **없어도 된다** —
+        # 합계 계산은 태스크와 무관하고, 단위테스트는 금액 저장소만 가짜로 넣는다.
+        # 필수로 만들면 계산 테스트가 태스크 저장소까지 준비해야 한다.
+        self._tasks = task_repository
 
     def summarize(self, project_id: int) -> AmountSummaryResponse:
         """프로젝트 금액 현황을 만든다 (AMT-002-2 집계 + AMT-002-1 검산).
@@ -243,8 +252,13 @@ class AmountSummaryService:
         """
         rows = self._amounts.list_project_items(project_id)
         visible = rows[:limit]
+        # 이 항목으로 만든 태스크가 있는지 (AMT-004-3). 저장소가 없으면(단위테스트)
+        # 빈 표로 두고 task_id 를 채우지 않는다 — 그것도 정상 응답이다.
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
         items = [
-            self._to_row(item, document_id, filename)
+            self._to_row(item, document_id, filename, task_ids.get(item.id))
             for item, document_id, filename in visible
         ]
         return AmountItemListResponse(
@@ -260,7 +274,11 @@ class AmountSummaryService:
 
     @classmethod
     def _to_row(
-        cls, item: AmountItem, document_id: int, filename: str
+        cls,
+        item: AmountItem,
+        document_id: int,
+        filename: str,
+        task_id: int | None = None,
     ) -> AmountItemRow:
         """DB 행 하나를 화면용 한 줄로 바꾸고 **검산 결과를 붙인다.**
 
@@ -297,6 +315,7 @@ class AmountSummaryService:
             currency=item.currency,
             source_quote=item.source_quote,
             decision=item.decision,
+            task_id=task_id,
             expected=expected,
             verified=verified,
             difference=difference,
