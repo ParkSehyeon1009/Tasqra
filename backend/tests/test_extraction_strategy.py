@@ -118,6 +118,70 @@ def test_large_image_with_sufficient_text_layer_does_not_run_full_page_ocr(monke
     assert has_ocr is False
 
 
+def test_two_small_text_elements_do_not_skip_embedded_image_ocr():
+    image_block = {"type": 1, "bbox": (0, 0, 1000, 1000)}
+    text_elements = [
+        LayoutElement(
+            x=100,
+            y=100,
+            x2=160,
+            y2=120,
+            content="페이지 1",
+            source="text",
+        ),
+        LayoutElement(
+            x=100,
+            y=150,
+            x2=220,
+            y2=170,
+            content="워터마크",
+            source="text",
+        ),
+    ]
+
+    assert PdfExtractor._image_contains_text_layer(image_block, text_elements) is False
+
+
+def test_long_but_tiny_hidden_text_layer_does_not_skip_image_ocr():
+    image_block = {"type": 1, "bbox": (0, 0, 1000, 1000)}
+    text_elements = [
+        LayoutElement(
+            x=10,
+            y=10,
+            x2=20,
+            y2=20,
+            content="숨은텍스트" * 10,
+            source="text",
+        )
+    ]
+
+    assert PdfExtractor._image_contains_text_layer(image_block, text_elements) is False
+
+
+def test_sufficient_text_layer_skips_redundant_embedded_image_ocr():
+    image_block = {"type": 1, "bbox": (0, 0, 1000, 1000)}
+    text_elements = [
+        LayoutElement(
+            x=100,
+            y=100,
+            x2=900,
+            y2=130,
+            content="이미지 본문을 충분히 설명하는 첫 번째 텍스트 레이어입니다",
+            source="text",
+        ),
+        LayoutElement(
+            x=100,
+            y=150,
+            x2=900,
+            y2=180,
+            content="이미지 본문을 충분히 설명하는 두 번째 텍스트 레이어입니다",
+            source="text",
+        ),
+    ]
+
+    assert PdfExtractor._image_contains_text_layer(image_block, text_elements) is True
+
+
 @pytest.mark.parametrize("file_type", ["pdf", "docx", "hwpx"])
 @pytest.mark.parametrize("value", ["AUTO", "TEXT_ONLY", "TEXT_WITH_IMAGE_OCR"])
 def test_document_files_accept_all_extraction_strategies(file_type, value):

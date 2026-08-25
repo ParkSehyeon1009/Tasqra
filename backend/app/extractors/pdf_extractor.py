@@ -236,6 +236,18 @@ class PdfExtractor(TextExtractor):
         text_elements = [
             element for element in elements if element.source == "text"
         ]
+        page_area = max(float(page.rect.width) * float(page.rect.height), 1.0)
+        return PdfExtractor._is_text_layer_sufficient(
+            text_elements,
+            container_area=page_area,
+        )
+
+    @staticmethod
+    def _is_text_layer_sufficient(
+        text_elements: list[LayoutElement],
+        *,
+        container_area: float,
+    ) -> bool:
         meaningful_chars = sum(
             character.isalnum()
             for element in text_elements
@@ -244,7 +256,6 @@ class PdfExtractor(TextExtractor):
         if meaningful_chars < 24:
             return False
 
-        page_area = max(float(page.rect.width) * float(page.rect.height), 1.0)
         covered_area = sum(
             max(
                 (element.x2 if element.x2 is not None else element.x)
@@ -258,7 +269,7 @@ class PdfExtractor(TextExtractor):
             )
             for element in text_elements
         )
-        return covered_area / page_area >= 0.005
+        return covered_area / max(container_area, 1.0) >= 0.005
 
     @classmethod
     def _merge_full_page_ocr(
@@ -304,21 +315,24 @@ class PdfExtractor(TextExtractor):
     ) -> bool:
         bbox = block.get("bbox", (0, 0, 0, 0))
         x0, y0, x1, y1 = (float(value) for value in bbox)
-        contained_count = 0
+        image_area = max(x1 - x0, 0.0) * max(y1 - y0, 0.0)
+        if image_area <= 0:
+            return False
 
+        contained_elements = []
         for element in text_elements:
-            if element.source != "text":
-                continue
-            element_x2 = element.x2 if element.x2 is not None else element.x
-            element_y2 = element.y2 if element.y2 is not None else element.y
-            center_x = (element.x + element_x2) / 2
-            center_y = (element.y + element_y2) / 2
-            if x0 <= center_x <= x1 and y0 <= center_y <= y1:
-                contained_count += 1
-                if contained_count >= 2:
-                    return True
+            if element.source == "text":
+                element_x2 = element.x2 if element.x2 is not None else element.x
+                element_y2 = element.y2 if element.y2 is not None else element.y
+                center_x = (element.x + element_x2) / 2
+                center_y = (element.y + element_y2) / 2
+                if x0 <= center_x <= x1 and y0 <= center_y <= y1:
+                    contained_elements.append(element)
 
-        return False
+        return PdfExtractor._is_text_layer_sufficient(
+            contained_elements,
+            container_area=image_area,
+        )
 
     @staticmethod
     def _extract_text_block(
