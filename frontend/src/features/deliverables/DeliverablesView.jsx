@@ -31,10 +31,17 @@
 // =============================================================================
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { getDeliverablePreview } from '../../api/deliverable'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  createDeliverable,
+  deleteDeliverable,
+  downloadDeliverable,
+  getDeliverablePreview,
+  listDeliverables,
+} from '../../api/deliverable'
+import ConfirmDialog from '../../components/common/ConfirmDialog'
 import PageHeading from '../../components/common/PageHeading'
-import { formatNumber } from '../../utils/format'
+import { formatDateTime, formatNumber } from '../../utils/format'
 import './DeliverablesView.css'
 
 // 산출물 유형. 값은 서버의 DELIVERABLE_KINDS 와 같아야 한다(리비전 0007 의
@@ -54,11 +61,21 @@ const KINDS = [
 // DB 가 받는 형식이 화면에 없으면 사용자는 그 형식을 고를 방법이 없다.
 // 기본 선택을 두지 않는다 — DLV-001-1 완료 판정이 "형식을 고르지 않으면 생성
 // 버튼이 비활성화된다" 이므로, 사용자가 한 번 명시적으로 골라야 한다.
+//
+// 네 번째 칸(ready)은 **지금 실제로 만들 수 있는지**다. 서버의
+// SUPPORTED_DELIVERABLE_FORMATS 가 MD·HTML 둘뿐이고 나머지는
+// 501 DELIVERABLE_FORMAT_NOT_READY 로 답한다.
+//
+// 숨기지 않고 고를 수 없게만 두는 이유
+//   숨기면 DB·명세에 있는 형식이 화면에서 사라져 "안 되는 것" 인지 "없는 것" 인지
+//   구분되지 않는다. 반대로 그냥 누르게 두면 501 을 받고 나서야 알게 되는데,
+//   사용자에게는 그것이 **고장으로 읽힌다.** 그래서 **누르기 전에** 준비 중임이
+//   보이게 한다. 서버의 501 은 그대로 남는다 — 화면을 우회해도 막힌다.
 const FORMATS = [
-  ['XLSX', 'XLSX', '표 계산과 편집에 적합'],
-  ['HTML', 'HTML', '브라우저에서 바로 확인'],
-  ['MD', 'Markdown', '텍스트 기반 기록과 공유'],
-  ['PDF', 'PDF', '그대로 인쇄하고 공유'],
+  ['XLSX', 'XLSX', '표 계산과 편집에 적합', false],
+  ['HTML', 'HTML', '브라우저에서 바로 확인', true],
+  ['MD', 'Markdown', '텍스트 기반 기록과 공유', true],
+  ['PDF', 'PDF', '그대로 인쇄하고 공유', false],
 ]
 
 // 산출물에 실제로 담기는 재료. 순서는 명세가 나열한 순서다 —
@@ -108,6 +125,9 @@ export default function DeliverablesView({ projectId, notify }) {
   const [format, setFormat] = useState('')
   const [periodFrom, setPeriodFrom] = useState(DEFAULT_FROM)
   const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
+  // 삭제 확인 대상. null 이면 확인창이 닫혀 있다.
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const queryClient = useQueryClient()
 
   const previewQuery = useQuery({
     queryKey: ['projects', projectId, 'deliverable-preview', kind, periodFrom, periodTo],
@@ -123,6 +143,43 @@ export default function DeliverablesView({ projectId, notify }) {
   // 어느 항목을 셀 수 없는지 서버가 알려준다. 화면이 필드 이름을 외우지 않는다.
   const uncountable = preview?.uncountable ?? []
   const selected = KINDS.find(([value]) => value === kind)
+
+  // 생성 이력(DLV-003-3). 조건과 무관하므로 kind·기간을 키에 넣지 않는다 —
+  // 넣으면 유형을 바꿀 때마다 목록이 비었다가 다시 채워진다.
+  const historyQuery = useQuery({
+    queryKey: ['projects', projectId, 'deliverables'],
+    queryFn: () => listDeliverables(projectId),
+    retry: false,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => createDeliverable(projectId, { kind, format, periodFrom, periodTo }),
+    onSuccess: created => {
+      notify?.('success', '산출물을 만들었습니다', `${created.title} · ${created.format}`)
+      // 이력을 다시 받는다. 미리보기도 함께 — 방금 만든 것이 최신인지 판정하는
+      // 기준이 이 시각이므로, 다른 화면에서 돌아왔을 때 낡은 값을 쓰지 않게 한다.
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'deliverables'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'deliverable-preview'] })
+    },
+    // 서버 문구를 그대로 보여준다. 422 DELIVERABLE_EMPTY 든 501 이든 이미 사용자가
+    // 읽을 수 있는 한국어다. 화면이 code 별로 문장을 다시 만들면 서버와 어긋난다.
+    onError: error => notify?.('error', '산출물을 만들지 못했습니다', error?.message),
+  })
+
+  const downloadMutation = useMutation({
+    mutationFn: item => downloadDeliverable(item.download_url, `${item.title}.${item.format.toLowerCase()}`),
+    onError: error => notify?.('error', '내려받지 못했습니다', error?.message),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: item => deleteDeliverable(projectId, item.id),
+    onSuccess: () => {
+      notify?.('success', '산출물을 삭제했습니다', '이력과 파일이 함께 지워졌습니다.')
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'deliverables'] })
+    },
+    onError: error => notify?.('error', '삭제하지 못했습니다', error?.message),
+    onSettled: () => setDeleteTarget(null),
+  })
 
   return <>
     <PageHeading
@@ -164,13 +221,14 @@ export default function DeliverablesView({ projectId, notify }) {
           <span>하나를 선택해야 만들 수 있습니다.</span>
         </div>
         <div className='deliverable-format-group' role='group' aria-label='출력 형식'>
-          {FORMATS.map(([value, label, description]) => <button
-            className={'deliverable-format' + (value === format ? ' is-active' : '')}
+          {FORMATS.map(([value, label, description, ready]) => <button
+            className={'deliverable-format' + (value === format ? ' is-active' : '') + (ready ? '' : ' is-unready')}
             type='button'
             key={value}
             aria-pressed={value === format}
+            disabled={!ready}
             onClick={() => setFormat(value)}
-          ><strong>{label}</strong><span>{description}</span></button>)}
+          ><strong>{label}</strong><span>{ready ? description : '아직 만들 수 없습니다'}</span></button>)}
         </div>
       </div>
     </section>
@@ -204,7 +262,30 @@ export default function DeliverablesView({ projectId, notify }) {
       />)}
     </section>
 
-    <GeneratePanel preview={preview} loading={previewQuery.isPending} format={format} notify={notify}/>
+    <GeneratePanel
+      preview={preview}
+      loading={previewQuery.isPending}
+      format={format}
+      generating={createMutation.isPending}
+      onGenerate={() => createMutation.mutate()}
+    />
+
+    <HistoryPanel
+      query={historyQuery}
+      downloadingId={downloadMutation.isPending ? downloadMutation.variables?.id : null}
+      onDownload={item => downloadMutation.mutate(item)}
+      onDelete={item => setDeleteTarget(item)}
+    />
+
+    <ConfirmDialog
+      open={Boolean(deleteTarget)}
+      title='산출물을 삭제할까요?'
+      message={`${deleteTarget?.title ?? ''} (${deleteTarget?.format ?? ''}) 의 이력과 파일이 함께 지워집니다. 같은 조건으로 다시 만들 수 있습니다.`}
+      confirmLabel='삭제'
+      danger
+      onCancel={() => setDeleteTarget(null)}
+      onConfirm={() => deleteMutation.mutate(deleteTarget)}
+    />
   </>
 }
 
@@ -224,18 +305,16 @@ function CountCard({ label, value, note, unknown }) {
 
 // 생성 영역. **막히는 것이 보이는 자리**라서 화면에서 가장 중요하다.
 //
-// 만들기(DLV-002-1)가 아직 없다. 그래서 눌렀을 때 실제로 만들지는 않고 준비 중임을
-// 알린다. 버튼을 아예 없애지 않는 이유: 없으면 "대상이 없으면 생성이 방지된다" 를
-// 화면에서 확인할 수 없다. 대신 **버튼 아래에 준비 중임을 늘 적어** 눌러 보고 나서
-// 알게 되는 일이 없게 한다.
-//
 // `format` 은 서버 미리보기와 무관한 **사용자 입력 조건**이다. can_generate 는
 // 담을 내용이 있는지만 판단하므로, 화면이 형식 누락을 별도로 막아야 한다.
 // 기본값을 두지 않아 사용자가 한 번 명시적으로 고르게 한다(DLV-001-1).
-function GeneratePanel({ preview, loading, format, notify }) {
+//
+// 막는 이유를 버튼이 아니라 **문장으로** 적는다. 비활성 버튼만 있으면 왜 못
+// 누르는지 알 수 없어서, 사용자는 조건을 이리저리 바꿔 보게 된다.
+function GeneratePanel({ preview, loading, format, generating, onGenerate }) {
   const contentBlocked = preview ? !preview.can_generate : true
   const formatMissing = !format
-  const disabled = loading || contentBlocked || formatMissing
+  const disabled = loading || contentBlocked || formatMissing || generating
   return <section className='panel deliverable-generate'>
     <div>
       <h2>산출물 만들기</h2>
@@ -246,13 +325,94 @@ function GeneratePanel({ preview, loading, format, notify }) {
           : contentBlocked
             ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
             : <p>담길 내용이 있습니다. <strong>{format}</strong> 형식으로 만들 수 있습니다.</p>}
-      <p className='deliverable-generate-note'>만들기 기능은 아직 붙지 않았습니다. 지금은 조건 선택과 담길 내용 확인까지만 됩니다.</p>
+      <p className='deliverable-generate-note'>만든 산출물은 아래 <strong>만든 산출물</strong> 목록에 쌓입니다. 개요 문장은 아직 들어가지 않습니다.</p>
     </div>
     <button
       type='button'
       className='deliverable-generate-button'
       disabled={disabled}
-      onClick={() => notify?.('info', '준비 중입니다', `선택한 출력 형식은 ${format}입니다. 만들기는 다음 작업에서 붙습니다.`)}
-    >만들기</button>
+      onClick={onGenerate}
+    >{generating ? '만드는 중…' : '만들기'}</button>
   </section>
+}
+
+// 재료 이름 → 화면 문구. CONTENT_COUNTS 에서 그대로 만든다.
+//
+// 라벨을 다시 적지 않는 이유: '완료한 태스크' 같은 문구가 두 곳에 생기면 한쪽만
+// 고쳐서 같은 화면에서 이름이 달라진다. 서버의 stale_changes 키는 미리보기 counts
+// 와 같은 키를 쓰므로 이 표 하나로 덮인다.
+const MATERIAL_LABELS = Object.fromEntries(CONTENT_COUNTS)
+
+/** 늘어난 재료를 한국어 문장으로. `{documents: 2}` → `문서 2건` */
+function staleSentence(changes) {
+  return Object.entries(changes ?? {})
+    .map(([key, added]) => `${MATERIAL_LABELS[key] ?? key} ${formatNumber(added)}건`)
+    .join(' · ')
+}
+
+/** 파일 크기. 산출물은 문서 파일보다 훨씬 작아서 KB 까지만 보인다. */
+function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined) return '—'
+  if (bytes < 1024) return `${formatNumber(bytes)} B`
+  return `${formatNumber(Math.round(bytes / 1024))} KB`
+}
+
+// 생성 이력(DLV-003-3)과 갱신 필요 표시(DLV-003-4).
+//
+// 목록이 비어 있을 때 "없습니다" 만 적지 않는다. 이 화면에 처음 온 사용자는 위쪽
+// 만들기와 이 목록이 이어진다는 것을 모른다 — 그래서 무엇을 하면 채워지는지 적는다.
+function HistoryPanel({ query, downloadingId, onDownload, onDelete }) {
+  const items = query.data ?? []
+  return <section className='panel deliverable-history' aria-label='만든 산출물'>
+    <div className='deliverable-history-heading'>
+      <h2>만든 산출물</h2>
+      {items.length > 0 && <span>{formatNumber(items.length)}건 · 최근에 만든 것이 위</span>}
+    </div>
+
+    {query.isPending
+      ? <p className='deliverable-history-empty'>목록을 불러오는 중입니다.</p>
+      : query.isError
+        ? <p className='deliverable-history-empty'>목록을 불러오지 못했습니다. {query.error?.message}</p>
+        : items.length === 0
+          ? <p className='deliverable-history-empty'>아직 만든 산출물이 없습니다. 위에서 조건과 형식을 고른 뒤 <strong>만들기</strong>를 누르면 여기에 쌓입니다.</p>
+          : <ul className='deliverable-history-list'>
+            {items.map(item => <HistoryItem
+              key={item.id}
+              item={item}
+              downloading={item.id === downloadingId}
+              onDownload={onDownload}
+              onDelete={onDelete}
+            />)}
+          </ul>}
+  </section>
+}
+
+// 한 건. **낡았는지를 배지 하나로 끝내지 않고 무엇이 늘었는지 적는다** —
+// "갱신 필요" 만 보이면 사용자는 다시 만들어도 무엇이 달라지는지 모른다.
+//
+// is_stale 을 화면에서 계산하지 않는다. 서버가 생성 시각 이후 재료를 세어 판정하고,
+// 늘어난 것만 stale_changes 에 담아 준다(DLV-003-4).
+function HistoryItem({ item, downloading, onDownload, onDelete }) {
+  const changes = staleSentence(item.stale_changes)
+  return <li className={'deliverable-card' + (item.is_stale ? ' is-stale' : '')}>
+    <div className='deliverable-card-main'>
+      <div className='deliverable-card-title'>
+        <strong>{item.title}</strong>
+        <span className='deliverable-card-format'>{item.format}</span>
+        {item.is_stale && <span className='deliverable-card-badge'>갱신 필요</span>}
+      </div>
+      <p className='deliverable-card-meta'>
+        {formatDateTime(item.generated_at)} · {formatFileSize(item.file_size)}
+      </p>
+      {item.is_stale && <p className='deliverable-card-stale'>
+        {changes ? <>만든 뒤 {changes}이 늘었습니다. 다시 만들면 반영됩니다.</> : '만든 뒤 담길 내용이 바뀌었습니다. 다시 만들면 반영됩니다.'}
+      </p>}
+    </div>
+    <div className='deliverable-card-actions'>
+      <button type='button' disabled={downloading} onClick={() => onDownload(item)}>
+        {downloading ? '받는 중…' : '내려받기'}
+      </button>
+      <button type='button' className='deliverable-card-delete' onClick={() => onDelete(item)}>삭제</button>
+    </div>
+  </li>
 }

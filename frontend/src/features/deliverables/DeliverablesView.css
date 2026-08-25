@@ -77,3 +77,43 @@
 @media (max-width: 560px) {
   .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }
 }
+
+
+/* 아직 만들 수 없는 출력 형식. 고를 수 없되 **있다는 것은 보인다.**
+   숨기면 "없는 형식" 으로 읽히고, 그냥 두면 눌러서 501 을 받고 나서야 안다. */
+.deliverable-format.is-unready { border-style: dashed; background: #fafbfd; cursor: not-allowed; }
+.deliverable-format.is-unready > strong { color: #97a1b3; }
+.deliverable-format.is-unready > span { color: #a8b0bf; }
+
+/* 만든 산출물 목록(DLV-003-3). */
+.deliverable-history { margin-top: 18px; }
+.deliverable-history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.deliverable-history-heading h2 { margin: 0; }
+.deliverable-history-heading span { color: #758197; font-size: 12px; font-weight: 700; }
+.deliverable-history-empty { margin: 0; color: #758197; font-size: 13px; line-height: 1.6; }
+.deliverable-history-empty strong { color: #2c326b; }
+
+.deliverable-history-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.deliverable-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 15px 17px; border: 1px solid #dce3ee; border-radius: 12px; background: #fff; }
+/* 낡은 산출물. 색을 쓰지 않고 **왼쪽 굵은 선** 하나로만 구분한다. */
+.deliverable-card.is-stale { border-left: 3px solid #2c326b; }
+.deliverable-card-main { min-width: 0; }
+.deliverable-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.deliverable-card-title > strong { color: #2c326b; font-size: 15px; }
+.deliverable-card-format { padding: 2px 8px; border: 1px solid #dce3ee; border-radius: 6px; color: #65748a; font-size: 11px; font-weight: 750; }
+.deliverable-card-badge { padding: 2px 8px; border-radius: 6px; background: #2c326b; color: #fff; font-size: 11px; font-weight: 750; }
+.deliverable-card-meta { margin: 7px 0 0; color: #758197; font-size: 12px; }
+/* 무엇이 늘었는지. 배지보다 이 문장이 실제로 쓸모 있는 정보다. */
+.deliverable-card-stale { margin: 7px 0 0; color: #2c326b; font-size: 12px; font-weight: 700; line-height: 1.5; }
+
+.deliverable-card-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.deliverable-card-actions button { min-height: 34px; padding: 7px 13px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #2c326b; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.deliverable-card-actions button:hover:not(:disabled), .deliverable-card-actions button:focus-visible:not(:disabled) { border-color: #4a43ae; background: #f4f5fb; }
+.deliverable-card-actions button:disabled { background: #eef1f6; color: #97a1b3; cursor: not-allowed; }
+.deliverable-card-delete { color: #97283c !important; }
+.deliverable-card-delete:hover, .deliverable-card-delete:focus-visible { border-color: #97283c !important; background: #fdf5f6 !important; }
+
+@media (max-width: 700px) {
+  .deliverable-card { flex-direction: column; align-items: stretch; }
+  .deliverable-card-actions button { flex: 1 1 0; }
+}
