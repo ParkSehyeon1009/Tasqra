@@ -33,7 +33,8 @@ def build_reading_groups(
     page_left: float = 0,
 ) -> list[ReadingGroup] | None:
     """확실한 공백으로 나뉘는 영역만 재귀적으로 읽기 순서를 계산한다."""
-    if len(elements) < 6 or page_width <= 0:
+    # 좌우에 두 줄씩만 있는 짧은 2단 문서도 판정할 수 있어야 한다.
+    if len(elements) + len(atomic_elements) < 4 or page_width <= 0:
         return None
 
     items = [
@@ -184,11 +185,11 @@ def _valid_column_children(
     left: list[_ReadingItem],
     right: list[_ReadingItem],
 ) -> bool:
-    if len(left) < 3 or len(right) < 3:
+    if len(left) < 2 or len(right) < 2:
         return False
     if min(len(left), len(right)) / max(len(left), len(right)) < 0.20:
         return False
-    if _line_count(left) < 3 or _line_count(right) < 3:
+    if _line_count(left) < 2 or _line_count(right) < 2:
         return False
 
     left_width = _items_width(left)

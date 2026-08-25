@@ -319,9 +319,39 @@ class OcrExtractor:
             else:
                 matching_line.append(element)
 
-        merged = [cls._merge_line(line) for line in lines]
+        merged = [
+            cls._merge_line(part)
+            for line in lines
+            for part in cls._split_distant_line_elements(line)
+        ]
         merged.sort(key=lambda element: (element.y, element.x))
         return merged
+
+    @staticmethod
+    def _split_distant_line_elements(
+        line: list[LayoutElement],
+    ) -> list[list[LayoutElement]]:
+        """세로 위치만 겹치는 서로 다른 좌우 단락을 한 줄로 합치지 않는다."""
+        ordered = sorted(line, key=lambda element: element.x)
+        if len(ordered) < 2:
+            return [ordered]
+
+        groups: list[list[LayoutElement]] = [[ordered[0]]]
+        for previous, current in zip(ordered, ordered[1:]):
+            previous_x2 = previous.x2 if previous.x2 is not None else previous.x
+            previous_y2 = previous.y2 if previous.y2 is not None else previous.y
+            current_y2 = current.y2 if current.y2 is not None else current.y
+            gap = current.x - previous_x2
+            average_height = (
+                max(previous_y2 - previous.y, 1.0)
+                + max(current_y2 - current.y, 1.0)
+            ) / 2
+
+            if gap > average_height * 6.0:
+                groups.append([current])
+            else:
+                groups[-1].append(current)
+        return groups
 
     @staticmethod
     def _vertical_sort_key(element: LayoutElement) -> tuple[float, float]:
