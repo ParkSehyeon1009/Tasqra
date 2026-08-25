@@ -13,6 +13,9 @@ import './styles/app.css'
 import './styles/states.css'
 import './styles/responsive.css'
 import './styles/design-refresh.css'
+import { applyThemeColor, getSavedThemeColor } from './utils/theme'
+
+applyThemeColor(getSavedThemeColor())
 
 function ProtectedRoute({ user, loading, children }) {
   const location = useLocation()
