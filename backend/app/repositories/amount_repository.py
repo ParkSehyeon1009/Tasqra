@@ -1,7 +1,13 @@
 # =============================================================================
-# 이 파일의 책임: amount_items 조회를 담당한다. 지금은 과거 유사 사업의 단가
-#   선례를 찾는 조회 하나뿐이다(SRH-002-3). 비즈니스 판단은 하지 않는다 —
-#   범위를 정하고 중앙값을 내는 것은 services/amount_precedent_service.py 가 한다.
+# 이 파일의 책임: amount_items 조회를 담당한다. 둘 있다 — 과거 유사 사업의 단가
+#   선례(SRH-002-3)와 한 프로젝트의 금액 항목 전부(AMT-002-2 집계의 재료).
+#   비즈니스 판단은 하지 않는다 — 범위를 정하고 중앙값을 내는 것은
+#   services/amount_precedent_service.py, 합계와 검산은
+#   services/amount_summary_service.py 가 한다.
+#
+#   다만 **"어느 분석의 항목을 볼 것인가" 는 여기서 정한다.** 재분석으로 쌓인 옛
+#   항목을 거르는 일인데, 서비스마다 각자 걸러야 하면 한 곳이 빠뜨리는 순간 그
+#   화면만 금액이 두 배로 나온다. 조회 조건이라 리포지토리가 맞다.
 # 다른 파일과의 관계: models/amount.py 의 AmountItem 을 읽는다.
 #   documents · projects 를 조인해 문서명·프로젝트명을 함께 가져온다.
 #   chunk_repository.search_by_vector 와 같은 이유다 — item.document.project.name
@@ -14,7 +20,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.amount import AmountItem
@@ -27,6 +33,55 @@ from app.models.project import Project
 # 추출값을 다른 사업의 근거로 쓰면 그 원칙이 깨진다. EDITED 는 사람이 값을
 # 고쳐 확정한 것이라 포함한다 — 오히려 신뢰도가 더 높다.
 APPROVED_DECISIONS = ("APPROVED", "EDITED")
+
+
+def _latest_approved_analysis():
+    """문서마다 **승인된 항목이 있는 가장 최신 분석**만 남기는 서브쿼리.
+
+    ### 왜 필요한가 — 없으면 금액이 두 배가 된다
+
+    문서를 다시 분석하면 `analyses` 에 새 행이 쌓이고(`DOC-006-2`) 금액 항목도
+    새로 생긴다. 옛 항목은 지워지지 않는다. 그래서 이 조건이 없으면 **같은 문서의
+    금액이 분석 횟수만큼 더해진다.**
+
+    에러가 나지 않고 합계만 조용히 커진다. 사업 규모를 잘못 보고하는 종류의
+    사고다. `models/amount.py` 의 `analysis_id` 주석이 *"이 값으로 최신 분석의
+    금액과 과거 것을 구별한다"* 고 적어 둔 것이 이 조건을 뜻한다 — **의도는
+    적혀 있었고 쿼리에 없었다.**
+
+    ### `MAX(analysis_id)` 로 최신을 고르는 근거
+
+    `analyses.id` 가 `BigInteger` 자동증가라 나중에 만든 행이 항상 크다.
+    `created_at` 으로 고르면 같은 초에 두 번 분석했을 때 순서가 흔들린다.
+
+    ### 승인 상태로 먼저 거르는 이유
+
+    분석 #2 를 돌렸지만 아직 아무도 승인하지 않았고 #1 은 승인돼 있다고 하자.
+    승인 여부를 보지 않고 최신(#2)을 고르면 승인 필터를 거친 뒤 **0건이 되어
+    금액이 화면에서 사라진다.** 사용자는 승인해 둔 값이 없어졌다고 읽는다.
+    그래서 "승인된 항목이 있는 분석 중 가장 최신" 을 고른다.
+
+    ### 다른 곳에서도 같은 조건을 써야 한다
+
+    `list_precedents` 와 `list_project_items` 가 **같은 서브쿼리를 쓴다.** 한쪽만
+    고치면 선례에는 같은 항목이 두 번 나오는데 집계는 한 번 세는, 설명할 수 없는
+    상태가 된다.
+
+    Spring 비교: JPQL 의 상관 서브쿼리(`WHERE a.analysisId = (SELECT MAX(...))`)를
+    조인 가능한 파생 테이블로 바꾼 것이다. 조인이라 문서마다 한 번만 계산된다.
+    """
+    return (
+        select(
+            AmountItem.document_id.label("document_id"),
+            func.max(AmountItem.analysis_id).label("analysis_id"),
+        )
+        # 승인 상태만 여기서 거른다. unit_price 같은 «쓸 수 있는 값인가» 조건은
+        # 넣지 않는다 — 그것은 어느 분석이 최신인지와 무관하고, 넣으면 단가 없는
+        # 항목만 있는 최신 분석이 건너뛰어진다.
+        .where(AmountItem.decision.in_(APPROVED_DECISIONS))
+        .group_by(AmountItem.document_id)
+        .subquery()
+    )
 
 
 class AmountRepository:
@@ -45,6 +100,10 @@ class AmountRepository:
         (금액 항목, 문서 파일명, 프로젝트 id, 프로젝트 이름) 을 돌려준다.
 
         조건 넷이 모두 필요하다.
+
+        조건 넷 말고 하나가 더 있다 — **재분석으로 쌓인 옛 항목을 뺀다**
+        (`_latest_approved_analysis`). 없으면 같은 문서를 두 번 분석했을 때 같은
+        항목이 목록에 두 번 나와 중앙값이 그쪽으로 끌린다.
 
         1. project_id IN project_ids
            호출한 쪽이 "내 멤버십 − 현재 프로젝트" 를 계산해서 넘긴다. 여기서
@@ -74,10 +133,20 @@ class AmountRepository:
         exact = item_name.strip()
         pattern = f"%{exact}%"
 
+        latest = _latest_approved_analysis()
         stmt: Select = (
             select(AmountItem, Document.filename, Project.id, Project.name)
             .join(Document, Document.id == AmountItem.document_id)
             .join(Project, Project.id == Document.project_id)
+            # 재분석으로 쌓인 옛 항목을 뺀다. 없으면 같은 문서의 같은 항목이
+            # 선례 목록에 분석 횟수만큼 나와 중앙값을 끌어당긴다.
+            .join(
+                latest,
+                and_(
+                    AmountItem.document_id == latest.c.document_id,
+                    AmountItem.analysis_id == latest.c.analysis_id,
+                ),
+            )
             .where(Document.project_id.in_(project_ids))
             .where(AmountItem.decision.in_(APPROVED_DECISIONS))
             .where(AmountItem.unit_price.isnot(None))
@@ -118,6 +187,10 @@ class AmountRepository:
         3. **다른 프로젝트를 보지 않는다.** 선례는 "내 멤버십 − 현재 프로젝트"
            였지만 여기는 현재 프로젝트 하나뿐이다.
 
+        **재분석으로 쌓인 옛 항목은 뺀다** (`_latest_approved_analysis`). 이것이
+        없으면 문서를 두 번 분석했을 때 금액이 두 배가 된다. 선례 조회도 같은
+        조건을 쓴다 — 한쪽만 고치면 두 화면의 숫자가 설명할 수 없게 달라진다.
+
         `amount IS NULL` 인 항목도 **가져온다.** 문서에 금액이 안 적힌 항목이
         그렇다(계약서: "amount 가 null 인 항목을 그대로 둔다"). 합계에 못 넣는
         것은 맞지만, **몇 건이 빠졌는지 사용자에게 알려야** 하므로 여기서 버리지
@@ -127,9 +200,19 @@ class AmountRepository:
         집계 결과가 나온다" 다. 합계는 순서와 무관하지만 **검산 불일치 목록은
         순서가 보이므로** 정렬이 없으면 호출마다 뒤바뀐다.
         """
+        latest = _latest_approved_analysis()
         stmt: Select = (
             select(AmountItem, Document.id, Document.filename)
             .join(Document, Document.id == AmountItem.document_id)
+            # 재분석으로 쌓인 옛 항목을 뺀다. 없으면 합계가 분석 횟수만큼
+            # 불어난다 — _latest_approved_analysis 주석 참고.
+            .join(
+                latest,
+                and_(
+                    AmountItem.document_id == latest.c.document_id,
+                    AmountItem.analysis_id == latest.c.analysis_id,
+                ),
+            )
             .where(Document.project_id == project_id)
             .where(AmountItem.decision.in_(APPROVED_DECISIONS))
             .order_by(Document.id, AmountItem.id)
