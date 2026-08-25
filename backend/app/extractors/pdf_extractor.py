@@ -682,20 +682,30 @@ class PdfExtractor(TextExtractor):
             normalize_orientation=False,
         )
 
-        converted_elements: list[LayoutElement] = []
+        return self._map_full_page_ocr_elements(ocr_elements, scale=scale)
 
-        for element in ocr_elements:
-            # 2배로 렌더링한 이미지의 좌표를 원래 PDF 페이지 좌표로 복원한다.
-            converted_elements.append(
-                LayoutElement(
-                    x=element.x / scale,
-                    y=element.y / scale,
-                    x2=(element.x2 / scale if element.x2 is not None else None),
-                    y2=(element.y2 / scale if element.y2 is not None else None),
-                    content=element.content,
-                    source="ocr",
-                    confidence=element.confidence,
-                )
+    @staticmethod
+    def _map_full_page_ocr_elements(
+        ocr_elements: list[LayoutElement],
+        *,
+        scale: float,
+    ) -> list[LayoutElement]:
+        """렌더링 배율만 복원하고 OCR 구조 메타데이터는 그대로 보존한다."""
+        return [
+            LayoutElement(
+                x=element.x / scale,
+                y=element.y / scale,
+                x2=(element.x2 / scale if element.x2 is not None else None),
+                y2=(element.y2 / scale if element.y2 is not None else None),
+                content=element.content,
+                source="ocr",
+                confidence=element.confidence,
+                element_type=element.element_type,
+                element_type_source=element.element_type_source,
+                is_paragraph_start=element.is_paragraph_start,
+                table_id=element.table_id,
+                table_row=element.table_row,
+                ocr_group_id=element.ocr_group_id,
             )
-
-        return converted_elements
+            for element in ocr_elements
+        ]
