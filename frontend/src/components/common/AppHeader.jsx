@@ -57,6 +57,7 @@ export default function AppHeader({ user, onLogout, notify, project, section }) 
 
 function ThemePanel({ color, onChange }) {
   const hsl = hexToHsl(color)
+  const [wheelSelection, setWheelSelection] = useState(() => ({ h: hsl.h, s: hsl.s }))
   const wheelRef = useRef(null)
 
   function chooseFromWheel(event) {
@@ -66,6 +67,7 @@ function ThemePanel({ color, onChange }) {
     const radius = rect.width / 2
     const saturation = Math.min(100, Math.round(Math.hypot(x, y) / radius * 100))
     const hue = Math.round((Math.atan2(y, x) * 180 / Math.PI + 90 + 360) % 360)
+    setWheelSelection({ h: hue, s: saturation })
     onChange(hslToHex({ h: hue, s: saturation, l: hsl.l }))
   }
 
@@ -74,9 +76,17 @@ function ThemePanel({ color, onChange }) {
     chooseFromWheel(event)
   }
 
-  const angle = (hsl.h - 90) * Math.PI / 180
-  const distance = hsl.s * .72
-  return <section className="header-popover theme-panel"><div className="theme-panel__head"><div><h2>화면 테마</h2><p>색상과 밝기를 선택하세요.</p></div><span style={{ background: color }}/></div><div ref={wheelRef} className="theme-color-wheel" onPointerDown={startWheel} onPointerMove={event => event.currentTarget.hasPointerCapture(event.pointerId) && chooseFromWheel(event)}><i style={{ transform:`translate(${Math.cos(angle) * distance}px,${Math.sin(angle) * distance}px)` }}/></div><label className="theme-lightness"><span>밝기</span><input type="range" min="0" max="100" value={hsl.l} onChange={event => onChange(hslToHex({ ...hsl, l:Number(event.target.value) }))}/></label><div className="theme-panel__presets">{THEME_PRESETS.map(preset => <button type="button" key={preset.color} className={color === preset.color ? 'is-active' : ''} onClick={() => onChange(preset.color)} title={preset.name} aria-label={`${preset.name} 테마`} style={{ background:preset.color }}/>)}</div><button type="button" className="theme-panel__reset" onClick={() => onChange(DEFAULT_THEME_COLOR)}>기본 네이비로 초기화</button></section>
+  function choosePreset(presetColor) {
+    const preset = hexToHsl(presetColor)
+    setWheelSelection({ h: preset.h, s: preset.s })
+    onChange(presetColor)
+  }
+
+  const angle = (wheelSelection.h - 90) * Math.PI / 180
+  const distance = wheelSelection.s * .72
+  const wheelShade = hsl.l < 50 ? (50 - hsl.l) / 50 : 0
+  const wheelTint = hsl.l > 50 ? (hsl.l - 50) / 50 : 0
+  return <section className="header-popover theme-panel"><div className="theme-panel__head"><div><h2>화면 테마</h2><p>색상과 밝기를 선택하세요.</p></div><span style={{ background: color }}/></div><div ref={wheelRef} className="theme-color-wheel" style={{ '--wheel-shade':wheelShade, '--wheel-tint':wheelTint }} onPointerDown={startWheel} onPointerMove={event => event.currentTarget.hasPointerCapture(event.pointerId) && chooseFromWheel(event)}><i style={{ transform:`translate(${Math.cos(angle) * distance}px,${Math.sin(angle) * distance}px)` }}/></div><label className="theme-lightness"><span>밝기</span><input type="range" min="0" max="100" value={hsl.l} onChange={event => onChange(hslToHex({ ...wheelSelection, l:Number(event.target.value) }))}/></label><div className="theme-panel__presets">{THEME_PRESETS.map(preset => <button type="button" key={preset.color} className={color === preset.color ? 'is-active' : ''} onClick={() => choosePreset(preset.color)} title={preset.name} aria-label={`${preset.name} 테마`} style={{ background:preset.color }}/>)}</div><button type="button" className="theme-panel__reset" onClick={() => choosePreset(DEFAULT_THEME_COLOR)}>기본 네이비로 초기화</button></section>
 }
 
 function NotificationPanel({ invitations, responding, accept, decline }) {
