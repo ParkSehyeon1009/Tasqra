@@ -36,3 +36,37 @@ export async function findAmountPrecedents(projectId, { itemName, limit = 20 } =
   })
   return data
 }
+
+
+// GET /api/projects/{projectId}/amount-summary
+//
+// 프로젝트 금액 현황(AMT-002-2 · AMT-003-2). 계산은 **서버가 다 한다** —
+// 화면은 받은 수치를 그대로 그린다.
+//
+// 응답: {
+//   currency: "KRW",
+//   item_total, vat_total, total_with_vat,      // 정수(원). 아래 주의 참고
+//   by_category: [{ category, amount }],
+//   document_count, included_item_count,
+//   excluded_no_amount, unverifiable_line_count,
+//   line_mismatches: [{ item_id, document_id, filename, item_name,
+//                       expected, actual, difference }],
+//   included_decisions: ["APPROVED", "EDITED"]
+// }
+//
+// **item_total 에 부가세가 들어 있지 않다.** total_with_vat 가 따로 온다.
+// 화면에서 item_total + vat_total 을 더하지 않는다 — 더하면 서버가 이미
+// 계산한 값과 두 군데서 같은 규칙을 갖게 되고, 규칙이 바뀌면 한쪽만 틀린다.
+// by_category 에는 VAT 행이 **들어 있다**(원가구분별로 다 보여주므로).
+// 그래서 by_category 를 합쳐도 item_total 이 되지 않는다. 합치지 않는다.
+//
+// included_decisions 를 서버가 주는 이유는 화면이 "승인된 항목만 집계됩니다" 를
+// 근거 있게 적을 수 있게 하려는 것이다. 화면이 상태 목록을 외우지 않는다.
+//
+// 선례 조회와 달리 금액이 문자열이 아니라 **정수**로 온다. 서버가 원 단위로
+// 반올림해 합계를 내기 때문이다(Decimal 을 그대로 주면 화면이 다시 더해야 한다).
+// 그래도 화면에서 계산하지 않는다 — 표시만 한다.
+export async function getAmountSummary(projectId) {
+  const { data } = await http.get(`/api/projects/${projectId}/amount-summary`)
+  return data
+}

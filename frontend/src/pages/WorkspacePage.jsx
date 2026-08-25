@@ -13,6 +13,7 @@ import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
 import BoardView from '../features/board/BoardView'
+import AmountSummaryView from '../features/amount/AmountSummaryView'
 import DashboardView from '../features/dashboard/DashboardView'
 import DeliverablesView from '../features/deliverables/DeliverablesView'
 import DocumentsView from '../features/documents/DocumentsView'
@@ -32,7 +33,12 @@ import '../styles/workspace.css'
 // 탭을 추가할 때는 이 배열과 아래 TabContent 를 **함께** 고쳐야 한다.
 // TabContent 마지막이 return <BoardView/> 로 떨어지므로, 여기만 추가하면
 // 새 탭에서 보드가 나온다 — 에러가 나지 않아 찾기 어렵다.
-const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['deliverables','산출물'],['board','보드'],['settings','설정']]
+//
+// **세 번째 자리가 하나 더 있다** — features/projects/ProjectSidebar.jsx 의
+// PROJECT_MENUS 다. 거기가 사이드바에서 눌러 들어가는 목록이고, 이 배열은
+// 주소로 들어왔을 때 허용하는 목록이다(없으면 대시보드로 되돌린다).
+// 셋 중 하나를 빠뜨리면 에러 없이 어긋난다.
+const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['amounts','금액'],['deliverables','산출물'],['board','보드'],['settings','설정']]
 
 export default function WorkspacePage({ user, onLogout, notify }) {
   const { projectId, tab } = useParams()
@@ -161,5 +167,8 @@ function TabContent({ tab, project, data, documentType, onDocumentTypeChange, ca
   // 문서가 21건 이상이면 조용히 틀린다(대시보드에서 겪은 것과 같은 함정).
   // notify 는 만들기가 아직 준비 중임을 알리는 데 쓴다.
   if (tab === 'deliverables') return <DeliverablesView projectId={project.id} notify={notify}/>
+  // 금액도 워크스페이스 데이터를 쓰지 않는다. 합계는 서버가 내므로(AMT-002-2)
+  // 화면에 넘어온 문서 목록으로 다시 세거나 더하지 않는다.
+  if (tab === 'amounts') return <AmountSummaryView projectId={project.id}/>
   return <BoardView projectId={project.id} members={data.members} canEdit={canEdit} notify={notify}/>
 }
