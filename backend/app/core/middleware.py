@@ -53,6 +53,54 @@ def resolve_request_id(incoming: str | None) -> str:
     return str(uuid.uuid4())
 
 
+# --- 요청 밖으로 request_id 를 꺼내는 세 가지 방법 ---------------------------
+#
+# 워커(Celery)는 미들웨어를 거치지 않는다. 그래서 태스크를 큐에 넣을 때 값을 실어
+# 보내고, 워커가 받아서 자기 프로세스의 contextvar 에 심어야 로그에 찍힌다.
+# 아래 셋이 그 양쪽 끝이다.
+
+
+def get_request_id(request: Request) -> str:
+    """FastAPI 의존성. 엔드포인트에서 `request_id: str = Depends(get_request_id)`.
+
+    `request.state` 에서 읽는다 — 미들웨어가 거기에 **직접** 심으므로 contextvar
+    전달 여부와 무관하게 값이 맞는다. 새 엔드포인트에서는 이쪽을 쓴다.
+
+    Spring 비교: `@RequestAttribute("requestId") String requestId` 로 받는 자리다.
+    """
+    return getattr(request.state, "request_id", "-")
+
+
+def current_request_id() -> str:
+    """contextvar 에서 읽는다. **엔드포인트 서명을 바꿀 수 없을 때만** 쓴다.
+
+    의존성을 더하려면 함수 서명을 고쳐야 하는데, 남이 만지고 있는 파일에서는
+    그것이 충돌 지점이 된다. 그럴 때 한 줄로 끝내려고 둔다.
+
+    요청 밖(워커·스크립트)에서 부르면 `"-"` 다. 값을 못 얻어도 아무것도 깨지지
+    않는다 — 추적이 안 될 뿐이다.
+
+    Spring 비교: `MDC.get("requestId")` 를 직접 읽는 것과 같다.
+    """
+    return request_id_ctx_var.get()
+
+
+def bind_request_id(request_id: str | None) -> None:
+    """받은 값을 이 프로세스의 contextvar 에 심는다. **워커가 부른다.**
+
+    미들웨어가 없는 프로세스에서 미들웨어 역할을 대신하는 자리다. 이것을 부르지
+    않으면 태스크 인자로 값을 받아도 로그 필터가 읽을 곳이 없다.
+
+    받은 값을 그대로 믿지 않고 다시 검사한다. 큐 메시지도 결국 외부에서 온 값이
+    닿을 수 있는 경로이고, 줄바꿈이 섞이면 로그를 위조할 수 있다(log injection).
+    미들웨어가 들어오는 헤더를 검사하는 것과 같은 이유다.
+    """
+    if request_id and _SAFE_REQUEST_ID.match(request_id):
+        request_id_ctx_var.set(request_id)
+    else:
+        request_id_ctx_var.set("-")
+
+
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         request_id = resolve_request_id(request.headers.get(REQUEST_ID_HEADER))
