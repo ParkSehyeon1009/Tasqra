@@ -41,11 +41,13 @@ from app.repositories.amount_repository import APPROVED_DECISIONS, AmountReposit
 from app.schemas.amount_summary import (
     AmountSummaryResponse,
     CategoryTotal,
+    DocumentTotalCheck,
     LineMismatch,
 )
 from app.schemas.amount_item import AmountItemListResponse, AmountItemRow
 from app.services.amount_calculator import (
     aggregate_project,
+    check_total,
     verify_line,
     verify_lines,
 )
@@ -81,9 +83,15 @@ class _Document:
 
     currency: str
     items: list[_Line] = field(default_factory=list)
-    # DB 에 문서 합계가 없다. 그래서 항상 None 이고 check_total 의 대조가 성립하지
-    # 않는다 — 아래 preview 주석 참고.
+    # 문서에 적힌 합계. **리비전 0022 로 담을 곳이 생겼다** —
+    # documents.stated_total_amount 다. 그전에는 항상 None 이어서
+    # check_total 의 대조가 성립하지 않았다.
+    #
+    # 여전히 None 일 수 있고 그것이 정상이다. 합계가 적혀 있지 않은 문서가 있다.
     stated_total: int | None = None
+    # --- 계산기는 쓰지 않는다. 대조 결과를 되짚어 보여주기 위한 것이다 ----------
+    document_id: int = 0
+    filename: str = ""
 
 
 def _to_int(value: Decimal) -> int:
@@ -156,7 +164,12 @@ class AmountSummaryService:
                     )
                 )
 
-        aggregate = aggregate_project(self._group_by_document(lines, currency))
+        # 문서에 적힌 합계와 대조한다 (리비전 0022 로 담을 곳이 생겼다).
+        documents = self._group_by_document(
+            lines, currency, self._amounts.stated_totals(project_id)
+        )
+        aggregate = aggregate_project(documents)
+        total_checks, uncomparable = self._check_document_totals(documents)
 
         return AmountSummaryResponse(
             currency=str(aggregate["currency"]),
@@ -170,7 +183,47 @@ class AmountSummaryService:
             unverifiable_line_count=unverifiable,
             line_mismatches=mismatches,
             included_decisions=list(APPROVED_DECISIONS),
+            total_checks=total_checks,
+            documents_without_stated_total=uncomparable,
         )
+
+    @staticmethod
+    def _check_document_totals(
+        documents: Sequence[_Document],
+    ) -> tuple[list[DocumentTotalCheck], int]:
+        """문서마다 «적힌 합계 vs 우리가 더한 합계» 를 대조한다 (AMT-002-1).
+
+        **이 프로젝트에서 정확도를 숫자로 증명할 수 있는 유일한 자리다.** 요약이나
+        결정사항은 AI 가 맞게 뽑았는지 확인할 방법이 없지만, 금액은 다시 더해서
+        문서에 적힌 값과 맞춰볼 수 있다. `check_total` 의 주석이 그렇게 적고 있다.
+
+        **맞은 문서도 목록에 담는다.** 불일치만 주면 "대조를 했는데 맞았다" 와
+        "대조를 안 했다" 를 구별할 수 없다. 앞은 증명이고 뒤는 정보가 없는
+        상태인데, 사용자에게는 그 차이가 크다.
+
+        합계가 적혀 있지 않은 문서는 **건수만 센다.** 목록에 넣으면 값이 빈 줄이
+        생겨 오류처럼 보인다 — 합계가 없는 문서는 정상이다(공고문·계약서 본문).
+        `TotalCheck.comparable` 이 그 구별을 위해 있는 프로퍼티다.
+        """
+        checks: list[DocumentTotalCheck] = []
+        uncomparable = 0
+        for document in documents:
+            result = check_total(document)
+            if not result.comparable:
+                uncomparable += 1
+                continue
+            checks.append(
+                DocumentTotalCheck(
+                    document_id=document.document_id,
+                    filename=document.filename,
+                    # comparable 이면 둘 다 값이 있다.
+                    stated_total=result.stated_total or 0,
+                    item_total=result.item_total,
+                    difference=result.difference or 0,
+                    matches=result.matches,
+                )
+            )
+        return checks, uncomparable
 
     def list_items(self, project_id: int, limit: int) -> AmountItemListResponse:
         """금액 항목을 한 줄씩 돌려준다 (AMT-003-3 계산식·산출 근거 표시).
@@ -290,17 +343,31 @@ class AmountSummaryService:
         return currencies.pop() if currencies else "KRW"
 
     @staticmethod
-    def _group_by_document(lines: Sequence[_Line], currency: str) -> list[_Document]:
+    def _group_by_document(
+        lines: Sequence[_Line],
+        currency: str,
+        stated_totals: dict[int, Decimal] | None = None,
+    ) -> list[_Document]:
         """문서별로 묶는다. 문서 수가 집계 결과의 document_count 가 된다.
 
         리포지토리가 `Document.id` 순으로 정렬해서 주므로 여기서 다시 정렬하지
         않아도 순서가 고정된다.
+
+        `stated_totals` 에 있는 문서만 `stated_total` 이 채워진다. 없으면 None 이고
+        `check_total` 이 「대조 불가」로 다룬다 — 그것이 정상 상황이다.
         """
+        totals = stated_totals or {}
         grouped: dict[int, _Document] = {}
         for line in lines:
             document = grouped.get(line.document_id)
             if document is None:
-                document = _Document(currency=currency)
+                stated = totals.get(line.document_id)
+                document = _Document(
+                    currency=currency,
+                    stated_total=None if stated is None else _to_int(stated),
+                    document_id=line.document_id,
+                    filename=line.filename,
+                )
                 grouped[line.document_id] = document
             document.items.append(line)
         return list(grouped.values())

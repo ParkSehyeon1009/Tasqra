@@ -50,6 +50,30 @@ class LineMismatch(BaseModel):
     difference: int
 
 
+class DocumentTotalCheck(BaseModel):
+    """문서에 적힌 합계와 우리가 더한 합계를 대조한 결과 (AMT-002-1).
+
+    **맞은 문서도 담는다.** 불일치만 주면 "대조했고 맞았다" 와 "대조를 안 했다" 가
+    구별되지 않는다. 앞은 정확도의 증명이고 뒤는 정보가 없는 상태다.
+
+    합계가 적혀 있지 않은 문서는 여기 들어오지 않고 `documents_without_stated_total`
+    에 세어진다 — 그것은 오류가 아니라 정상 상황이다.
+    """
+
+    document_id: int
+    filename: str
+    # 문서 아래쪽 「합계」 칸에 적힌 값 (documents.stated_total_amount, 리비전 0022).
+    stated_total: int
+    # 우리가 항목을 더한 값. **부가세는 빠져 있다** — 부가세를 포함해 비교하면
+    # 공급가액 합계가 적힌 문서에서 늘 불일치가 난다.
+    item_total: int
+    # item_total - stated_total. **양수면 문서에 적힌 합계가 작다.**
+    # verify_line 의 difference 와 같은 방향이다(계산값 − 문서값). 두 곳이 반대면
+    # 화면이 어느 쪽인지 외워야 한다.
+    difference: int
+    matches: bool
+
+
 class AmountSummaryResponse(BaseModel):
     currency: str
     # 부가세를 **제외한** 항목 합계. 부가세를 함께 더하면 이중 계산이 된다.
@@ -76,3 +100,11 @@ class AmountSummaryResponse(BaseModel):
     # 반영하지 않는다(AMT-001-2 완료 판정). 화면이 "승인된 항목만" 이라고 적을 수
     # 있도록 서버가 알려준다.
     included_decisions: list[str]
+
+    # --- 문서에 적힌 합계와의 대조 (리비전 0022 로 가능해졌다) ----------------
+    # 문서마다 한 줄. 맞은 것도 담는다 — DocumentTotalCheck 주석 참고.
+    total_checks: list[DocumentTotalCheck] = Field(default_factory=list)
+    # 합계가 적혀 있지 않아 대조하지 못한 문서 수. **오류가 아니다** — 공고문처럼
+    # 합계가 없는 문서가 정상적으로 있다. 0 으로 취급하지 않는 이유는
+    # models/document.py 의 stated_total_amount 주석에 있다.
+    documents_without_stated_total: int = 0

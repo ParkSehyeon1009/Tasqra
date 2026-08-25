@@ -102,3 +102,9 @@
 /* 원문 근거. 한 줄로 줄이고 title 로 전체를 보여준다(마우스 올리면 뜬다).
    cursor: help 로 "올리면 뭔가 나온다" 를 미리 알린다 — 안 그러면 아무도 안 올린다. */
 .amount-quote { max-width: 260px; overflow: hidden; color: var(--c-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+
+
+/* 문서 합계 대조. 이 화면에서 가장 강한 정보라 원가구분별 표보다 위에 둔다. */
+.amount-total-check { margin-bottom: 18px; }
+/* 문서명 칸은 표 안에서 줄이지 않는다 — 대조 결과를 어느 문서 것인지 알아야 한다. */
+.amount-total-check .amount-item-source { max-width: 320px; font-size: 13px; font-weight: 700; color: var(--c-text-strong); }
