@@ -225,8 +225,7 @@ def analyze_image(image: Image.Image, max_width: int = 800) -> ImageQuality:
 
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     color_ratio = float((hsv[:, :, 1] > 40).mean())
-    border = np.concatenate((gray[0], gray[-1], gray[:, 0], gray[:, -1]))
-    dark_background = bool(np.median(border) < 100 and gray.mean() < 135)
+    dark_background = _looks_like_dark_text_background(gray, color_ratio)
 
     block_size = _adaptive_block_size(gray)
     if block_size is None:
@@ -273,6 +272,43 @@ def analyze_image(image: Image.Image, max_width: int = 800) -> ImageQuality:
         rotation_suspected=rotation_suspected,
         perspective_score=perspective_score,
     )
+
+
+def _looks_like_dark_text_background(
+    gray: np.ndarray,
+    color_ratio: float,
+) -> bool:
+    """사진 배경이 아니라 실제 어두운 문서 바탕인지 보수적으로 판정한다.
+
+    어두운 책상 위의 흰 종이는 테두리와 전체 평균만 보면 검은 바탕·흰 글씨로
+    오인된다. 실제 밝은 글자는 작은 연결요소들로 흩어져 있지만 흰 종이는 큰
+    밝은 덩어리를 만들므로, 색상 비율과 밝은 영역의 크기를 함께 확인한다.
+    """
+    if gray.size == 0 or color_ratio >= 0.02:
+        return False
+
+    border = np.concatenate((gray[0], gray[-1], gray[:, 0], gray[:, -1]))
+    if np.median(border) >= 100 or gray.mean() >= 135:
+        return False
+
+    bright_mask = (gray >= 180).astype(np.uint8)
+    bright_ratio = float(bright_mask.mean())
+    if not 0.002 <= bright_ratio <= 0.35:
+        return False
+
+    count, _, stats, _ = cv2.connectedComponentsWithStats(
+        bright_mask,
+        connectivity=8,
+    )
+    if count <= 1:
+        return False
+
+    image_area = float(gray.shape[0] * gray.shape[1])
+    largest_bright_component = max(
+        int(stats[index, cv2.CC_STAT_AREA])
+        for index in range(1, count)
+    )
+    return largest_bright_component / max(image_area, 1.0) < 0.12
 
 
 def _measure_perspective_score(gray: np.ndarray) -> float:
@@ -326,7 +362,7 @@ def select_preprocess_plan(image: Image.Image, quality: ImageQuality) -> OcrPrep
         selected.add(upscale)
         reasons.append("글자 또는 이미지 크기가 작아 확대")
 
-    if quality.dark_background:
+    if quality.dark_background and low_color:
         selected.update({to_grayscale, invert})
         reasons.append("어두운 배경과 밝은 글자가 감지되어 반전")
     elif low_color and quality.contrast < 70:
