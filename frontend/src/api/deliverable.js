@@ -104,3 +104,32 @@ export async function downloadDeliverable(downloadUrl, fallbackName) {
 export async function deleteDeliverable(projectId, deliverableId) {
   await http.delete(`/api/projects/${projectId}/deliverables/${deliverableId}`)
 }
+
+
+// GET /api/projects/{projectId}/deliverables/preview/content?kind=...&period_from=...
+//
+// **만들지 않고** 본문을 미리 본다. getDeliverablePreview 가 «몇 건이 담기나» 를
+// 답하고 이것이 «어떻게 나오나» 를 답한다.
+//
+// 그전에는 만들어야 내용을 볼 수 있었다. 만들면 파일이 생기고 이력에 남아서,
+// 확인하려고 만든 산출물이 쌓이는 것을 막을 방법이 없었다.
+//
+// 응답: { kind, title, format, period_from, period_to, body }
+//
+// **형식 검사가 만들기와 같다.** 없는 형식은 422, XLSX·PDF 는 501
+// DELIVERABLE_FORMAT_NOT_READY 다 — 미리보기만 되고 만들기는 안 되는 형식을 두지
+// 않는다. 미리 본 뒤 만들기에서 처음 막히면 헛수고다.
+//
+// **HTML 본문은 완전한 문서다** (`<!doctype>` 부터 `<style>` 까지). 화면은 그것을
+// `<iframe sandbox srcDoc>` 에 넣는다 — dangerouslySetInnerHTML 로 심지 않는다.
+// sandbox 가 스크립트·폼·부모 접근을 막으므로 서버 escape 에 구멍이 생겨도 실행되지
+// 않는다.
+//
+// 담을 것이 없으면 422 DELIVERABLE_EMPTY 다 — 만들기와 같은 코드다. 빈 문서를
+// 미리 보여주는 것은 목적에 어긋난다.
+export async function getDeliverableContent(projectId, { kind, format, periodFrom, periodTo }) {
+  const { data } = await http.get(`/api/projects/${projectId}/deliverables/preview/content`, {
+    params: { kind, format, period_from: periodFrom, period_to: periodTo },
+  })
+  return data
+}

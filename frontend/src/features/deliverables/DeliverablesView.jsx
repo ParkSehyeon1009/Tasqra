@@ -36,6 +36,7 @@ import {
   createDeliverable,
   deleteDeliverable,
   downloadDeliverable,
+  getDeliverableContent,
   getDeliverablePreview,
   listDeliverables,
 } from '../../api/deliverable'
@@ -127,6 +128,9 @@ export default function DeliverablesView({ projectId, notify }) {
   const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
   // 삭제 확인 대상. null 이면 확인창이 닫혀 있다.
   const [deleteTarget, setDeleteTarget] = useState(null)
+  // 본문 미리보기를 펼쳤는가. **닫혀 있으면 부르지 않는다** — 합계만 보려고 들어온
+  // 사람에게 문서를 조립하는 비용을 물릴 이유가 없다.
+  const [contentOpen, setContentOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const previewQuery = useQuery({
@@ -268,7 +272,17 @@ export default function DeliverablesView({ projectId, notify }) {
       format={format}
       generating={createMutation.isPending}
       onGenerate={() => createMutation.mutate()}
+      contentOpen={contentOpen}
+      onToggleContent={() => setContentOpen(current => !current)}
     />
+
+    {contentOpen && <ContentPreview
+      projectId={projectId}
+      kind={kind}
+      format={format}
+      periodFrom={periodFrom}
+      periodTo={periodTo}
+    />}
 
     <HistoryPanel
       query={historyQuery}
@@ -311,7 +325,7 @@ function CountCard({ label, value, note, unknown }) {
 //
 // 막는 이유를 버튼이 아니라 **문장으로** 적는다. 비활성 버튼만 있으면 왜 못
 // 누르는지 알 수 없어서, 사용자는 조건을 이리저리 바꿔 보게 된다.
-function GeneratePanel({ preview, loading, format, generating, onGenerate }) {
+function GeneratePanel({ preview, loading, format, generating, onGenerate, contentOpen, onToggleContent }) {
   const contentBlocked = preview ? !preview.can_generate : true
   const formatMissing = !format
   const disabled = loading || contentBlocked || formatMissing || generating
@@ -327,12 +341,105 @@ function GeneratePanel({ preview, loading, format, generating, onGenerate }) {
             : <p>담길 내용이 있습니다. <strong>{format}</strong> 형식으로 만들 수 있습니다.</p>}
       <p className='deliverable-generate-note'>만든 산출물은 아래 <strong>만든 산출물</strong> 목록에 쌓입니다. 개요 문장은 아직 들어가지 않습니다.</p>
     </div>
-    <button
-      type='button'
-      className='deliverable-generate-button'
-      disabled={disabled}
-      onClick={onGenerate}
-    >{generating ? '만드는 중…' : '만들기'}</button>
+    <div className='deliverable-generate-actions'>
+      {/* 미리보기는 **형식을 안 골라도** 된다. 형식과 무관하게 담길 내용이 같기
+          때문이다. 담을 것이 없을 때만 막는다 — 그때는 서버도 422 로 막는다. */}
+      <button
+        type='button'
+        className='deliverable-preview-button'
+        aria-expanded={contentOpen}
+        disabled={loading || contentBlocked}
+        onClick={onToggleContent}
+      >{contentOpen ? '미리보기 닫기' : '미리보기'}</button>
+      <button
+        type='button'
+        className='deliverable-generate-button'
+        disabled={disabled}
+        onClick={onGenerate}
+      >{generating ? '만드는 중…' : '만들기'}</button>
+    </div>
+  </section>
+}
+
+// 미리보기에서 고를 수 있는 보기 방식.
+//
+// 「그대로 보기」는 실제 파일 모양이고 「글자로 보기」는 마크다운 원문이다. 둘 다
+// 두는 이유: HTML 은 결과를 보여주지만 MD 는 **어떤 표가 어떻게 적히는지**를 보여준다.
+// 산출물을 다른 문서에 붙여 쓸 사람에게는 뒤쪽이 필요하다.
+//
+// XLSX·PDF 는 서버가 501 로 막으므로 여기 두지 않는다 — 고를 수 있게 해 두면
+// 미리보기만 되고 만들기는 안 되는 것처럼 보인다.
+const PREVIEW_VIEWS = [
+  ['HTML', '그대로 보기'],
+  ['MD', '글자로 보기'],
+]
+
+// 본문 미리보기. **만들지 않고** 서버가 조립한 본문을 보여준다.
+//
+// 조건(유형·기간·보기 방식)을 바꾸면 다시 받는다 — queryKey 에 넣어 뒀다. 그래서
+// 조건을 바꿔가며 결과를 나란히 볼 수 있다. 새 창으로 띄우면 그게 안 된다.
+//
+// **HTML 을 iframe sandbox 안에서 그린다.** dangerouslySetInnerHTML 로 심지 않는다.
+// 서버가 모든 값을 html.escape 하지만, 그 한 겹만 믿고 심으면 나중에 절을 더하는
+// 사람이 escape 를 빠뜨렸을 때 바로 XSS 가 된다. sandbox 는 스크립트·폼·부모 접근을
+// 모두 막아서 그런 실수를 실행 불가능하게 만든다.
+//
+// 나중에 형식이 늘어날 때
+//   PDF  — 같은 iframe 에 blob URL 을 넣으면 브라우저가 그려 준다
+//   XLSX — 브라우저가 못 그린다. 그런데 **HTML 렌더로 대신할 수 있다** — 두 형식이
+//          같은 build_document 에서 나오므로 담긴 내용이 같다
+function ContentPreview({ projectId, kind, format, periodFrom, periodTo }) {
+  // 만들 형식을 골라 뒀으면 그것으로 시작한다. 안 골랐으면 눈으로 보기 좋은 HTML.
+  const [view, setView] = useState(format === 'MD' ? 'MD' : 'HTML')
+  const [tall, setTall] = useState(false)
+  const contentQuery = useQuery({
+    queryKey: ['projects', projectId, 'deliverable-content', kind, view, periodFrom, periodTo],
+    queryFn: () => getDeliverableContent(projectId, { kind, format: view, periodFrom, periodTo }),
+    enabled: Boolean(periodFrom && periodTo),
+    retry: false,
+  })
+  const data = contentQuery.data
+
+  return <section className='panel deliverable-content' aria-label='산출물 미리보기'>
+    <div className='deliverable-content-heading'>
+      <h2>{data?.title ?? '미리보기'}</h2>
+      <span>아직 만들지 않았습니다. 이력에도 남지 않습니다.</span>
+    </div>
+
+    <div className='deliverable-content-tools'>
+      <div className='deliverable-content-views' role='group' aria-label='보기 방식'>
+        {PREVIEW_VIEWS.map(([value, label]) => <button
+          className={'deliverable-content-view' + (value === view ? ' is-active' : '')}
+          type='button'
+          key={value}
+          aria-pressed={value === view}
+          onClick={() => setView(value)}
+        >{label}</button>)}
+      </div>
+      <button type='button' className='deliverable-content-view' onClick={() => setTall(current => !current)}>
+        {tall ? '작게' : '크게 보기'}
+      </button>
+    </div>
+
+    {contentQuery.isPending
+      ? <p className='deliverable-content-empty'>본문을 만드는 중입니다.</p>
+      : contentQuery.isError
+        ? <p className='deliverable-content-empty'>미리보기를 만들지 못했습니다. {contentQuery.error?.message}</p>
+        : view === 'HTML'
+          // sandbox 를 빈 값으로 둔다 = 가장 강한 제한(스크립트·폼·팝업·부모 접근 모두 차단).
+          // 허용 항목을 하나라도 더하면 그만큼 열리므로, 필요해질 때까지 비워 둔다.
+          ? <iframe
+            className={'deliverable-content-frame' + (tall ? ' is-tall' : '')}
+            sandbox=''
+            srcDoc={data.body}
+            title={`${data.title} 미리보기`}
+          />
+          : <pre className={'deliverable-content-body' + (tall ? ' is-tall' : '')}>{data.body}</pre>}
+
+    <p className='deliverable-content-note'>
+      <strong>담길 내용은 형식과 무관하게 같습니다</strong> — 절을 고르는 규칙이 하나입니다.
+      모양만 달라집니다. <strong>XLSX·PDF</strong> 는 아직 만들 수 없어 미리보기에도 없습니다.
+    </p>
   </section>
 }
 

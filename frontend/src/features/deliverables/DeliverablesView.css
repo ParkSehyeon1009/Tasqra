@@ -131,3 +131,44 @@
 @media (max-width: 560px) {
   .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }
 }
+
+
+
+/* 만들기 영역의 버튼 둘. 좁아지면 아래로 내려간다. */
+.deliverable-generate-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+/* 미리보기는 보조 동작이라 채우지 않는다 — 채우면 「만들기」와 무게가 같아 보인다. */
+.deliverable-preview-button { min-height: 42px; padding: 11px 18px; border: 1px solid var(--c-border-strong); border-radius: 10px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-weight: 750; cursor: pointer; }
+.deliverable-preview-button:hover:not(:disabled), .deliverable-preview-button:focus-visible:not(:disabled) { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.deliverable-preview-button:disabled { background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+
+/* 본문 미리보기. */
+.deliverable-content { margin-bottom: 18px; }
+.deliverable-content-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.deliverable-content-heading h2 { margin: 0; }
+.deliverable-content-heading span { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+.deliverable-content-empty { margin: 0; color: var(--c-text-muted); font-size: 13px; }
+
+/* 본문은 길다. **높이를 제한하고 안에서 스크롤**한다 — 안 하면 페이지가 화면 몇
+   개 길이가 되어 아래의 이력 목록이 사라진 것처럼 보인다.
+   등폭 글꼴로 그려야 마크다운 표의 칸이 맞는다. */
+.deliverable-content-body { max-height: 420px; margin: 0; padding: 14px 16px; overflow: auto; border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-bg-subtle); color: var(--c-text-strong); font-family: var(--c-mono); font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2; }
+
+/* 보기 방식 고르기 + 크게 보기. */
+.deliverable-content-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.deliverable-content-views { display: flex; gap: 6px; }
+.deliverable-content-view { min-height: 32px; padding: 6px 12px; border: 1px solid var(--c-border-strong); border-radius: 999px; background: var(--c-bg); color: var(--c-text-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.deliverable-content-view:hover, .deliverable-content-view:focus-visible { border-color: var(--c-accent); color: var(--c-text-strong); }
+.deliverable-content-view.is-active { border-color: var(--c-text-strong); background: var(--c-text-strong); color: #fff; }
+
+/* HTML 미리보기. **iframe 이라 안에서 스크립트가 돌 수 없다**(sandbox).
+   srcDoc 은 스크립트 없이 높이를 스스로 맞출 수 없으므로 높이를 정해 두고 안에서
+   스크롤한다 — sandbox 를 열어 높이를 재는 것보다 안전하다. */
+.deliverable-content-frame { display: block; width: 100%; height: 460px; border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-bg); }
+.deliverable-content-frame.is-tall { height: 76vh; }
+.deliverable-content-body.is-tall { max-height: 76vh; }
+.deliverable-content-note { margin: 10px 0 0; color: var(--c-text-muted); font-size: 12px; line-height: 1.5; }
+.deliverable-content-note strong { color: var(--c-text-strong); }
+
+@media (max-width: 900px) {
+  .deliverable-generate-actions { flex-direction: column; }
+}
