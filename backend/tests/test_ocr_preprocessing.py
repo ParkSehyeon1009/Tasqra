@@ -1,6 +1,16 @@
+from threading import Lock
+from unittest.mock import MagicMock
+
 from PIL import Image, ImageDraw
 
-from app.extractors.preprocessing import analyze_image, invert, select_preprocess_plan
+from app.core.config import settings
+from app.extractors.ocr_extractor import OcrExtractor
+from app.extractors.preprocessing import (
+    OcrPreprocessPlan,
+    analyze_image,
+    invert,
+    select_preprocess_plan,
+)
 
 
 def _selected_steps(image: Image.Image):
@@ -47,3 +57,24 @@ def test_white_document_on_colored_photo_background_is_not_inverted():
 
     assert quality.dark_background is False
     assert invert not in steps
+
+
+def test_ocr_predict_limits_long_side_with_paddle_internal_resize(monkeypatch):
+    extractor = object.__new__(OcrExtractor)
+    extractor._ocr = MagicMock()
+    extractor._ocr.predict.return_value = [
+        {"rec_texts": [], "rec_scores": [], "rec_boxes": []}
+    ]
+    extractor._inference_lock = Lock()
+    extractor._table_detector = MagicMock()
+    monkeypatch.setattr(
+        "app.extractors.ocr_extractor.build_preprocess_plan",
+        lambda _image: (None, OcrPreprocessPlan(steps=[], reasons=["test"])),
+    )
+
+    extractor.extract(Image.new("RGB", (4032, 3024), "white"))
+
+    kwargs = extractor._ocr.predict.call_args.kwargs
+    assert kwargs["text_det_limit_side_len"] == settings.OCR_TEXT_DET_MAX_SIDE_LEN
+    assert kwargs["text_det_limit_type"] == "max"
+    extractor._table_detector.detect.assert_called_once()

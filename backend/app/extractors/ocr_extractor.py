@@ -6,6 +6,7 @@ import numpy as np
 from paddleocr import PaddleOCR
 from PIL import Image
 
+from app.core.config import settings
 from app.extractors.layout import LayoutElement
 from app.extractors.reading_order import build_reading_groups
 from app.extractors.table_detector import TableCell, TableDetector
@@ -70,6 +71,8 @@ class OcrExtractor:
             results = list(
                 self._ocr.predict(
                     np.asarray(rgb_image),
+                    text_det_limit_side_len=settings.OCR_TEXT_DET_MAX_SIDE_LEN,
+                    text_det_limit_type="max",
                     use_doc_orientation_classify=(
                         plan.use_doc_orientation_classify
                     ),
