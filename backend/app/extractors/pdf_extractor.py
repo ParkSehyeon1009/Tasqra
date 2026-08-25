@@ -187,15 +187,126 @@ class PdfExtractor(TextExtractor):
                         has_ocr = True
                         image_group_id += 1
 
-        # 텍스트와 이미지 OCR 결과가 모두 없으면 페이지 전체를 OCR한다.
-        if include_image_ocr and not elements:
+        # 스캔 페이지에 페이지 번호·워터마크 같은 작은 텍스트 레이어만 있어도
+        # elements 는 비지 않는다. 페이지 대부분을 차지하는 이미지가 있는데
+        # 텍스트 레이어가 충분하지 않다면 전체 페이지 OCR로 본문을 보완한다.
+        needs_full_page_ocr = include_image_ocr and not has_ocr and (
+            not elements
+            or (
+                self._has_large_page_image(blocks, page)
+                and not self._has_sufficient_text_layer(elements, page)
+            )
+        )
+        if needs_full_page_ocr:
             page_ocr_elements = self._extract_full_page_with_ocr(page)
 
             if page_ocr_elements:
-                elements.extend(page_ocr_elements)
+                elements = self._merge_full_page_ocr(
+                    elements,
+                    page_ocr_elements,
+                )
+                has_text = any(element.source == "text" for element in elements)
                 has_ocr = True
 
         return elements, has_text, has_ocr
+
+    @staticmethod
+    def _has_large_page_image(
+        blocks: list[dict[str, Any]],
+        page: fitz.Page,
+    ) -> bool:
+        page_area = max(float(page.rect.width) * float(page.rect.height), 1.0)
+        for block in blocks:
+            if block.get("type") != 1:
+                continue
+            x0, y0, x1, y1 = (
+                float(value)
+                for value in block.get("bbox", (0, 0, 0, 0))
+            )
+            image_area = max(x1 - x0, 0.0) * max(y1 - y0, 0.0)
+            if image_area / page_area >= 0.50:
+                return True
+        return False
+
+    @staticmethod
+    def _has_sufficient_text_layer(
+        elements: list[LayoutElement],
+        page: fitz.Page,
+    ) -> bool:
+        text_elements = [
+            element for element in elements if element.source == "text"
+        ]
+        page_area = max(float(page.rect.width) * float(page.rect.height), 1.0)
+        return PdfExtractor._is_text_layer_sufficient(
+            text_elements,
+            container_area=page_area,
+        )
+
+    @staticmethod
+    def _is_text_layer_sufficient(
+        text_elements: list[LayoutElement],
+        *,
+        container_area: float,
+    ) -> bool:
+        meaningful_chars = sum(
+            character.isalnum()
+            for element in text_elements
+            for character in element.content
+        )
+        if meaningful_chars < 24:
+            return False
+
+        covered_area = sum(
+            max(
+                (element.x2 if element.x2 is not None else element.x)
+                - element.x,
+                0.0,
+            )
+            * max(
+                (element.y2 if element.y2 is not None else element.y)
+                - element.y,
+                0.0,
+            )
+            for element in text_elements
+        )
+        return covered_area / max(container_area, 1.0) >= 0.005
+
+    @classmethod
+    def _merge_full_page_ocr(
+        cls,
+        existing_elements: list[LayoutElement],
+        ocr_elements: list[LayoutElement],
+    ) -> list[LayoutElement]:
+        """전체 OCR과 위치가 겹치는 불완전 텍스트 레이어의 중복을 제거한다."""
+        remaining_text = [
+            element
+            for element in existing_elements
+            if element.source != "text"
+            or not any(
+                cls._boxes_overlap(element, ocr_element)
+                for ocr_element in ocr_elements
+            )
+        ]
+        return remaining_text + ocr_elements
+
+    @staticmethod
+    def _boxes_overlap(first: LayoutElement, second: LayoutElement) -> bool:
+        first_x2 = first.x2 if first.x2 is not None else first.x
+        first_y2 = first.y2 if first.y2 is not None else first.y
+        second_x2 = second.x2 if second.x2 is not None else second.x
+        second_y2 = second.y2 if second.y2 is not None else second.y
+        first_center = ((first.x + first_x2) / 2, (first.y + first_y2) / 2)
+        second_center = (
+            (second.x + second_x2) / 2,
+            (second.y + second_y2) / 2,
+        )
+        return (
+            second.x <= first_center[0] <= second_x2
+            and second.y <= first_center[1] <= second_y2
+        ) or (
+            first.x <= second_center[0] <= first_x2
+            and first.y <= second_center[1] <= first_y2
+        )
 
     @staticmethod
     def _image_contains_text_layer(
@@ -204,21 +315,24 @@ class PdfExtractor(TextExtractor):
     ) -> bool:
         bbox = block.get("bbox", (0, 0, 0, 0))
         x0, y0, x1, y1 = (float(value) for value in bbox)
-        contained_count = 0
+        image_area = max(x1 - x0, 0.0) * max(y1 - y0, 0.0)
+        if image_area <= 0:
+            return False
 
+        contained_elements = []
         for element in text_elements:
-            if element.source != "text":
-                continue
-            element_x2 = element.x2 if element.x2 is not None else element.x
-            element_y2 = element.y2 if element.y2 is not None else element.y
-            center_x = (element.x + element_x2) / 2
-            center_y = (element.y + element_y2) / 2
-            if x0 <= center_x <= x1 and y0 <= center_y <= y1:
-                contained_count += 1
-                if contained_count >= 2:
-                    return True
+            if element.source == "text":
+                element_x2 = element.x2 if element.x2 is not None else element.x
+                element_y2 = element.y2 if element.y2 is not None else element.y
+                center_x = (element.x + element_x2) / 2
+                center_y = (element.y + element_y2) / 2
+                if x0 <= center_x <= x1 and y0 <= center_y <= y1:
+                    contained_elements.append(element)
 
-        return False
+        return PdfExtractor._is_text_layer_sufficient(
+            contained_elements,
+            container_area=image_area,
+        )
 
     @staticmethod
     def _extract_text_block(
@@ -582,20 +696,30 @@ class PdfExtractor(TextExtractor):
             normalize_orientation=False,
         )
 
-        converted_elements: list[LayoutElement] = []
+        return self._map_full_page_ocr_elements(ocr_elements, scale=scale)
 
-        for element in ocr_elements:
-            # 2배로 렌더링한 이미지의 좌표를 원래 PDF 페이지 좌표로 복원한다.
-            converted_elements.append(
-                LayoutElement(
-                    x=element.x / scale,
-                    y=element.y / scale,
-                    x2=(element.x2 / scale if element.x2 is not None else None),
-                    y2=(element.y2 / scale if element.y2 is not None else None),
-                    content=element.content,
-                    source="ocr",
-                    confidence=element.confidence,
-                )
+    @staticmethod
+    def _map_full_page_ocr_elements(
+        ocr_elements: list[LayoutElement],
+        *,
+        scale: float,
+    ) -> list[LayoutElement]:
+        """렌더링 배율만 복원하고 OCR 구조 메타데이터는 그대로 보존한다."""
+        return [
+            LayoutElement(
+                x=element.x / scale,
+                y=element.y / scale,
+                x2=(element.x2 / scale if element.x2 is not None else None),
+                y2=(element.y2 / scale if element.y2 is not None else None),
+                content=element.content,
+                source="ocr",
+                confidence=element.confidence,
+                element_type=element.element_type,
+                element_type_source=element.element_type_source,
+                is_paragraph_start=element.is_paragraph_start,
+                table_id=element.table_id,
+                table_row=element.table_row,
+                ocr_group_id=element.ocr_group_id,
             )
-
-        return converted_elements
+            for element in ocr_elements
+        ]

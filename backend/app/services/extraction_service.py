@@ -165,7 +165,11 @@ class ExtractionService:
         strategy = ExtractionStrategy(document.extraction_strategy)
         try:
             if document.file_type in {"docx", "hwpx"}:
-                result = extractor.extract(document.storage_path, include_image_ocr=strategy is not ExtractionStrategy.TEXT_ONLY)
+                result = extractor.extract(
+                    document.storage_path,
+                    include_image_ocr=strategy is not ExtractionStrategy.TEXT_ONLY,
+                    max_text_chars=settings.MAX_EXTRACTED_CHARS,
+                )
             elif document.file_type == "pdf":
                 result = extractor.extract(document.storage_path, extraction_strategy=strategy.value)
             else:
@@ -192,8 +196,8 @@ class ExtractionService:
             raise BusinessError(ErrorCode.EXTRACTION_FAILED, detail="문서에서 추출할 수 있는 텍스트가 없습니다.")
         if file_type == "pdf" and result.page_count > settings.MAX_PAGES:
             raise BusinessError(ErrorCode.TOO_MANY_PAGES, detail=f"PDF는 최대 {settings.MAX_PAGES}페이지까지 업로드할 수 있습니다.")
-        if file_type in {"docx", "hwpx"} and result.char_count > settings.MAX_EXTRACTED_CHARS:
-            raise BusinessError(ErrorCode.CONTENT_TOO_LARGE, detail=f"DOCX와 HWPX는 추출 텍스트를 최대 {settings.MAX_EXTRACTED_CHARS:,}자까지 허용합니다.")
+        if file_type in {"docx", "hwpx"} and result.text_char_count > settings.MAX_EXTRACTED_CHARS:
+            raise BusinessError(ErrorCode.CONTENT_TOO_LARGE, detail=f"DOCX와 HWPX는 문서 본문 텍스트를 최대 {settings.MAX_EXTRACTED_CHARS:,}자까지 허용합니다.")
 
     def _attach_review_pages(self, document: Document, result: ExtractResult, review_paths: list[str]) -> None:
         header_footer_elements = detect_header_footer([

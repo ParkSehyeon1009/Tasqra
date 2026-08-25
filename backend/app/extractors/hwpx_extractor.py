@@ -1,12 +1,14 @@
 import posixpath
 import re
 import zipfile
-from io import BytesIO
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+from app.extractors.embedded_image_cache import EmbeddedImageOcrCache
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
@@ -20,15 +22,30 @@ class HwpxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
+    def extract(
+        self,
+        file_path: str,
+        *,
+        include_image_ocr: bool = True,
+        max_text_chars: int | None = None,
+    ) -> ExtractResult:
         with zipfile.ZipFile(file_path) as archive:
             section_names = self._find_section_names(archive)
             image_paths = self._read_manifest(archive)
+
+            if max_text_chars is not None:
+                self._validate_native_text_size(
+                    archive,
+                    section_names,
+                    image_paths,
+                    max_text_chars,
+                )
 
             contents: list[str] = []
             review_pages: list[ExtractedPage] = []
             counts = {"text": 0, "ocr": 0}
             page_break_count = 0
+            image_ocr_cache = EmbeddedImageOcrCache()
 
             for section_name in section_names:
                 root = ET.fromstring(archive.read(section_name))
@@ -43,6 +60,7 @@ class HwpxExtractor(TextExtractor):
                         include_image_ocr,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     contents.extend(paragraph_contents)
 
@@ -61,6 +79,37 @@ class HwpxExtractor(TextExtractor):
             review_pages=tuple(review_pages),
         )
 
+    def _validate_native_text_size(
+        self,
+        archive: zipfile.ZipFile,
+        section_names: list[str],
+        image_paths: dict[str, str],
+        max_text_chars: int,
+    ) -> None:
+        """이미지 데이터를 읽거나 OCR하기 전에 HWPX 원문만 제한 검사한다."""
+        counts = {"text": 0, "ocr": 0}
+        review_pages: list[ExtractedPage] = []
+
+        for section_name in section_names:
+            root = ET.fromstring(archive.read(section_name))
+            for paragraph in self._children(root, "p"):
+                self._extract_paragraph(
+                    paragraph,
+                    archive,
+                    image_paths,
+                    False,
+                    review_pages,
+                    counts,
+                )
+                if counts["text"] > max_text_chars:
+                    raise BusinessError(
+                        ErrorCode.CONTENT_TOO_LARGE,
+                        detail=(
+                            "DOCX와 HWPX는 문서 본문 텍스트를 최대 "
+                            f"{max_text_chars:,}자까지 허용합니다."
+                        ),
+                    )
+
     def _extract_paragraph(
         self,
         paragraph: ET.Element,
@@ -69,6 +118,7 @@ class HwpxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> list[str]:
         contents: list[str] = []
 
@@ -92,6 +142,7 @@ class HwpxExtractor(TextExtractor):
                         include_image_ocr,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     if table_text:
                         contents.append(table_text)
@@ -103,6 +154,7 @@ class HwpxExtractor(TextExtractor):
                         image_paths,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     if image_text:
                         contents.append(image_text)
@@ -117,6 +169,7 @@ class HwpxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> str:
         rows: list[str] = []
 
@@ -136,6 +189,7 @@ class HwpxExtractor(TextExtractor):
                                 include_image_ocr,
                                 review_pages,
                                 counts,
+                                image_ocr_cache,
                             )
                         )
 
@@ -153,6 +207,7 @@ class HwpxExtractor(TextExtractor):
         image_paths: dict[str, str],
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> str:
         image_id = self._find_image_id(picture)
         if image_id is None:
@@ -162,12 +217,12 @@ class HwpxExtractor(TextExtractor):
         if image_path is None or image_path not in archive.namelist():
             return ""
 
-        image_bytes = archive.read(image_path)
-
         try:
-            with Image.open(BytesIO(image_bytes)) as source_image:
-                image = source_image.copy()
-                elements = self._ocr.extract(image)
+            cache = image_ocr_cache or EmbeddedImageOcrCache()
+            image, elements = cache.extract(
+                archive.read(image_path),
+                self._ocr,
+            )
         except (UnidentifiedImageError, OSError):
             # HWPX 내부에 Pillow가 해석하지 못하는 이미지가 있어도
             # 문서 전체 추출은 중단하지 않고 해당 이미지만 건너뛴다.

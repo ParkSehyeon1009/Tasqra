@@ -55,6 +55,37 @@ def test_mapping_embedded_image_scales_coordinates_to_pdf_rectangle():
     assert mapped[0].y2 == pytest.approx(210)
 
 
+def test_full_page_mapping_preserves_ocr_structure_metadata():
+    source = LayoutElement(
+        x=20,
+        y=40,
+        x2=220,
+        y2=80,
+        content="항목 | 금액",
+        source="ocr",
+        confidence=0.91,
+        element_type="TABLE_HEADER",
+        element_type_source="AUTO",
+        is_paragraph_start=True,
+        table_id=3,
+        table_row=0,
+    )
+
+    mapped = PdfExtractor._map_full_page_ocr_elements([source], scale=2.0)
+
+    assert (mapped[0].x, mapped[0].y, mapped[0].x2, mapped[0].y2) == (
+        10,
+        20,
+        110,
+        40,
+    )
+    assert mapped[0].element_type == "TABLE_HEADER"
+    assert mapped[0].element_type_source == "AUTO"
+    assert mapped[0].is_paragraph_start is True
+    assert mapped[0].table_id == 3
+    assert mapped[0].table_row == 0
+
+
 def test_mapping_each_image_block_keeps_its_internal_order():
     first_block = [
         ocr_line("첫 이미지 왼쪽", 50, 100),

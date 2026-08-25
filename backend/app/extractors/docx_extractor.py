@@ -1,6 +1,4 @@
 from collections.abc import Iterator
-from io import BytesIO
-
 from docx import Document
 from docx.document import Document as DocxDocument
 from docx.oxml.table import CT_Tbl
@@ -8,8 +6,11 @@ from docx.oxml.text.paragraph import CT_P
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+from app.extractors.embedded_image_cache import EmbeddedImageOcrCache
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
@@ -20,20 +21,44 @@ class DocxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
+    def extract(
+        self,
+        file_path: str,
+        *,
+        include_image_ocr: bool = True,
+        max_text_chars: int | None = None,
+    ) -> ExtractResult:
         doc = Document(file_path)
+
+        if max_text_chars is not None:
+            self._validate_native_text_size(doc, max_text_chars)
 
         contents: list[str] = []
         review_pages: list[ExtractedPage] = []
         counts = {"text": 0, "ocr": 0}
+        image_ocr_cache = EmbeddedImageOcrCache()
 
         for block in self._iter_block_items(doc):
 
             if isinstance(block, Paragraph):
-                self._extract_paragraph(block, contents, include_image_ocr, review_pages, counts)
+                self._extract_paragraph(
+                    block,
+                    contents,
+                    include_image_ocr,
+                    review_pages,
+                    counts,
+                    image_ocr_cache,
+                )
 
             elif isinstance(block, Table):
-                self._extract_table(block, contents, include_image_ocr, review_pages, counts)
+                self._extract_table(
+                    block,
+                    contents,
+                    include_image_ocr,
+                    review_pages,
+                    counts,
+                    image_ocr_cache,
+                )
 
         content, review_pages = resolve_review_content_ranges("\n".join(contents), review_pages)
 
@@ -46,6 +71,35 @@ class DocxExtractor(TextExtractor):
             extract_method=ExtractMethod.DOCX.value,
             review_pages=tuple(review_pages),
         )
+
+    def _validate_native_text_size(
+        self,
+        doc: DocxDocument,
+        max_text_chars: int,
+    ) -> None:
+        """이미지 OCR 전에 Word 원문 텍스트만 빠르게 제한 검사한다."""
+        counts = {"text": 0, "ocr": 0}
+        contents: list[str] = []
+        review_pages: list[ExtractedPage] = []
+
+        for block in self._iter_block_items(doc):
+            if isinstance(block, Paragraph):
+                self._extract_paragraph(
+                    block, contents, False, review_pages, counts
+                )
+            elif isinstance(block, Table):
+                self._extract_table(
+                    block, contents, False, review_pages, counts
+                )
+
+            if counts["text"] > max_text_chars:
+                raise BusinessError(
+                    ErrorCode.CONTENT_TOO_LARGE,
+                    detail=(
+                        "DOCX와 HWPX는 문서 본문 텍스트를 최대 "
+                        f"{max_text_chars:,}자까지 허용합니다."
+                    ),
+                )
 
     def _iter_block_items(
         self,
@@ -66,6 +120,7 @@ class DocxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> None:
         text = paragraph.text.strip()
 
@@ -74,7 +129,13 @@ class DocxExtractor(TextExtractor):
             counts["text"] += len(text)
 
         if include_image_ocr:
-            self._extract_images(paragraph, contents, review_pages, counts)
+            self._extract_images(
+                paragraph,
+                contents,
+                review_pages,
+                counts,
+                image_ocr_cache,
+            )
 
     def _extract_table(
         self,
@@ -83,6 +144,7 @@ class DocxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> None:
         for row in table.rows:
 
@@ -103,7 +165,13 @@ class DocxExtractor(TextExtractor):
 
                     # 셀 안 이미지 OCR
                     if include_image_ocr:
-                        self._extract_images(paragraph, cell_text, review_pages, counts)
+                        self._extract_images(
+                            paragraph,
+                            cell_text,
+                            review_pages,
+                            counts,
+                            image_ocr_cache,
+                        )
 
                 if cell_text:
                     row_contents.append("\n".join(cell_text))
@@ -117,6 +185,7 @@ class DocxExtractor(TextExtractor):
         contents: list[str],
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> None:
         # paragraph 안의 drawing 태그 찾기
         drawings = paragraph._element.xpath(".//w:drawing")
@@ -141,18 +210,26 @@ class DocxExtractor(TextExtractor):
                 except KeyError:
                     continue
 
-                text, page, ocr_char_count = self._ocr_image(image_part.blob, len(review_pages) + 1)
+                text, page, ocr_char_count = self._ocr_image(
+                    image_part.blob,
+                    len(review_pages) + 1,
+                    image_ocr_cache,
+                )
 
                 if text:
                     review_pages.append(page)
                     contents.append(mark_review_text(text, page.page_number))
                     counts["ocr"] += ocr_char_count
 
-    def _ocr_image(self, image_bytes: bytes, page_number: int) -> tuple[str, ExtractedPage | None, int]:
+    def _ocr_image(
+        self,
+        image_bytes: bytes,
+        page_number: int,
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
+    ) -> tuple[str, ExtractedPage | None, int]:
         try:
-            with Image.open(BytesIO(image_bytes)) as source_image:
-                image = source_image.copy()
-                elements = self._ocr.extract(image)
+            cache = image_ocr_cache or EmbeddedImageOcrCache()
+            image, elements = cache.extract(image_bytes, self._ocr)
 
             text = "\n".join(
                 element.content

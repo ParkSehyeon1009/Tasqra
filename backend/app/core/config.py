@@ -188,6 +188,9 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int
     MAX_PAGES: int
     MAX_EXTRACTED_CHARS: int = 45_000
+    # PaddleOCR 텍스트 검출 입력의 긴 변 상한. 원본·검수 이미지는 유지하고
+    # 검출 단계에서만 비율을 보존해 축소한다.
+    OCR_TEXT_DET_MAX_SIDE_LEN: int = 2_500
 
     # --- Background document processing ---------------------------------
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
