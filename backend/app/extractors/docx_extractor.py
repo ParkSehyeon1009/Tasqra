@@ -13,6 +13,7 @@ from PIL import Image, UnidentifiedImageError
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.extractors.ocr_extractor import OcrExtractor
+from app.extractors.preprocessing import normalize_input_image
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
 from app.models.enums import ExtractMethod
@@ -191,8 +192,11 @@ class DocxExtractor(TextExtractor):
     def _ocr_image(self, image_bytes: bytes, page_number: int) -> tuple[str, ExtractedPage | None, int]:
         try:
             with Image.open(BytesIO(image_bytes)) as source_image:
-                image = source_image.copy()
-                elements = self._ocr.extract(image)
+                image = normalize_input_image(source_image)
+                elements = self._ocr.extract(
+                    image,
+                    normalize_orientation=False,
+                )
 
             text = "\n".join(
                 element.content

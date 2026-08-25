@@ -2,6 +2,7 @@ from io import BytesIO
 from PIL import Image
 
 from app.extractors.ocr_extractor import OcrExtractor
+from app.extractors.preprocessing import normalize_input_image
 from app.extractors.protocol import ExtractedElement, ExtractedPage, ExtractResult, TextExtractor
 from app.models.enums import ExtractMethod
 
@@ -12,8 +13,8 @@ class ImageExtractor(TextExtractor):
 
     def extract(self, file_path: str) -> ExtractResult:
         with Image.open(file_path) as source_image:
-            image = source_image.copy()
-            elements = self._ocr.extract(image)
+            image = normalize_input_image(source_image)
+            elements = self._ocr.extract(image, normalize_orientation=False)
 
         buffer = BytesIO()
         image.convert("RGB").save(buffer, format="PNG")

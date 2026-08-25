@@ -10,6 +10,7 @@ from PIL import Image, UnidentifiedImageError
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.extractors.ocr_extractor import OcrExtractor
+from app.extractors.preprocessing import normalize_input_image
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
 from app.models.enums import ExtractMethod
@@ -213,8 +214,11 @@ class HwpxExtractor(TextExtractor):
 
         try:
             with Image.open(BytesIO(image_bytes)) as source_image:
-                image = source_image.copy()
-                elements = self._ocr.extract(image)
+                image = normalize_input_image(source_image)
+                elements = self._ocr.extract(
+                    image,
+                    normalize_orientation=False,
+                )
         except (UnidentifiedImageError, OSError):
             # HWPX 내부에 Pillow가 해석하지 못하는 이미지가 있어도
             # 문서 전체 추출은 중단하지 않고 해당 이미지만 건너뛴다.
