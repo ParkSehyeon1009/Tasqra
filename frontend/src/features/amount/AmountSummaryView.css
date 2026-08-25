@@ -1,0 +1,104 @@
+/* =============================================================================
+   이 파일의 책임: 금액 현황 화면(AMT-003-2)의 표현을 담는다.
+   다른 파일과의 관계: AmountSummaryView.jsx 가 import 한다. **색은 직접 정하지
+     않고 styles/tokens.css 의 변수를 쓴다** — utils/theme.js 가 사용자가 고른
+     색으로 --c-accent 계열을 실행 중에 덮어쓰므로, 하드코딩하면 이 화면만
+     테마를 따라가지 않는다.
+   Spring 비교: 해당 없음(표현 전용).
+
+   금액을 등폭 숫자로 쓰는 이유
+     자리수가 다른 금액이 세로로 놓이면 눈으로 크기를 비교하게 되는데, 비례폭
+     글꼴에서는 1 과 8 의 너비가 달라 자리수가 어긋나 보인다. font-variant-numeric
+     으로 자리를 맞춘다.
+   ============================================================================= */
+
+/* 합계 세 칸. 좁아지면 한 줄에 하나씩 내려간다. */
+.amount-total-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+.amount-total-card { min-height: 118px; padding: 18px; }
+.amount-total-card > span { display: block; color: var(--c-text-muted); font-size: 13px; font-weight: 700; }
+.amount-total-card > strong { display: flex; align-items: baseline; gap: 6px; margin: 11px 0 7px; color: var(--c-text-strong); font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; word-break: break-all; }
+/* 통화 표기. 금액보다 작게 두어 숫자를 먼저 읽게 한다. */
+.amount-total-card > strong > em { flex: 0 0 auto; color: var(--c-text-muted); font-size: 12px; font-style: normal; font-weight: 700; }
+.amount-total-card > p { margin: 0; color: var(--c-text-muted); font-size: 12px; line-height: 1.45; }
+/* 최종 합계 한 칸만 강조한다. 셋 다 강조하면 어느 것이 결론인지 알 수 없다. */
+.amount-total-card.is-emphasis { border-color: var(--c-accent); box-shadow: inset 0 0 0 1px var(--c-accent); }
+
+.amount-scope { margin-bottom: 18px; }
+.amount-scope h2 { margin: 0 0 14px; }
+.amount-scope-empty { margin: 0; color: var(--c-text-muted); font-size: 13px; line-height: 1.6; }
+
+.amount-scope-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 14px; }
+.amount-scope-list > div { padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-bg-subtle); }
+.amount-scope-list dt { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+.amount-scope-list dd { margin: 6px 0 0; color: var(--c-text-strong); font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+
+.amount-scope-note { margin: 0 0 8px; color: var(--c-text-muted); font-size: 12px; line-height: 1.6; }
+.amount-scope-note:last-child { margin-bottom: 0; }
+.amount-scope-note strong { color: var(--c-text-strong); }
+
+.amount-category-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.amount-category-heading h2 { margin: 0; }
+.amount-category-heading span { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+
+.amount-category-table { width: 100%; border-collapse: collapse; }
+.amount-category-table th, .amount-category-table td { padding: 11px 12px; border-bottom: 1px solid var(--c-border); text-align: left; }
+.amount-category-table thead th { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+.amount-category-table tbody th { color: var(--c-text-strong); font-size: 14px; font-weight: 700; }
+.amount-category-table tbody tr:last-child th, .amount-category-table tbody tr:last-child td { border-bottom: 0; }
+/* 금액 칸. 오른쪽 정렬 + 등폭 숫자로 자리수를 맞춘다. */
+.amount-cell-number { text-align: right !important; color: var(--c-text-strong); font-variant-numeric: tabular-nums; }
+
+/* 오류 안내. 산출물 화면의 같은 자리와 모양을 맞춘다. */
+.amount-notice { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.amount-notice strong { color: var(--c-text-strong); }
+.amount-notice p { margin: 6px 0 0; color: var(--c-text-muted); font-size: 13px; }
+.amount-notice button { min-height: 38px; flex: 0 0 auto; padding: 9px 15px; border: 1px solid var(--c-border-strong); border-radius: 9px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-weight: 700; cursor: pointer; }
+.amount-notice button:hover, .amount-notice button:focus-visible { border-color: var(--c-accent); background: var(--c-accent-soft); }
+
+@media (max-width: 900px) {
+  .amount-total-grid, .amount-scope-list { grid-template-columns: repeat(2, 1fr); }
+  .amount-notice { flex-direction: column; align-items: stretch; }
+}
+@media (max-width: 560px) {
+  .amount-total-grid, .amount-scope-list { grid-template-columns: 1fr; }
+}
+
+
+/* 항목 보기 토글. 「무엇을 집계했나」 아래에 둔다 — 숫자를 본 자리에서 바로
+   펼칠 수 있어야 "이 6건이 무엇인가" 가 이어진다. */
+.amount-toggle { min-height: 36px; margin-top: 12px; padding: 8px 14px; border: 1px solid var(--c-border-strong); border-radius: 9px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.amount-toggle:hover, .amount-toggle:focus-visible { border-color: var(--c-accent); background: var(--c-accent-soft); }
+
+.amount-items { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+
+/* 걸러보기. 눌린 것 하나만 채워서 지금 무엇을 보고 있는지 드러낸다. */
+.amount-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.amount-filter { min-height: 32px; padding: 6px 12px; border: 1px solid var(--c-border-strong); border-radius: 999px; background: var(--c-bg); color: var(--c-text-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.amount-filter:hover:not(:disabled), .amount-filter:focus-visible:not(:disabled) { border-color: var(--c-accent); color: var(--c-text-strong); }
+.amount-filter.is-active { border-color: var(--c-text-strong); background: var(--c-text-strong); color: #fff; }
+/* 0 건인 조건은 누를 수 없게 두되 **숨기지 않는다** — 없어진 것과 0 건인 것은 다르다. */
+.amount-filter:disabled { background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+
+/* 표가 좁은 화면에서 잘리지 않게 가로 스크롤을 준다. 칸을 줄이면 금액이 줄바꿈된다. */
+.amount-table-scroll { overflow-x: auto; }
+.amount-items-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.amount-items-table th, .amount-items-table td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); text-align: left; vertical-align: top; }
+.amount-items-table thead th { color: var(--c-text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.amount-items-table tbody th { font-weight: 700; }
+.amount-items-table tbody th > strong { display: block; color: var(--c-text-strong); font-size: 14px; }
+/* 어긋난 줄. 색을 쓰지 않고 왼쪽 굵은 선으로만 표시한다 — 산출물 화면의
+   '갱신 필요' 와 같은 방식이라 두 화면이 같은 규칙으로 읽힌다. */
+.amount-items-table tbody tr.is-mismatch th { box-shadow: inset 3px 0 0 var(--c-text-strong); }
+
+/* 문서 파일명. 항목 아래에 작게 둔다. 길면 줄이고 마우스를 올리면 전체가 보인다. */
+.amount-item-source { display: block; max-width: 220px; margin-top: 4px; overflow: hidden; color: var(--c-text-muted); font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+
+.amount-verify { font-size: 12px; font-weight: 700; white-space: nowrap; }
+.amount-verify.is-ok { color: var(--c-text-muted); }
+/* 어긋난 것만 진하게. 맞은 줄까지 강조하면 어느 것이 문제인지 안 보인다. */
+.amount-verify.is-bad { color: var(--c-text-strong); }
+.amount-verify.is-muted { color: var(--c-text-muted); font-weight: 400; }
+
+/* 원문 근거. 한 줄로 줄이고 title 로 전체를 보여준다(마우스 올리면 뜬다).
+   cursor: help 로 "올리면 뭔가 나온다" 를 미리 알린다 — 안 그러면 아무도 안 올린다. */
+.amount-quote { max-width: 260px; overflow: hidden; color: var(--c-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }

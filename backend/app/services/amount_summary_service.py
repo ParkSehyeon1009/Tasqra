@@ -43,7 +43,12 @@ from app.schemas.amount_summary import (
     CategoryTotal,
     LineMismatch,
 )
-from app.services.amount_calculator import aggregate_project, verify_lines
+from app.schemas.amount_item import AmountItemListResponse, AmountItemRow
+from app.services.amount_calculator import (
+    aggregate_project,
+    verify_line,
+    verify_lines,
+)
 
 
 @dataclass(frozen=True)
@@ -167,7 +172,83 @@ class AmountSummaryService:
             included_decisions=list(APPROVED_DECISIONS),
         )
 
+    def list_items(self, project_id: int, limit: int) -> AmountItemListResponse:
+        """금액 항목을 한 줄씩 돌려준다 (AMT-003-3 계산식·산출 근거 표시).
+
+        **summarize 와 같은 저장소 메서드를 쓴다.** 조회 조건이 갈라지면
+        "합계는 6건인데 목록은 4줄" 이 된다 — 승인 상태 조건이나 정렬이 한쪽만
+        바뀌었을 때 그렇게 되고, 에러가 없어 알아채기 어렵다.
+
+        **금액이 없는 항목도 담는다.** summarize 는 그런 항목을 건수만 세고
+        버리지만(`excluded_no_amount`), 목록에서는 어느 항목이 그랬는지 보여야
+        한다. 사용자가 확인하려는 것이 바로 그것이다. 대신 `excluded_reason` 에
+        왜 빠졌는지 적는다.
+
+        상한을 두는 이유: 산출내역서는 수백 줄이 흔하다. 전부 내려주면 화면을
+        펼치는 순간 느려진다. 자를 때는 `total` 을 함께 줘서 화면이 개수를
+        잘못 세지 않게 한다.
+        """
+        rows = self._amounts.list_project_items(project_id)
+        visible = rows[:limit]
+        items = [
+            self._to_row(item, document_id, filename)
+            for item, document_id, filename in visible
+        ]
+        return AmountItemListResponse(
+            items=items,
+            total=len(rows),
+            returned=len(items),
+            truncated=len(rows) > len(items),
+            limit=limit,
+            included_decisions=list(APPROVED_DECISIONS),
+        )
+
     # --- 내부 ---------------------------------------------------------------
+
+    @classmethod
+    def _to_row(
+        cls, item: AmountItem, document_id: int, filename: str
+    ) -> AmountItemRow:
+        """DB 행 하나를 화면용 한 줄로 바꾸고 **검산 결과를 붙인다.**
+
+        검산을 여기서 하는 이유는 `verify_line` 이 이미 규칙을 갖고 있어서다 —
+        수량·단가 중 하나라도 없으면 `matches=None`, 반올림은 `ROUND_HALF_UP`.
+        화면에서 곱하면 그 규칙이 두 곳에 생기고 자바스크립트 부동소수라 큰
+        금액에서 1원씩 어긋난다.
+        """
+        amount = None if item.amount is None else _to_int(item.amount)
+        expected: int | None = None
+        verified: bool | None = None
+        difference: int | None = None
+        excluded_reason: str | None = None
+
+        if amount is None:
+            # summarize 가 이 항목을 합계에서 뺀 이유를 그대로 적는다.
+            excluded_reason = "문서에 금액이 적혀 있지 않아 합계에서 빠졌습니다."
+        else:
+            check = verify_line(cls._to_line(item, document_id, filename))
+            expected = check.expected
+            verified = check.matches
+            difference = check.difference
+
+        return AmountItemRow(
+            id=item.id,
+            document_id=document_id,
+            filename=filename,
+            item_name=item.item_name,
+            category=item.category,
+            quantity=item.quantity,
+            unit=item.unit,
+            unit_price=None if item.unit_price is None else _to_int(item.unit_price),
+            amount=amount,
+            currency=item.currency,
+            source_quote=item.source_quote,
+            decision=item.decision,
+            expected=expected,
+            verified=verified,
+            difference=difference,
+            excluded_reason=excluded_reason,
+        )
 
     @staticmethod
     def _to_line(item: AmountItem, document_id: int, filename: str) -> _Line:
