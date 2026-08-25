@@ -7,6 +7,8 @@ from xml.etree import ElementTree as ET
 
 from PIL import Image, UnidentifiedImageError
 
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
@@ -20,10 +22,24 @@ class HwpxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
+    def extract(
+        self,
+        file_path: str,
+        *,
+        include_image_ocr: bool = True,
+        max_text_chars: int | None = None,
+    ) -> ExtractResult:
         with zipfile.ZipFile(file_path) as archive:
             section_names = self._find_section_names(archive)
             image_paths = self._read_manifest(archive)
+
+            if max_text_chars is not None:
+                self._validate_native_text_size(
+                    archive,
+                    section_names,
+                    image_paths,
+                    max_text_chars,
+                )
 
             contents: list[str] = []
             review_pages: list[ExtractedPage] = []
@@ -60,6 +76,37 @@ class HwpxExtractor(TextExtractor):
             extract_method=ExtractMethod.HWPX.value,
             review_pages=tuple(review_pages),
         )
+
+    def _validate_native_text_size(
+        self,
+        archive: zipfile.ZipFile,
+        section_names: list[str],
+        image_paths: dict[str, str],
+        max_text_chars: int,
+    ) -> None:
+        """이미지 데이터를 읽거나 OCR하기 전에 HWPX 원문만 제한 검사한다."""
+        counts = {"text": 0, "ocr": 0}
+        review_pages: list[ExtractedPage] = []
+
+        for section_name in section_names:
+            root = ET.fromstring(archive.read(section_name))
+            for paragraph in self._children(root, "p"):
+                self._extract_paragraph(
+                    paragraph,
+                    archive,
+                    image_paths,
+                    False,
+                    review_pages,
+                    counts,
+                )
+                if counts["text"] > max_text_chars:
+                    raise BusinessError(
+                        ErrorCode.CONTENT_TOO_LARGE,
+                        detail=(
+                            "DOCX와 HWPX는 문서 본문 텍스트를 최대 "
+                            f"{max_text_chars:,}자까지 허용합니다."
+                        ),
+                    )
 
     def _extract_paragraph(
         self,

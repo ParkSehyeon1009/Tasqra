@@ -10,6 +10,8 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from PIL import Image, UnidentifiedImageError
 
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
@@ -20,8 +22,17 @@ class DocxExtractor(TextExtractor):
     def __init__(self, ocr: OcrExtractor) -> None:
         self._ocr = ocr
 
-    def extract(self, file_path: str, *, include_image_ocr: bool = True) -> ExtractResult:
+    def extract(
+        self,
+        file_path: str,
+        *,
+        include_image_ocr: bool = True,
+        max_text_chars: int | None = None,
+    ) -> ExtractResult:
         doc = Document(file_path)
+
+        if max_text_chars is not None:
+            self._validate_native_text_size(doc, max_text_chars)
 
         contents: list[str] = []
         review_pages: list[ExtractedPage] = []
@@ -46,6 +57,35 @@ class DocxExtractor(TextExtractor):
             extract_method=ExtractMethod.DOCX.value,
             review_pages=tuple(review_pages),
         )
+
+    def _validate_native_text_size(
+        self,
+        doc: DocxDocument,
+        max_text_chars: int,
+    ) -> None:
+        """이미지 OCR 전에 Word 원문 텍스트만 빠르게 제한 검사한다."""
+        counts = {"text": 0, "ocr": 0}
+        contents: list[str] = []
+        review_pages: list[ExtractedPage] = []
+
+        for block in self._iter_block_items(doc):
+            if isinstance(block, Paragraph):
+                self._extract_paragraph(
+                    block, contents, False, review_pages, counts
+                )
+            elif isinstance(block, Table):
+                self._extract_table(
+                    block, contents, False, review_pages, counts
+                )
+
+            if counts["text"] > max_text_chars:
+                raise BusinessError(
+                    ErrorCode.CONTENT_TOO_LARGE,
+                    detail=(
+                        "DOCX와 HWPX는 문서 본문 텍스트를 최대 "
+                        f"{max_text_chars:,}자까지 허용합니다."
+                    ),
+                )
 
     def _iter_block_items(
         self,
