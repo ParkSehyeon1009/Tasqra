@@ -1,12 +1,27 @@
 /* =============================================================================
    이 파일의 책임: 산출물 조건 선택(DLV-001-1)과 생성 대상 미리보기
      (DLV-001-2) 화면의 표현을 담는다.
-   다른 파일과의 관계: DeliverablesView.jsx 가 import 한다. 색·반경·그림자는
-     대시보드(styles/workspace.css)와 같은 값을 쓴다 — 두 화면이 나란히 쓰이므로
-     따로 정하면 같은 제품이 아닌 것처럼 보인다.
+   다른 파일과의 관계: DeliverablesView.jsx 가 import 한다. **색은 직접 정하지
+     않고 styles/tokens.css 의 변수를 쓴다** — utils/theme.js 가 사용자가 고른
+     색으로 --c-accent 계열을 실행 중에 덮어쓰므로, 하드코딩하면 이 화면만
+     테마를 따라가지 않는다.
    Spring 비교: 해당 없음(표현 전용).
 
    기존 .panel 을 그대로 쓰고 여기서는 산출물 고유 요소만 정의한다.
+
+   왜 색만 변수로 바꾸고 반경·그림자는 px 로 두는가
+     utils/theme.js 가 실행 중에 바꾸는 것은 --c-accent · --c-accent-strong ·
+     --c-accent-soft · --c-accent-bg · --c-accent-border 와 레일·히어로 색뿐이다.
+     반경과 그림자는 어느 테마에서도 그대로다. 그것까지 토큰으로 바꾸면 값이
+     달라져(12px -> 9px 또는 14px) 화면 모양만 흔들리고 얻는 것이 없다.
+
+   글자색을 --c-text-strong 으로 모은 이유
+     전에는 남색(#2c326b)이었다. 테마가 포레스트·딥바이올렛으로 바뀌면 그 남색만
+     남아 어긋난다. 강조는 검정 하나로 두는 것이 어느 테마에서도 어울린다.
+
+   강조색 위의 글자는 #fff 를 그대로 쓴다
+     tokens.css 의 .btn--primary 도 그렇게 한다(--c-on-accent 같은 토큰이 없다).
+     프로젝트 관례를 따른다.
    ============================================================================= */
 
 .deliverable-controls { display: grid; gap: 18px; margin-bottom: 18px; }
@@ -15,33 +30,39 @@
    유형마다 "담기는 것" 을 함께 적는다. 그것을 모르면 결정사항 대장에서 날짜를
    바꿔도 숫자가 안 변하는 것이 고장처럼 보인다. */
 .deliverable-kind-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.deliverable-kind { display: block; padding: 13px 14px; border: 1px solid #d2d9e7; border-radius: 12px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
-.deliverable-kind:hover, .deliverable-kind:focus-visible { border-color: #756de8; background: #f7f6ff; }
-.deliverable-kind.is-active { border-color: #4a43ae; background: #f5f4ff; box-shadow: inset 0 0 0 1px #4a43ae; }
-.deliverable-kind strong { display: block; color: #2c326b; font-size: 14px; }
-.deliverable-kind span { display: block; margin-top: 5px; color: #758197; font-size: 12px; line-height: 1.45; }
+.deliverable-kind { display: block; padding: 13px 14px; border: 1px solid var(--c-border-strong); border-radius: 12px; background: var(--c-bg); font: inherit; text-align: left; cursor: pointer; }
+.deliverable-kind:hover, .deliverable-kind:focus-visible { border-color: var(--c-accent-border); background: var(--c-accent-soft); }
+.deliverable-kind.is-active { border-color: var(--c-accent); background: var(--c-accent-soft); box-shadow: inset 0 0 0 1px var(--c-accent); }
+.deliverable-kind strong { display: block; color: var(--c-text-strong); font-size: 14px; }
+.deliverable-kind span { display: block; margin-top: 5px; color: var(--c-text-muted); font-size: 12px; line-height: 1.45; }
 
 .deliverable-period { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
 .deliverable-period label { display: grid; gap: 6px; }
-.deliverable-period label > span { color: #65748a; font-size: 13px; font-weight: 700; }
-.deliverable-period input { min-height: 40px; padding: 8px 11px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #2c326b; font: inherit; }
-.deliverable-period input:focus-visible { border-color: #756de8; outline: none; }
+.deliverable-period label > span { color: var(--c-text-muted); font-size: 13px; font-weight: 700; }
+.deliverable-period input { min-height: 40px; padding: 8px 11px; border: 1px solid var(--c-border-strong); border-radius: 8px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; }
+.deliverable-period input:focus-visible { border-color: var(--c-accent); outline: none; }
 /* 기간을 쓰지 않는 유형에서 띄우는 안내. 경고가 아니라 설명이므로 눈에 덜 띄게 둔다. */
-.deliverable-period-note { flex: 1 1 240px; margin: 0 0 9px; color: #758197; font-size: 12px; line-height: 1.5; }
-.deliverable-period-note strong { color: #2c326b; }
+.deliverable-period-note { flex: 1 1 240px; margin: 0 0 9px; color: var(--c-text-muted); font-size: 12px; line-height: 1.5; }
+.deliverable-period-note strong { color: var(--c-text-strong); }
 
 /* 출력 형식 선택. DB CHECK 값(XLSX·HTML·MD·PDF)을 그대로 쓰고 기본 선택은 없다.
    유형 버튼과 같은 상호작용을 쓰되, 형식은 넷이라 별도 그룹으로 분리한다. */
-.deliverable-format-fieldset { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid #e8edf4; }
+.deliverable-format-fieldset { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--c-border); }
 .deliverable-control-heading { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
-.deliverable-control-heading > strong { color: #2c326b; font-size: 14px; }
-.deliverable-control-heading > span { color: #758197; font-size: 12px; }
+.deliverable-control-heading > strong { color: var(--c-text-strong); font-size: 14px; }
+.deliverable-control-heading > span { color: var(--c-text-muted); font-size: 12px; }
 .deliverable-format-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.deliverable-format { display: block; min-height: 66px; padding: 11px 13px; border: 1px solid #d2d9e7; border-radius: 10px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
-.deliverable-format:hover, .deliverable-format:focus-visible { border-color: #756de8; background: #f7f6ff; }
-.deliverable-format.is-active { border-color: #4a43ae; background: #f5f4ff; box-shadow: inset 0 0 0 1px #4a43ae; }
-.deliverable-format strong { display: block; color: #2c326b; font-size: 14px; }
-.deliverable-format span { display: block; margin-top: 4px; color: #758197; font-size: 12px; line-height: 1.4; }
+.deliverable-format { display: block; min-height: 66px; padding: 11px 13px; border: 1px solid var(--c-border-strong); border-radius: 10px; background: var(--c-bg); font: inherit; text-align: left; cursor: pointer; }
+.deliverable-format:hover, .deliverable-format:focus-visible { border-color: var(--c-accent-border); background: var(--c-accent-soft); }
+.deliverable-format.is-active { border-color: var(--c-accent); background: var(--c-accent-soft); box-shadow: inset 0 0 0 1px var(--c-accent); }
+.deliverable-format strong { display: block; color: var(--c-text-strong); font-size: 14px; }
+.deliverable-format span { display: block; margin-top: 4px; color: var(--c-text-muted); font-size: 12px; line-height: 1.4; }
+
+/* 아직 만들 수 없는 출력 형식. 고를 수 없되 **있다는 것은 보인다.**
+   숨기면 "없는 형식" 으로 읽히고, 그냥 두면 눌러서 501 을 받고 나서야 안다.
+   점선과 낮은 채도로 드러내므로 강조색을 쓰지 않는다 — 테마와 무관하다. */
+.deliverable-format.is-unready { border-style: dashed; background: var(--c-bg-subtle); cursor: not-allowed; }
+.deliverable-format.is-unready > strong, .deliverable-format.is-unready > span { color: var(--c-text-muted); }
 
 /* 건수 카드. "담길 내용" 과 "담기지 않는 것" 을 나눠서, 승인 대기가 4건인데
    못 만드는 상황이 모순처럼 보이지 않게 한다. */
@@ -49,30 +70,63 @@
    repeat(4) 였는데 그대로 두면 마지막 칸만 아래로 떨어져 짝이 안 맞아 보인다. */
 .deliverable-count-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 18px; }
 .deliverable-count-grid--aside { grid-template-columns: repeat(2, 1fr); }
-.deliverable-group-heading { grid-column: 1 / -1; margin: 0; color: #65748a; font-size: 13px; font-weight: 750; }
+.deliverable-group-heading { grid-column: 1 / -1; margin: 0; color: var(--c-text-muted); font-size: 13px; font-weight: 750; }
 
-.deliverable-count-card { min-height: 112px; padding: 18px; border: 1px solid #dce3ee; border-radius: 14px; background: #fff; box-shadow: 0 4px 16px rgba(30, 43, 66, .04); }
-.deliverable-count-card > span { display: block; color: #65748a; font-size: 13px; font-weight: 700; }
-.deliverable-count-card > strong { display: block; margin: 11px 0 7px; color: #2c326b; font-size: 30px; line-height: 1; }
-.deliverable-count-card > p { margin: 0; color: #758197; font-size: 12px; line-height: 1.45; }
+.deliverable-count-card { min-height: 112px; padding: 18px; border: 1px solid var(--c-border); border-radius: 14px; background: var(--c-bg); box-shadow: 0 4px 16px rgba(30, 43, 66, .04); }
+.deliverable-count-card > span { display: block; color: var(--c-text-muted); font-size: 13px; font-weight: 700; }
+.deliverable-count-card > strong { display: block; margin: 11px 0 7px; color: var(--c-text-strong); font-size: 30px; line-height: 1; }
+.deliverable-count-card > p { margin: 0; color: var(--c-text-muted); font-size: 12px; line-height: 1.45; }
 /* 셀 수 없는 항목. 0 건과 헷갈리지 않게 톤을 낮추고 이유를 함께 적는다. */
-.deliverable-count-card.is-unknown { background: #fafbfd; border-style: dashed; }
-.deliverable-count-card.is-unknown > strong { color: #97a1b3; }
+.deliverable-count-card.is-unknown { background: var(--c-bg-subtle); border-style: dashed; }
+.deliverable-count-card.is-unknown > strong { color: var(--c-text-muted); }
 
 /* 생성 영역. 막히는 것이 보이는 자리다. */
 .deliverable-generate { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .deliverable-generate h2 { margin: 0 0 7px; }
-.deliverable-generate p { margin: 0; color: #758197; font-size: 13px; line-height: 1.5; }
+.deliverable-generate p { margin: 0; color: var(--c-text-muted); font-size: 13px; line-height: 1.5; }
 /* 막힌 이유는 서버가 만든 문장을 그대로 보여준다. 읽히도록 본문색을 쓴다. */
-.deliverable-blocked { color: #2c326b !important; font-weight: 700; }
+.deliverable-blocked { color: var(--c-text-strong) !important; font-weight: 700; }
 .deliverable-generate-note { margin-top: 6px !important; font-size: 12px !important; }
-.deliverable-generate-button { flex: 0 0 auto; min-height: 42px; padding: 11px 20px; border: 1px solid #4a43ae; border-radius: 10px; background: #4a43ae; color: #fff; font: inherit; font-weight: 750; cursor: pointer; }
-.deliverable-generate-button:hover:not(:disabled), .deliverable-generate-button:focus-visible:not(:disabled) { background: #3c3696; }
-.deliverable-generate-button:disabled { border-color: #d2d9e7; background: #eef1f6; color: #97a1b3; cursor: not-allowed; }
+.deliverable-generate-button { flex: 0 0 auto; min-height: 42px; padding: 11px 20px; border: 1px solid var(--c-accent); border-radius: 10px; background: var(--c-accent); color: #fff; font: inherit; font-weight: 750; cursor: pointer; }
+.deliverable-generate-button:hover:not(:disabled), .deliverable-generate-button:focus-visible:not(:disabled) { border-color: var(--c-accent-strong); background: var(--c-accent-strong); }
+.deliverable-generate-button:disabled { border-color: var(--c-border-strong); background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+
+/* 만든 산출물 목록(DLV-003-3). */
+.deliverable-history { margin-top: 18px; }
+.deliverable-history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.deliverable-history-heading h2 { margin: 0; }
+.deliverable-history-heading span { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+.deliverable-history-empty { margin: 0; color: var(--c-text-muted); font-size: 13px; line-height: 1.6; }
+.deliverable-history-empty strong { color: var(--c-text-strong); }
+
+.deliverable-history-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.deliverable-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 15px 17px; border: 1px solid var(--c-border); border-radius: 12px; background: var(--c-bg); }
+/* 낡은 산출물. 색을 쓰지 않고 **왼쪽 굵은 선** 하나로만 구분한다. */
+.deliverable-card.is-stale { border-left: 3px solid var(--c-text-strong); }
+.deliverable-card-main { min-width: 0; }
+.deliverable-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.deliverable-card-title > strong { color: var(--c-text-strong); font-size: 15px; }
+.deliverable-card-format { padding: 2px 8px; border: 1px solid var(--c-border); border-radius: 6px; color: var(--c-text-muted); font-size: 11px; font-weight: 750; }
+/* 갱신 필요 배지. 검정 채움 하나로 강조한다 — 어느 테마에서도 같이 읽힌다. */
+.deliverable-card-badge { padding: 2px 8px; border-radius: 6px; background: var(--c-text-strong); color: #fff; font-size: 11px; font-weight: 750; }
+.deliverable-card-meta { margin: 7px 0 0; color: var(--c-text-muted); font-size: 12px; }
+/* 무엇이 늘었는지. 배지보다 이 문장이 실제로 쓸모 있는 정보다. */
+.deliverable-card-stale { margin: 7px 0 0; color: var(--c-text-strong); font-size: 12px; font-weight: 700; line-height: 1.5; }
+
+.deliverable-card-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.deliverable-card-actions button { min-height: 34px; padding: 7px 13px; border: 1px solid var(--c-border-strong); border-radius: 8px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.deliverable-card-actions button:hover:not(:disabled), .deliverable-card-actions button:focus-visible:not(:disabled) { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.deliverable-card-actions button:disabled { background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+.deliverable-card-delete { color: var(--c-danger) !important; }
+.deliverable-card-delete:hover, .deliverable-card-delete:focus-visible { border-color: var(--c-danger) !important; background: var(--c-danger-bg) !important; }
 
 @media (max-width: 900px) {
   .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid { grid-template-columns: repeat(2, 1fr); }
   .deliverable-generate { flex-direction: column; align-items: stretch; }
+}
+@media (max-width: 700px) {
+  .deliverable-card { flex-direction: column; align-items: stretch; }
+  .deliverable-card-actions button { flex: 1 1 0; }
 }
 @media (max-width: 560px) {
   .deliverable-kind-group, .deliverable-format-group, .deliverable-count-grid, .deliverable-count-grid--aside { grid-template-columns: 1fr; }

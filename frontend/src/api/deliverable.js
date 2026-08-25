@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { http } from './http'
+import { parseFilename, triggerBrowserDownload } from '../utils/download'
 
 // GET /api/projects/{projectId}/deliverables/preview
 //
@@ -49,4 +50,57 @@ export async function getDeliverablePreview(projectId, { kind, periodFrom, perio
     params: { kind, period_from: periodFrom, period_to: periodTo },
   })
   return data
+}
+
+
+
+// POST /api/projects/{projectId}/deliverables — 산출물 만들기 (DLV-002-x)
+//
+// `format` 에 기본값을 두지 않는다. 고르지 않으면 서버가 422 를 낸다 —
+// 화면도 버튼을 막지만 서버가 마지막 관문이다(DLV-001-1 완료 판정).
+//
+// 오류를 화면이 그대로 보여줄 수 있다
+//   422 DELIVERABLE_EMPTY            담을 내용이 없다. message 에 이유가 있다
+//   501 DELIVERABLE_FORMAT_NOT_READY 값은 맞지만 아직 못 만드는 형식이다
+//   403 PROJECT_FORBIDDEN            VIEWER 는 만들 수 없다
+// http.js 의 인터셉터가 message·code 를 Error 에 담아 주므로 여기서 손대지 않는다.
+export async function createDeliverable(projectId, { kind, format, periodFrom, periodTo }) {
+  const { data } = await http.post(`/api/projects/${projectId}/deliverables`, {
+    kind,
+    format,
+    period_from: periodFrom,
+    period_to: periodTo,
+  })
+  return data
+}
+
+// GET /api/projects/{projectId}/deliverables — 생성 이력 (DLV-003-3)
+//
+// 최근에 만든 것이 먼저 온다. 각 건에 `is_stale` 과 `stale_changes` 가 있다 —
+// 만든 뒤 재료가 늘었는지다(DLV-003-4). `stale_changes` 는 **늘어난 것만** 담는다.
+export async function listDeliverables(projectId) {
+  return (await http.get(`/api/projects/${projectId}/deliverables`)).data
+}
+
+// 산출물 파일 받기 (DLV-003-3)
+//
+// **경로를 조립하지 않고 목록이 준 `download_url` 을 그대로 쓴다.** 서버가 그
+// 목적으로 응답에 담아 준다(DeliverableResponse.download_url). 조립하면 서버가
+// 경로를 바꿀 때 화면이 조용히 404 를 받는다. api/document.js 의
+// getOcrPageImage 도 같은 방식이다.
+//
+// 파일 이름도 서버가 정한다 — Content-Disposition 에 제목으로 만든 이름이 온다.
+// 확장자와 MIME 이 한 곳(서버)에서만 결정된다.
+//
+// 이력에는 있는데 파일이 사라지면 410 이다. 404(그 산출물이 없다)와 구분된다.
+export async function downloadDeliverable(downloadUrl, fallbackName) {
+  const response = await http.get(downloadUrl, { responseType: 'blob' })
+  const filename = parseFilename(response.headers['content-disposition'], fallbackName)
+  triggerBrowserDownload(response.data, filename)
+  return filename
+}
+
+// DELETE /api/projects/{projectId}/deliverables/{id} — 이력과 파일 삭제
+export async function deleteDeliverable(projectId, deliverableId) {
+  await http.delete(`/api/projects/${projectId}/deliverables/${deliverableId}`)
 }

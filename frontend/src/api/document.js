@@ -1,4 +1,5 @@
 import { http } from './http'
+import { parseFilename, triggerBrowserDownload } from '../utils/download'
 
 // GET /api/documents — 목록 + 검색 + 페이징
 // 응답: { items, page, size, total, total_pages }
@@ -98,36 +99,6 @@ export async function downloadSummary(projectId, documentId, fallbackName = 'sum
   const filename = parseFilename(response.headers['content-disposition'], fallbackName)
   triggerBrowserDownload(response.data, filename)
   return filename
-}
-
-// Content-Disposition: attachment; filename="summary.txt"; filename*=UTF-8''%ED%95%9C...
-function parseFilename(disposition, fallback) {
-  if (!disposition) return fallback
-
-  // filename*=UTF-8'' 형식을 우선 사용한다 (한글 파일명).
-  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
-  if (utf8Match) {
-    try {
-      return decodeURIComponent(utf8Match[1])
-    } catch {
-      // 디코딩 실패 시 아래 filename= 으로 넘어간다
-    }
-  }
-
-  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i)
-  return asciiMatch ? asciiMatch[1] : fallback
-}
-
-// blob 을 사용자 다운로드로 연결한다. (a 태그를 임시로 만들어 클릭)
-function triggerBrowserDownload(blob, filename) {
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.URL.revokeObjectURL(url)
 }
 
 // POST /api/documents/{id}/analyze — AI 요약 + 카테고리 분류 실행
