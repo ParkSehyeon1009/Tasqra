@@ -55,6 +55,7 @@ from app.schemas.deliverable import (
     FORMAT_FILE_TYPES,
     PERIOD_REQUIRED_KINDS,
     SUPPORTED_DELIVERABLE_FORMATS,
+    DeliverableContentResponse,
     DeliverablePreviewResponse,
     PreviewCounts,
 )
@@ -254,6 +255,97 @@ class DeliverableService:
             project_id, kind, deliverable_format, since, until, row.file_size,
         )
         return row
+
+    def preview_content(
+        self,
+        project_id: int,
+        *,
+        kind: str,
+        deliverable_format: str,
+        period_from: date | None = None,
+        period_to: date | None = None,
+    ) -> DeliverableContentResponse:
+        """만들지 않고 **본문만** 만들어 돌려준다 (`DLV-001-2` 를 넓힌 것).
+
+        `generate` 와 **같은 재료·같은 제목·같은 문서 구조**를 쓰고 마지막 두
+        단계(파일 쓰기·이력 커밋)만 하지 않는다. 그래서 미리 본 것과 실제로 만든
+        것이 어긋날 수 없다 — 두 경로가 갈라지면 "미리보기엔 있었는데 파일엔 없다"
+        가 생긴다.
+
+        ### 왜 필요했나
+
+        그전에는 **만들어야** 내용을 볼 수 있었다. 만들면 파일이 생기고 이력에
+        남는다. 확인하려고 만든 산출물이 이력에 쌓이는 것을 막을 방법이 없었다.
+
+        `DLV-001-2` 의 「미리보기」는 **건수** 미리보기다(완료 판정이 "건수가 보이고"
+        다). 본문 미리보기는 명세에 없던 것이고, 같은 목적(빈 보고서 방지)을 한
+        걸음 더 밀어 준다.
+
+        ### 형식 검사도 `generate` 와 똑같다
+
+        없는 형식은 `INVALID_DOCUMENT_TYPE`, 아직 못 만드는 형식은
+        `DELIVERABLE_FORMAT_NOT_READY`(501) 다. **미리보기만 되고 만들기는 안 되는
+        형식을 만들지 않는다** — 미리 본 뒤 만들기를 눌렀을 때 처음 막히면 헛수고다.
+
+        `XLSX`·`PDF` 가 준비되면 이 메서드는 **그대로** 그 형식을 돌려준다. 형식별
+        생성기를 `RENDERERS` 에서 고르는 구조라 여기 고칠 것이 없다.
+
+        ### 화면이 HTML 을 어떻게 안전하게 그리나
+
+        `dangerouslySetInnerHTML` 로 심지 않고 **`<iframe sandbox>` 안에서** 그린다.
+        스크립트·폼·부모 접근이 전부 막히므로, 혹시 escape 에 구멍이 생겨도 실행되지
+        않는다. `render_html` 이 `<!doctype>` 부터 `<style>` 까지 담은 **완전한 문서**를
+        만들기 때문에 그대로 넣으면 된다.
+
+        ### 담을 것이 없으면 `generate` 와 똑같이 막는다
+
+        빈 문서를 미리 보여주는 것은 목적에 어긋난다. 코드도 같은
+        `DELIVERABLE_EMPTY` 를 쓴다 — 화면이 두 가지를 따로 처리하지 않게.
+        """
+        # 형식을 먼저 본다. generate 와 같은 순서·같은 코드다 — 미리보기에서 통과한
+        # 형식이 만들기에서 막히면 사용자는 미리 본 것을 만들 수 없다.
+        if deliverable_format not in DELIVERABLE_FORMATS:
+            raise BusinessError(
+                ErrorCode.INVALID_DOCUMENT_TYPE,
+                detail=f"출력 형식은 {' · '.join(DELIVERABLE_FORMATS)} 중 하나여야 합니다.",
+            )
+        if deliverable_format not in SUPPORTED_DELIVERABLE_FORMATS:
+            raise BusinessError(
+                ErrorCode.DELIVERABLE_FORMAT_NOT_READY,
+                detail=(
+                    f"{deliverable_format} 형식은 아직 미리 볼 수 없습니다. "
+                    f"지금 가능한 형식은 {' · '.join(SUPPORTED_DELIVERABLE_FORMATS)} 입니다."
+                ),
+            )
+
+        preview = self.preview(
+            project_id, kind=kind, period_from=period_from, period_to=period_to
+        )
+        if not preview.can_generate:
+            raise BusinessError(
+                ErrorCode.DELIVERABLE_EMPTY, detail=preview.blocked_reason
+            )
+
+        since, until = preview.period_from, preview.period_to
+        materials = self._materials(project_id, kind=kind, since=since, until=until)
+        title = build_title(kind, since, until)
+        generated_at = datetime.now(timezone.utc)
+        body = RENDERERS[deliverable_format](
+            kind=kind,
+            title=title,
+            period_from=since,
+            period_to=until,
+            materials=materials,
+            generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
+        )
+        return DeliverableContentResponse(
+            kind=kind,
+            title=title,
+            format=deliverable_format,
+            period_from=since,
+            period_to=until,
+            body=body,
+        )
 
     def list_history(self, project_id: int) -> list[Deliverable]:
         """만든 산출물 이력 (DLV-003-3).

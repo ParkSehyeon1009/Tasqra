@@ -41,6 +41,7 @@ from app.dependencies import (
 )
 from app.schemas.deliverable import (
     FORMAT_FILE_TYPES,
+    DeliverableContentResponse,
     DeliverableCreateRequest,
     DeliverablePreviewResponse,
     DeliverableResponse,
@@ -256,3 +257,87 @@ def delete_deliverable(
       `403 PROJECT_FORBIDDEN`      VIEWER 다
     """
     service.delete(access.project.id, deliverable_id)
+
+
+
+# ⚠ 경로 순서 주의
+#   위쪽 `/deliverables/{deliverable_id}/file` 은 마지막 칸이 리터럴 `file` 이라
+#   `preview/content` 와 겹치지 않는다. 그래서 여기 있어도 안전하다.
+#   **다만 `/deliverables/{deliverable_id}` 같은 조회를 나중에 더한다면 그것을 이 줄
+#   아래에 둬야 한다** — 위에 두면 `preview` 를 id 로 읽어서 이 경로가 가려진다.
+@router.get("/deliverables/preview/content", response_model=DeliverableContentResponse)
+def preview_deliverable_content(
+    kind: str = Query(
+        description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS",
+    ),
+    period_from: date | None = Query(
+        None, description="주간 보고서만 필수. 다른 유형에서는 무시된다"
+    ),
+    period_to: date | None = Query(None, description="같음"),
+    deliverable_format: str = Query(
+        "HTML",
+        alias="format",
+        description="MD · HTML. XLSX·PDF 는 아직 501 이다(만들기와 같다)",
+    ),
+    access: ProjectAccess = Depends(get_project_access),
+    service: DeliverableService = Depends(get_deliverable_service),
+) -> DeliverableContentResponse:
+    """**만들지 않고** 본문을 미리 보여준다.
+
+    `GET /deliverables/preview` 가 «몇 건이 담기나» 를 답하고, 이것이 «어떻게 나오나»
+    를 답합니다.
+
+    ### 왜 필요한가
+
+    그전에는 **만들어야** 내용을 볼 수 있었습니다. 만들면 파일이 생기고 이력에
+    남습니다. 확인하려고 만든 산출물이 이력에 쌓이는 것을 막을 방법이 없었습니다.
+
+    `DLV-001-2` 의 「미리보기」는 **건수** 미리보기입니다(완료 판정이 *"건수가
+    보이고"*). 본문 미리보기는 **명세에 없던 항목**이고, 같은 목적(빈 보고서 방지)을
+    한 걸음 더 밀어 줍니다.
+
+    ### `generate` 와 같은 경로를 씁니다
+
+    같은 미리보기(건수)·같은 재료·같은 제목·같은 문서 구조를 쓰고 **마지막 두 단계
+    (파일 쓰기·이력 커밋)만 하지 않습니다.** 두 경로가 갈라지면 "미리 본 것과 만든
+    것이 다르다" 가 생깁니다.
+
+    파일을 만들지 않으므로 응답에 `id`·`file_size`·`download_url` 이 없습니다.
+    이력에도 남지 않습니다 — 그것이 요점입니다.
+
+    ### 형식 검사가 만들기와 같습니다
+
+    없는 형식은 `422 INVALID_DOCUMENT_TYPE`, 아직 못 만드는 형식은
+    `501 DELIVERABLE_FORMAT_NOT_READY` 입니다. **미리보기만 되고 만들기는 안 되는
+    형식을 두지 않습니다** — 미리 본 뒤 만들기에서 처음 막히면 헛수고입니다.
+
+    `XLSX`·`PDF` 가 준비되면 이 엔드포인트는 **고칠 것 없이** 그 형식을 돌려줍니다.
+    형식별 생성기를 `RENDERERS` 에서 고르는 구조입니다.
+
+    ### 화면이 HTML 을 안전하게 그리는 방법
+
+    `HTML` 본문은 `<!doctype>` 부터 `<style>` 까지 담긴 **완전한 문서**입니다.
+    화면은 이것을 **`<iframe sandbox srcDoc>`** 에 넣습니다 —
+    `dangerouslySetInnerHTML` 로 심지 않습니다. `sandbox` 가 스크립트·폼·부모 접근을
+    모두 막으므로, 혹시 `render_html` 의 escape 에 구멍이 생겨도 실행되지 않습니다.
+
+    ### 담을 것이 없으면 막습니다
+
+    `generate` 와 같은 `422 DELIVERABLE_EMPTY` 입니다. 빈 문서를 미리 보여주는 것은
+    목적에 어긋나고, 코드를 하나로 두면 화면이 두 가지를 따로 처리하지 않습니다.
+
+    ### 오류
+
+      `422 DELIVERABLE_EMPTY`              담을 것이 없다
+      `422 INVALID_DOCUMENT_TYPE`          없는 유형 · 없는 형식
+      `422 PERIOD_REQUIRED`                주간 보고서인데 기간이 없다
+      `501 DELIVERABLE_FORMAT_NOT_READY`   XLSX·PDF — 만들기와 같다
+      `404`                                내가 멤버가 아닌 프로젝트
+    """
+    return service.preview_content(
+        access.project.id,
+        kind=kind,
+        deliverable_format=deliverable_format,
+        period_from=period_from,
+        period_to=period_to,
+    )

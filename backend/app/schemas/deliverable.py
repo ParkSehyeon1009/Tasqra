@@ -192,3 +192,35 @@ class DeliverableResponse(BaseModel):
     # 화면이 이 값으로 문장을 만들 수 있다 — "문서 2건이 나중에 추가됨".
     # 서버가 문장을 만들지 않는 이유는 항목 이름을 화면이 이미 번역하고 있어서다.
     stale_changes: dict[str, int] = Field(default_factory=dict)
+
+
+
+class DeliverableContentResponse(BaseModel):
+    """만들지 않고 본문만 돌려주는 응답 (본문 미리보기).
+
+    `DLV-001-2` 의 「미리보기」는 **건수** 미리보기다(완료 판정이 "건수가 보이고" 다).
+    이것은 그것을 한 걸음 넓힌 것이고 **명세에 없던 항목**이다. 그전에는 만들어야
+    내용을 볼 수 있었고, 확인하려고 만든 산출물이 이력에 쌓이는 것을 막을 방법이
+    없었다.
+
+    파일을 만들지 않으므로 `file_size`·`download_url`·`id` 가 없다. 이력에도 남지
+    않는다. 그것이 이 응답의 요점이다.
+
+    `format` 은 요청한 그대로다. 만들기와 **같은 형식 검사**를 거치므로 미리 본 형식은
+    반드시 만들 수도 있다 — 미리보기만 되고 만들기는 안 되는 형식을 두지 않는다.
+    """
+
+    kind: str
+    title: str
+    # 요청한 형식 그대로. 화면이 이 값을 보고 «어떻게 그릴까» 를 정한다 —
+    # HTML 이면 iframe, MD 면 글자다. 화면이 스스로 추측하지 않게 서버가 담아 준다.
+    format: str
+    period_from: date | None
+    period_to: date | None
+    # 본문 그대로.
+    #
+    # HTML 이면 `<!doctype>` 부터 `<style>` 까지 담긴 **완전한 문서**다
+    # (deliverable_html.render_html). 화면은 이것을 `<iframe sandbox srcDoc>` 에
+    # 넣는다 — dangerouslySetInnerHTML 로 심지 않는다. sandbox 가 스크립트·폼·부모
+    # 접근을 막으므로 escape 에 구멍이 생겨도 실행되지 않는다.
+    body: str
