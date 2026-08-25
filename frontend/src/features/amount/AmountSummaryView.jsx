@@ -158,6 +158,8 @@ export default function AmountSummaryView({ projectId }) {
         </>}
     </section>
 
+    <TotalCheckPanel summary={summary} loading={summaryQuery.isPending}/>
+
     <section className='panel amount-category' aria-label='원가구분별 금액'>
       <div className='amount-category-heading'>
         <h2>원가구분별</h2>
@@ -188,6 +190,83 @@ export default function AmountSummaryView({ projectId }) {
 /** included_decisions 를 '승인 · 수정 승인' 처럼 바꾼다. 값이 없으면 빈 문자열. */
 function describeDecisions(decisions) {
   return (decisions ?? []).map(value => DECISION_LABELS[value] ?? value).join(' · ')
+}
+
+// 문서에 적힌 합계와 우리가 더한 합계를 나란히 보여준다 (AMT-002-1).
+//
+// 이 화면에서 가장 강한 정보다. 요약이나 결정사항은 AI 가 맞게 뽑았는지 확인할
+// 방법이 없지만, 금액은 문서에 적힌 값과 맞춰볼 수 있다.
+//
+// **맞은 문서도 보여준다.** 불일치만 띄우면 "대조했고 맞았다" 와 "대조를 안 했다"
+// 가 화면에서 같아 보인다. 앞은 증명이고 뒤는 정보가 없는 상태다.
+//
+// 대조하지 못한 문서는 **건수와 이유만** 적는다. 표에 빈 줄로 넣으면 합계가 없는
+// 정상 문서가 오류처럼 보인다.
+function TotalCheckPanel({ summary, loading }) {
+  const checks = summary?.total_checks ?? []
+  const missing = summary?.documents_without_stated_total ?? 0
+  // 대조할 것도 없고 대조 못 한 문서도 없으면 이 절 자체를 띄우지 않는다 —
+  // 금액 항목이 아직 없는 프로젝트에서 빈 칸만 늘어난다.
+  if (!loading && checks.length === 0 && missing === 0) return null
+
+  return <section className='panel amount-total-check' aria-label='문서 합계 대조'>
+    <div className='amount-category-heading'>
+      <h2>문서 합계 대조</h2>
+      <span>문서에 적힌 합계와 항목을 더한 값을 맞춰봅니다.</span>
+    </div>
+
+    {loading
+      ? <p className='amount-scope-empty'>대조하는 중입니다.</p>
+      : <>
+        {checks.length > 0 && <div className='amount-table-scroll'>
+          <table className='amount-items-table'>
+            <thead>
+              <tr>
+                <th scope='col'>문서</th>
+                <th scope='col' className='amount-cell-number'>문서에 적힌 합계</th>
+                <th scope='col' className='amount-cell-number'>항목을 더한 합계</th>
+                <th scope='col'>대조</th>
+              </tr>
+            </thead>
+            <tbody>
+              {checks.map(row => <tr key={row.document_id} className={row.matches ? undefined : 'is-mismatch'}>
+                <th scope='row'>
+                  <span className='amount-item-source' title={row.filename}>{row.filename}</span>
+                </th>
+                <td className='amount-cell-number'>{formatMoney(row.stated_total)}</td>
+                <td className='amount-cell-number'>{formatMoney(row.item_total)}</td>
+                <td className={'amount-verify is-' + (row.matches ? 'ok' : 'bad')}>
+                  {row.matches ? '일치' : totalGapText(row.difference)}
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>}
+
+        {/* 부가세를 빼고 비교한다는 사실을 반드시 적는다. 문서의 합계가 부가세를
+            포함한 값이면 이 대조는 늘 불일치로 나오는데, 그 이유를 모르면
+            계산이 틀렸다고 읽는다. */}
+        {checks.length > 0 && <p className='amount-scope-note'>
+          「항목을 더한 합계」는 <strong>부가가치세를 제외한 값</strong>입니다.
+          문서의 합계가 부가세를 포함한 값이면 그만큼 차이가 납니다.
+        </p>}
+
+        {missing > 0 && <p className='amount-scope-note'>
+          문서 <strong>{formatNumber(missing)}건</strong>은 적힌 합계가 없어 대조하지 못했습니다.
+          공고문처럼 합계가 없는 문서가 있어서 <strong>오류가 아닙니다.</strong>
+        </p>}
+      </>}
+  </section>
+}
+
+/** 문서 합계 차이를 문장으로. difference = 항목 합계 − 문서 합계 다.
+ *  양수면 문서에 적힌 합계가 더 작다. 부호를 그대로 보여주지 않는 이유는
+ *  항목 검산(verifyText)과 같다. */
+function totalGapText(difference) {
+  const gap = difference ?? 0
+  return gap > 0
+    ? `문서 합계가 ${formatMoney(gap)}원 적음`
+    : `문서 합계가 ${formatMoney(Math.abs(gap))}원 많음`
 }
 
 // 목록 걸러보기. 서버가 준 값만 보고 나누므로 규칙을 화면이 다시 만들지 않는다.

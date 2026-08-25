@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from decimal import Decimal
+
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +37,17 @@ class Document(Base):
     ocr_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     category_cache: Mapped[str | None] = mapped_column(String(30))
     summary_preview: Mapped[str | None] = mapped_column(String(300))
+    # 문서 아래쪽 「합계」 칸에 적힌 값. 우리가 항목을 더한 합계와 대조하는 기준이다
+    # (AMT-002-1). 리비전 0022.
+    #
+    # NULL 이 정상이다 — 합계가 적혀 있지 않은 문서가 있다(공고문·계약서 본문).
+    # 0 을 넣으면 "합계가 0원" 과 "안 적혀 있다" 를 구별할 수 없고 대조가 항상
+    # 불일치로 나온다. amount_calculator.TotalCheck 가 None 을 「대조 불가」로
+    # 따로 다루는 것과 같은 이유다.
+    #
+    # 형이 amount_items.amount 와 같다(Numeric(18,2)). 다르면 계산기에 넘길 때
+    # 변환 규칙이 둘이 되어 반올림이 어긋난다.
+    stated_total_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

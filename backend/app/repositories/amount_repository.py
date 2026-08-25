@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Sequence
 
 from sqlalchemy import Select, and_, func, select
@@ -166,6 +167,28 @@ class AmountRepository:
             (row[0], row[1], int(row[2]), row[3])
             for row in self._db.execute(stmt).all()
         ]
+
+    def stated_totals(self, project_id: int) -> dict[int, Decimal]:
+        """문서에 적힌 합계를 {문서 id: 합계} 로 준다 (리비전 0022).
+
+        **적혀 있는 문서만 담는다.** NULL 을 0 으로 바꿔 담지 않는다 — 그러면
+        "합계가 0원인 문서" 와 구별되지 않고, 대조가 늘 불일치로 나온다. 없는
+        문서는 키 자체가 없어서 호출부가 `.get()` 으로 «대조 불가» 를 판단한다.
+
+        `list_project_items` 의 튜플을 넓히지 않고 **별도 조회로 둔 이유**: 금액
+        항목 목록(`AMT-003-3`)에는 문서 합계가 필요 없다. 튜플에 끼우면 그 화면도
+        쓰지 않는 값을 들고 다니게 되고, 튜플 자리 수가 늘어 부르는 곳마다 고쳐야
+        한다.
+
+        Spring 비교: 같은 트랜잭션 안의 두 번째 조회다. JPA 라면
+        `Map<Long, BigDecimal>` 로 받는 프로젝션 쿼리에 해당한다.
+        """
+        stmt: Select = (
+            select(Document.id, Document.stated_total_amount)
+            .where(Document.project_id == project_id)
+            .where(Document.stated_total_amount.isnot(None))
+        )
+        return {int(row[0]): row[1] for row in self._db.execute(stmt).all()}
 
     def list_project_items(
         self, project_id: int
