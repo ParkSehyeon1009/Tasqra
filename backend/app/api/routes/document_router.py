@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
+from app.core.middleware import current_request_id
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
 from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeGroupsRequest, OcrElementMergeGroupsResponse, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrStructureEventResponse, OcrUndoableMergeResponse
@@ -115,7 +116,10 @@ def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_pr
     # 검수가 확정되면 본문이 바뀌었을 수 있으므로 청킹·임베딩을 다시 돌린다 (RAG-001-3).
     # 여기서 부르는 이유: service 가 리턴한 시점에 transactional 이 이미 커밋했다.
     # 큐 등록이 실패해도 예외를 올리지 않아 검수 완료는 그대로 성공한다.
-    enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)")
+    # request_id 는 contextvar 에서 읽는다 (SYS-003-1). 이 엔드포인트 서명에
+    # Depends 를 더하지 않는 이유는, 이 파일을 다른 사람이 만지고 있어서 서명을
+    # 고치면 충돌 지점이 되기 때문이다. 값을 못 얻으면 "-" 이고 아무것도 깨지지 않는다.
+    enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)", request_id=current_request_id())
     document = service.get_document_for_review(access.project.id, document.id)
     pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)

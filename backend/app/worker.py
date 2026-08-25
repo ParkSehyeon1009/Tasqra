@@ -3,6 +3,8 @@ import logging
 from celery import Celery
 
 from app.core.config import settings
+from app.core.logging_config import setup_logging
+from app.core.middleware import bind_request_id
 from app.db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,22 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_track_started=True,
     broker_connection_retry_on_startup=True,
+    # Celery 가 루트 로거를 가로채지 않게 한다(기본값은 True 다). 가로채면 아래
+    # setup_logging() 이 붙인 포맷터가 밀려나 request_id 가 사라진다.
+    worker_hijack_root_logger=False,
 )
+
+# 워커 프로세스의 로깅을 여기서 설정한다 (SYS-003-1).
+#
+# **여기서 부르지 않으면 값을 넘겨도 아무것도 안 보인다.** 워커는
+# `celery -A app.worker.celery_app worker` 로 뜨고 app.main 을 절대 불러오지
+# 않는다. 그래서 setup_logging() 이 main.py 에만 있으면 워커 로그에는
+# [request_id=...] 포맷터 자체가 붙지 않는다 — 값이 "-" 로 찍히는 게 아니라
+# 아예 없다.
+#
+# API 프로세스에서도 이 줄이 실행된다(main.py 가 라우터를 import 하는 사슬로
+# 이 모듈이 끌려온다). setup_logging() 이 멱등이라 두 번째는 아무 일도 하지 않는다.
+setup_logging()
 
 
 @celery_app.task(
@@ -28,7 +45,16 @@ celery_app.conf.update(
     retry_backoff_max=60,
     retry_kwargs={"max_retries": 2},
 )
-def extract_document_task(self, project_id: int, document_id: int) -> int:
+def extract_document_task(self, project_id: int, document_id: int, request_id: str = "-") -> int:
+    # request_id 를 **기본값 있는 키워드 인자**로 받는다. 이유가 둘이고 두 번째가
+    # 실제로 사고 나는 지점이다 (SYS-003-1).
+    #
+    #   (1) 이 태스크를 부르는 곳이 셋이라 한 곳을 미뤄도 안 깨진다
+    #   (2) **배포 순간 큐에 남아 있던 메시지**는 인자 2개로 들어온다. 필수 인자로
+    #       만들면 그 태스크들이 전부 TypeError 로 죽는다 — 그 시점에 올라온
+    #       문서가 조용히 처리되지 않는다. 사용자는 업로드가 됐다고 본다.
+    bind_request_id(request_id)
+
     # Imports are delayed so Celery can initialize without loading the OCR model.
     from app.dependencies import get_extractor_registry
     from app.repositories.document_repository import DocumentRepository
@@ -42,7 +68,11 @@ def extract_document_task(self, project_id: int, document_id: int) -> int:
     #
     # ExtractionService.process_document 안에 넣지 않고 여기 둔 이유는, 문서
     # 추출이 DOC 영역이라 그쪽 서비스 코드를 건드리지 않으려는 것이다.
-    enqueue_build_chunks(project_id, document_id, reason="문서 추출 완료")
+    #
+    # request_id 를 그대로 넘겨 사슬을 잇는다. 여기서 빠뜨리면 "업로드는 됐는데
+    # 검색이 안 된다" 는 신고를 받았을 때 청킹 로그를 찾을 수 없다 — 추출까지는
+    # 이어지고 그다음이 끊긴다.
+    enqueue_build_chunks(project_id, document_id, reason="문서 추출 완료", request_id=request_id)
 
     return document_id
 
@@ -55,7 +85,7 @@ def extract_document_task(self, project_id: int, document_id: int) -> int:
     retry_backoff_max=60,
     retry_kwargs={"max_retries": 2},
 )
-def build_chunks_task(self, project_id: int, document_id: int) -> int:
+def build_chunks_task(self, project_id: int, document_id: int, request_id: str = "-") -> int:
     """문서 하나를 청킹하고 임베딩해 document_chunks 에 넣는다 (RAG-001-1 · RAG-001-2).
 
     documents.extract 태스크와 일부러 분리해 뒀다. 문서 추출 파이프라인은
@@ -69,6 +99,8 @@ def build_chunks_task(self, project_id: int, document_id: int) -> int:
     기동할 때 무거운 것을 끌어오지 않게 한다. 임베딩 구현이 나중에 실제 모델을
     쓰게 되면 이 지연 임포트가 특히 중요해진다.
     """
+    bind_request_id(request_id)
+
     from app.dependencies import get_embedding_client
     from app.repositories.chunk_repository import ChunkRepository
     from app.services.chunking_service import ChunkingService
@@ -83,7 +115,7 @@ def build_chunks_task(self, project_id: int, document_id: int) -> int:
 
 
 
-def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str) -> bool:
+def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str, request_id: str = "-") -> bool:
     """청킹·임베딩 태스크를 큐에 넣는다. 실패해도 예외를 올리지 않는다.
 
     부르는 쪽마다 try/except 를 복사하지 않게 하려고 여기 모았다. 지금 두 곳에서
@@ -108,7 +140,7 @@ def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str) -> b
     깨지는 것도 똑같다.
     """
     try:
-        build_chunks_task.delay(project_id, document_id)
+        build_chunks_task.delay(project_id, document_id, request_id=request_id)
         return True
     except Exception:  # noqa: BLE001 - 이미 성공한 작업을 지키는 것이 우선이다
         logger.exception(
