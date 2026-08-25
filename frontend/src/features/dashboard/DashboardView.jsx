@@ -48,6 +48,7 @@ export default function DashboardView({ projectId, documents }) {
   const data = dashboardQuery.data
   const counts = data?.documents
   const goDocuments = () => navigate(`/projects/${projectId}/documents`)
+  const goAmounts = () => navigate(`/projects/${projectId}/amounts`)
   const goDocumentsByType = documentType => {
     const filter = documentType ?? UNCLASSIFIED_DOCUMENT_TYPE
     if (!isSupportedDocumentTypeFilter(filter)) return
@@ -82,7 +83,7 @@ export default function DashboardView({ projectId, documents }) {
         <div className='dashboard-attention-summary'>
           <AttentionRow kind='문서' title='처리 실패' description='원인을 확인하고 문서를 다시 처리합니다.' count={counts?.failed} action='확인하기' onOpen={goDocuments}/>
           <AttentionRow kind='문서' title='OCR 검수' description='검수 후 최종 본문에 반영됩니다.' count={reviewPending} action='검수하기' onOpen={goDocuments}/>
-          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기'/>
+          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기' onOpen={goAmounts}/>
           <AttentionRow kind='태스크' title='마감 임박' description='7일 이내 마감되는 열린 태스크입니다.' count={attentionTasks} action='보드 보기' onOpen={() => navigate(`/projects/${projectId}/board`)}/>
         </div>
       </section>
