@@ -99,12 +99,57 @@
 .amount-verify.is-bad { color: var(--c-text-strong); }
 .amount-verify.is-muted { color: var(--c-text-muted); font-weight: 400; }
 
-/* 원문 근거. 한 줄로 줄이고 title 로 전체를 보여준다(마우스 올리면 뜬다).
-   cursor: help 로 "올리면 뭔가 나온다" 를 미리 알린다 — 안 그러면 아무도 안 올린다. */
-.amount-quote { max-width: 260px; overflow: hidden; color: var(--c-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+/* 원문 근거. 한 줄로 줄인다. */
+.amount-quote { max-width: 260px; overflow: hidden; color: var(--c-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* **잘린 것만** 마우스 올림 안내를 준다. 짧아서 다 보이는 근거에 물음표 커서를
+   붙이면 "더 있다" 고 약속해놓고 없는 셈이 된다. title 도 그때만 붙인다. */
+.amount-quote.is-clipped { cursor: help; }
 
 
 /* 문서 합계 대조. 이 화면에서 가장 강한 정보라 원가구분별 표보다 위에 둔다. */
 .amount-total-check { margin-bottom: 18px; }
 /* 문서명 칸은 표 안에서 줄이지 않는다 — 대조 결과를 어느 문서 것인지 알아야 한다. */
 .amount-total-check .amount-item-source { max-width: 320px; font-size: 13px; font-weight: 700; color: var(--c-text-strong); }
+
+
+/* 태스크 칸 (AMT-004-3). 어긋난 항목에만 버튼이 있다. */
+.amount-task-cell { white-space: nowrap; }
+.amount-task-button { min-height: 30px; padding: 6px 11px; border: 1px solid var(--c-border-strong); border-radius: 8px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.amount-task-button:hover:not(:disabled), .amount-task-button:focus-visible:not(:disabled) { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.amount-task-button:disabled { background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+/* 이미 만든 것. 버튼이 아니라 상태 표시라 눌리지 않는 모양으로 둔다. */
+.amount-task-done { color: var(--c-text-strong); font-size: 12px; font-weight: 700; }
+.amount-task-none { color: var(--c-text-muted); font-size: 12px; }
+
+
+/* 금액 항목 고치기 (AMT-001-2). 표 아래에 펼친다 — 표 안에 넣으면 가로 스크롤
+   안에서 입력칸이 잘리고, 모달로 만들면 표와 값을 나란히 볼 수 없다. */
+.amount-edit { margin-top: 14px; padding: 15px 17px; border: 1px solid var(--c-border-strong); border-radius: 12px; background: var(--c-bg-subtle); }
+.amount-edit-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.amount-edit-heading strong { color: var(--c-text-strong); font-size: 14px; }
+.amount-edit-heading span { color: var(--c-text-muted); font-size: 12px; }
+
+.amount-edit-fields { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
+.amount-edit-fields label { display: grid; gap: 5px; }
+.amount-edit-fields label > span { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
+.amount-edit-fields input, .amount-edit-fields select { min-height: 38px; padding: 8px 10px; border: 1px solid var(--c-border-strong); border-radius: 8px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-size: 13px; }
+.amount-edit-fields input:focus-visible, .amount-edit-fields select:focus-visible { border-color: var(--c-accent); outline: none; }
+/* 문서에 적힌 금액. 고치면 문서의 오류가 감춰지므로 눈에 띄게 구분해 둔다. */
+.amount-edit-fields label.is-caution > span { color: var(--c-text-strong); }
+.amount-edit-fields label.is-caution input { border-style: dashed; }
+
+.amount-edit-note { margin: 0 0 12px; color: var(--c-text-muted); font-size: 12px; line-height: 1.6; }
+.amount-edit-note strong { color: var(--c-text-strong); }
+
+.amount-edit-actions { display: flex; gap: 8px; }
+.amount-edit-actions button { min-height: 36px; padding: 8px 15px; border: 1px solid var(--c-border-strong); border-radius: 9px; background: var(--c-bg); color: var(--c-text-strong); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.amount-edit-actions button.is-primary { border-color: var(--c-accent); background: var(--c-accent); color: #fff; }
+.amount-edit-actions button.is-primary:hover:not(:disabled) { border-color: var(--c-accent-strong); background: var(--c-accent-strong); }
+.amount-edit-actions button:disabled { background: var(--c-bg-hover); color: var(--c-text-muted); cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .amount-edit-fields { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .amount-edit-fields { grid-template-columns: 1fr; }
+}

@@ -58,7 +58,9 @@ from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.services.amount_precedent_service import AmountPrecedentService
+from app.services.amount_item_service import AmountItemService
 from app.services.amount_summary_service import AmountSummaryService
+from app.services.amount_task_service import AmountTaskService
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
@@ -247,8 +249,38 @@ def get_amount_precedent_service(
 # 트랜잭션을 열 일이 없는 순수 조회다.
 def get_amount_summary_service(
     amount_repository: AmountRepository = Depends(get_amount_repository),
+    task_repository: TaskRepository = Depends(get_task_repository),
 ) -> AmountSummaryService:
-    return AmountSummaryService(amount_repository)
+    return AmountSummaryService(amount_repository, task_repository)
+
+
+def get_amount_item_service(
+    db: Session = Depends(get_db),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+    task_repository: TaskRepository = Depends(get_task_repository),
+    task_service: TaskService = Depends(get_task_service),
+) -> AmountItemService:
+    """금액 항목을 고치는 서비스 (AMT-001-2).
+
+    태스크가 둘 필요하다.
+      · `TaskRepository` — 응답에 `task_id` 를 붙인다(목록과 같은 모양이어야 화면이
+        그 줄만 갈아끼울 수 있다)
+      · `TaskService` — 고친 결과를 연결된 태스크 설명의 «자동 기록» 에 적는다
+    """
+    return AmountItemService(db, amount_repository, task_repository, task_service)
+
+
+def get_amount_task_service(
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+    task_repository: TaskRepository = Depends(get_task_repository),
+    task_service: TaskService = Depends(get_task_service),
+) -> AmountTaskService:
+    """금액 불일치를 태스크로 만드는 서비스 (AMT-004-3).
+
+    태스크를 만드는 것은 TaskService 에 맡긴다 — 제목 검증·담당자 확인·활동 기록이
+    거기 있고, 그것을 복사하면 제안으로 만든 태스크만 활동 로그에 안 남는다.
+    """
+    return AmountTaskService(amount_repository, task_repository, task_service)
 
 
 def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardRepository:

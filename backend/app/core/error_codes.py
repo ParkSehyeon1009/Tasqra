@@ -69,6 +69,13 @@ class ErrorCode(Enum):
 
     # ── 금액 (amount_items) ──
     AMOUNT_ITEM_NOT_FOUND = ("AMOUNT_ITEM_NOT_FOUND", "금액 항목을 찾을 수 없습니다.", 404)
+    # 아래 둘을 나눈 이유는 **화면이 다르게 처리해야 하기 때문**이다.
+    #   NOT_MISMATCHED  → 화면이 낡았다. 목록을 다시 받아야 한다
+    #   TASK_EXISTS     → 이미 있다. 그 태스크를 가리켜 주면 된다
+    # 하나로 묶으면 화면이 "오류가 났습니다" 만 띄우게 되고 사용자는 무엇을 해야
+    # 하는지 알 수 없다.
+    AMOUNT_NOT_MISMATCHED = ("AMOUNT_NOT_MISMATCHED", "수량 × 단가가 문서 금액과 어긋난 항목만 태스크로 만들 수 있습니다.", 409)
+    AMOUNT_TASK_ALREADY_EXISTS = ("AMOUNT_TASK_ALREADY_EXISTS", "이 금액 항목으로 만든 태스크가 이미 있습니다.", 409)
     AMOUNT_NOT_ANALYZED = ("AMOUNT_NOT_ANALYZED", "금액 분석이 완료되지 않았습니다.", 409)
     CURRENCY_MISMATCH = ("CURRENCY_MISMATCH", "통화가 다른 금액은 함께 집계할 수 없습니다.", 409)
     NO_APPROVED_AMOUNTS = ("NO_APPROVED_AMOUNTS", "집계할 승인된 금액이 없습니다.", 409)
