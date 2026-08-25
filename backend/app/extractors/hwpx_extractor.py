@@ -1,16 +1,15 @@
 import posixpath
 import re
 import zipfile
-from io import BytesIO
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
+from app.extractors.embedded_image_cache import EmbeddedImageOcrCache
 from app.extractors.ocr_extractor import OcrExtractor
-from app.extractors.preprocessing import normalize_input_image
 from app.extractors.protocol import ExtractedPage, ExtractResult, TextExtractor
 from app.extractors.review_page import build_image_review_page, mark_review_text, resolve_review_content_ranges
 from app.models.enums import ExtractMethod
@@ -46,6 +45,7 @@ class HwpxExtractor(TextExtractor):
             review_pages: list[ExtractedPage] = []
             counts = {"text": 0, "ocr": 0}
             page_break_count = 0
+            image_ocr_cache = EmbeddedImageOcrCache()
 
             for section_name in section_names:
                 root = ET.fromstring(archive.read(section_name))
@@ -60,6 +60,7 @@ class HwpxExtractor(TextExtractor):
                         include_image_ocr,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     contents.extend(paragraph_contents)
 
@@ -117,6 +118,7 @@ class HwpxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> list[str]:
         contents: list[str] = []
 
@@ -140,6 +142,7 @@ class HwpxExtractor(TextExtractor):
                         include_image_ocr,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     if table_text:
                         contents.append(table_text)
@@ -151,6 +154,7 @@ class HwpxExtractor(TextExtractor):
                         image_paths,
                         review_pages,
                         counts,
+                        image_ocr_cache,
                     )
                     if image_text:
                         contents.append(image_text)
@@ -165,6 +169,7 @@ class HwpxExtractor(TextExtractor):
         include_image_ocr: bool,
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> str:
         rows: list[str] = []
 
@@ -184,6 +189,7 @@ class HwpxExtractor(TextExtractor):
                                 include_image_ocr,
                                 review_pages,
                                 counts,
+                                image_ocr_cache,
                             )
                         )
 
@@ -201,6 +207,7 @@ class HwpxExtractor(TextExtractor):
         image_paths: dict[str, str],
         review_pages: list[ExtractedPage],
         counts: dict[str, int],
+        image_ocr_cache: EmbeddedImageOcrCache | None = None,
     ) -> str:
         image_id = self._find_image_id(picture)
         if image_id is None:
@@ -210,15 +217,12 @@ class HwpxExtractor(TextExtractor):
         if image_path is None or image_path not in archive.namelist():
             return ""
 
-        image_bytes = archive.read(image_path)
-
         try:
-            with Image.open(BytesIO(image_bytes)) as source_image:
-                image = normalize_input_image(source_image)
-                elements = self._ocr.extract(
-                    image,
-                    normalize_orientation=False,
-                )
+            cache = image_ocr_cache or EmbeddedImageOcrCache()
+            image, elements = cache.extract(
+                archive.read(image_path),
+                self._ocr,
+            )
         except (UnidentifiedImageError, OSError):
             # HWPX 내부에 Pillow가 해석하지 못하는 이미지가 있어도
             # 문서 전체 추출은 중단하지 않고 해당 이미지만 건너뛴다.
