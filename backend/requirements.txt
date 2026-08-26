@@ -25,6 +25,9 @@ email-validator==2.3.0
 pymupdf
 python-docx
 
+# --- 산출물 XLSX 출력 (DLV-002-1) ---
+openpyxl==3.1.5
+
 # --- AI ---
 openai
 
