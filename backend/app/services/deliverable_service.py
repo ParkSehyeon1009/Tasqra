@@ -558,6 +558,18 @@ class DeliverableService:
             logger.warning("개요 생성 실패 kind=%s", kind, exc_info=True)
             return None
 
+        # 비용·성능 비교(로컬 모델 대 상용 API)를 위해 호출 메타를 남긴다.
+        # AIResult 가 이 값들을 들고 다니는 이유가 그것이다(client_protocol 주석).
+        # analyses 테이블에 넣지 않는 이유: 그 표는 document_id 에 매인 문서 분석
+        # 기록이고, 산출물 개요는 문서 하나에 매이지 않는다. 그래서 스키마를 늘리지
+        # 않고 로그로 남긴다 — generate 가 생성 결과를 logger.info 로 남기는 것과 같다.
+        logger.info(
+            "개요 생성 kind=%s provider=%s model=%s tokens_in=%s tokens_out=%s "
+            "latency_ms=%s",
+            kind, self._ai_client.provider, result.model_name,
+            result.tokens_in, result.tokens_out, result.latency_ms,
+        )
+
         # summary_analyzer 와 같은 방어적 파싱. JSON 이 깨져 오면 본문 전체를 쓴다.
         try:
             summary = json.loads(result.text)["summary"]
