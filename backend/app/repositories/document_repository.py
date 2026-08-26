@@ -16,10 +16,28 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.document import Analysis, Document, DocumentPage, ExtractedText, OcrElement, OcrElementRevision
+from app.models.enums import DocumentStatus, ReviewStatus
 from app.models.user import User
 
 
 UNCLASSIFIED_DOCUMENT_TYPE_FILTER = "__UNCLASSIFIED__"
+DOCUMENT_STATE_FILTERS = {
+    "PROCESSING": (
+        Document.status.in_((
+            DocumentStatus.PENDING.value,
+            DocumentStatus.EXTRACTING.value,
+            DocumentStatus.ANALYZING.value,
+        )),
+    ),
+    "REVIEW_REQUIRED": (
+        Document.review_status.in_((ReviewStatus.PENDING.value, ReviewStatus.IN_PROGRESS.value)),
+    ),
+    "COMPLETED": (
+        Document.status.in_((DocumentStatus.EXTRACTED.value, DocumentStatus.COMPLETED.value)),
+        Document.review_status.in_((ReviewStatus.NOT_REQUIRED.value, ReviewStatus.COMPLETED.value)),
+    ),
+    "FAILED": (Document.status == DocumentStatus.FAILED.value,),
+}
 
 
 class DocumentRepository:
@@ -138,6 +156,7 @@ class DocumentRepository:
         project_id: int,
         q: str | None,
         document_type: str | None,
+        document_state: str | None,
         category: str | None,
         page: int,
         size: int,
@@ -176,6 +195,9 @@ class DocumentRepository:
             query = query.filter(Document.document_type.is_(None))
         elif document_type:
             query = query.filter(Document.document_type == document_type)
+
+        if document_state:
+            query = query.filter(*DOCUMENT_STATE_FILTERS[document_state])
 
         if category:
             # analyses.analyzer_type == "category"인 결과의 JSONB에서 category 값을 비교.

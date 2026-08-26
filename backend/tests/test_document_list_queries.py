@@ -30,6 +30,7 @@ def test_document_list_loads_latest_analyses_in_one_batch():
         project_id=10,
         q=None,
         document_type=None,
+        document_state=None,
         category=None,
         page=1,
         size=20,

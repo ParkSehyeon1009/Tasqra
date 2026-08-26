@@ -11,16 +11,16 @@ import { listDocuments, retryDocumentProcessing } from '../api/document'
 
 const FALLBACK_ERROR = '요청 처리 중 오류가 발생했습니다.'
 
-export function useWorkspaceData(project, notify, { documentType = '' } = {}) {
+export function useWorkspaceData(project, notify, { documentType = '', documentState = '' } = {}) {
   const queryClient = useQueryClient()
   const membersKey = ['projects', project.id, 'members']
   const documentsPrefix = ['projects', project.id, 'documents']
-  const documentsKey = [...documentsPrefix, documentType || 'all']
+  const documentsKey = [...documentsPrefix, documentType || 'all', documentState || 'all']
   const invitationsKey = ['projects', project.id, 'invitations']
   const membersQuery = useQuery({ queryKey: membersKey, queryFn: () => listMembers(project.id) })
   const documentsQuery = useQuery({
     queryKey: documentsKey,
-    queryFn: () => listDocuments(project.id, { documentType }),
+    queryFn: () => listDocuments(project.id, { documentType, documentState }),
     refetchInterval: query => query.state.data?.items?.some(item => ['PENDING', 'EXTRACTING'].includes(item.status)) ? 3_000 : false,
   })
   const invitationsQuery = useQuery({ queryKey: invitationsKey, queryFn: () => listProjectInvitations(project.id), enabled: project.role === 'OWNER' })

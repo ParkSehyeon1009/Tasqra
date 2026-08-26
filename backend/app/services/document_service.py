@@ -24,9 +24,11 @@ from PIL import Image
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
+from app.extractors.layout import LayoutElement
 from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation, OcrStructureEvent
 from app.models.enums import AnalyzerType, ReviewStatus
 from app.extractors.ocr_extractor import OcrExtractor
+from app.extractors.reading_order import build_reading_groups
 from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.document_repository import DocumentRepository
 
@@ -83,6 +85,7 @@ class DocumentService:
         project_id: int,
         q: str | None,
         document_type: str | None,
+        document_state: str | None,
         category: str | None,
         page: int,
         size: int,
@@ -91,6 +94,7 @@ class DocumentService:
             project_id=project_id,
             q=q,
             document_type=document_type,
+            document_state=document_state,
             category=category,
             page=page,
             size=size,
@@ -283,6 +287,163 @@ class DocumentService:
         return True
 
     @staticmethod
+    def _coordinate_order(elements: list[OcrElement]) -> list[OcrElement]:
+        """2단은 단별로, 표는 하나의 영역으로 보고 읽는 순서를 계산한다."""
+        table_groups: dict[tuple[str, int], list[OcrElement]] = {}
+        regular: list[OcrElement] = []
+        for element in elements:
+            if element.element_type in {"TABLE_ROW", "TABLE_HEADER"}:
+                key = ("table", element.table_id if element.table_id is not None else element.id)
+                table_groups.setdefault(key, []).append(element)
+            else:
+                regular.append(element)
+
+        layout_to_elements: dict[int, list[OcrElement]] = {}
+        regular_layouts: list[LayoutElement] = []
+        for element in regular:
+            layout = LayoutElement(
+                x=element.x * 1000, y=element.y * 1000,
+                x2=(element.x + element.width) * 1000,
+                y2=(element.y + element.height) * 1000,
+                content=element.text, source="ocr",
+            )
+            regular_layouts.append(layout)
+            layout_to_elements[id(layout)] = [element]
+
+        atomic_layouts: list[LayoutElement] = []
+        for grouped_elements in table_groups.values():
+            layout = LayoutElement(
+                x=min(item.x for item in grouped_elements) * 1000,
+                y=min(item.y for item in grouped_elements) * 1000,
+                x2=max(item.x + item.width for item in grouped_elements) * 1000,
+                y2=max(item.y + item.height for item in grouped_elements) * 1000,
+                content="\n".join(item.text for item in grouped_elements),
+                source="ocr",
+            )
+            atomic_layouts.append(layout)
+            layout_to_elements[id(layout)] = sorted(
+                grouped_elements,
+                key=lambda item: (item.table_row if item.table_row is not None else 10**9, item.y, item.x, item.id or 0),
+            )
+
+        groups = build_reading_groups(regular_layouts, atomic_layouts, page_width=1000.0)
+        if groups is not None:
+            return [
+                element
+                for group in groups
+                for layout in group.elements
+                for element in layout_to_elements[id(layout)]
+            ]
+
+        # 박스가 적거나 단 분리가 불확실하면 기본 행 정렬을 사용한다.
+        lines: list[list[OcrElement]] = []
+        for element in sorted(elements, key=lambda item: (item.y, item.x, item.id or 0)):
+            element_bottom = element.y + element.height
+            matching = next((
+                line for line in lines
+                if max(0.0, min(element_bottom, max(item.y + item.height for item in line)) - max(element.y, min(item.y for item in line)))
+                / max(min(element.height, max(item.y + item.height for item in line) - min(item.y for item in line)), 1e-9) >= 0.45
+            ), None)
+            if matching is None:
+                lines.append([element])
+            else:
+                matching.append(element)
+        lines.sort(key=lambda line: min(item.y for item in line))
+        return [item for line in lines for item in sorted(line, key=lambda value: (value.x, value.y, value.id or 0))]
+
+    def _insert_page_ocr_content(self, document: Document, page, element: OcrElement) -> bool:
+        extracted = document.extracted_text
+        if extracted is None:
+            return False
+        page_mapped = [
+            item for item in page.elements
+            if item.id != element.id and not item.is_deleted and item.is_in_content
+            and item.content_start is not None and item.content_end is not None
+        ]
+        if page_mapped:
+            insertion_at = max(item.content_end for item in page_mapped)
+            inserted = "\n" + element.text
+            element.content_start = insertion_at + 1
+        else:
+            later = [
+                item for candidate_page in document.review_pages if candidate_page.page_number > page.page_number
+                for item in candidate_page.elements
+                if not item.is_deleted and item.is_in_content and item.content_start is not None
+            ]
+            if later:
+                insertion_at = min(item.content_start for item in later)
+                inserted = element.text + "\n"
+                element.content_start = insertion_at
+            else:
+                separator = "\n" if extracted.content else ""
+                insertion_at = len(extracted.content)
+                inserted = separator + element.text
+                element.content_start = insertion_at + len(separator)
+        extracted.content = extracted.content[:insertion_at] + inserted + extracted.content[insertion_at:]
+        element.content_end = element.content_start + len(element.text)
+        element.is_in_content = True
+        for candidate in (item for candidate_page in document.review_pages for item in candidate_page.elements):
+            if candidate.id == element.id or candidate.content_start is None or candidate.content_end is None:
+                continue
+            if candidate.content_start >= insertion_at:
+                candidate.content_start += len(inserted)
+                candidate.content_end += len(inserted)
+        extracted.char_count = len(extracted.content)
+        return True
+
+    def _reorder_page_ocr_content(self, document: Document, page) -> bool:
+        ordered = self._coordinate_order(list(page.elements))
+        order_changed = any(item.reading_order != index for index, item in enumerate(ordered))
+        for index, item in enumerate(ordered):
+            item.reading_order = index
+
+        desired = [
+            item for item in ordered
+            if not item.is_deleted and item.is_in_content
+            and item.content_start is not None and item.content_end is not None
+        ]
+        slots = sorted(desired, key=lambda item: (item.content_start, item.content_end, item.id or 0))
+        if not desired or [item.id for item in desired] == [item.id for item in slots]:
+            return order_changed
+
+        extracted = document.extracted_text
+        if extracted is None:
+            return order_changed
+        for item in slots:
+            if extracted.content[item.content_start:item.content_end] != item.text:
+                raise BusinessError(ErrorCode.OCR_CONTENT_MAPPING_CONFLICT)
+
+        original_ranges = {
+            item.id: (item.content_start, item.content_end)
+            for candidate_page in document.review_pages for item in candidate_page.elements
+            if item.content_start is not None and item.content_end is not None
+        }
+        replacements = [
+            (slot.content_start, slot.content_end, target.text)
+            for slot, target in zip(slots, desired, strict=True)
+        ]
+        content = extracted.content
+        for start, end, replacement in reversed(replacements):
+            content = content[:start] + replacement + content[end:]
+        extracted.content = content
+
+        target_ids = {item.id for item in desired}
+        cumulative_shift = 0
+        for (start, end, replacement), target in zip(replacements, desired, strict=True):
+            target.content_start = start + cumulative_shift
+            target.content_end = target.content_start + len(replacement)
+            cumulative_shift += len(replacement) - (end - start)
+        for candidate in (item for candidate_page in document.review_pages for item in candidate_page.elements):
+            if candidate.id in target_ids or candidate.id not in original_ranges:
+                continue
+            original_start, original_end = original_ranges[candidate.id]
+            shift = sum(len(replacement) - (end - start) for start, end, replacement in replacements if end <= original_start)
+            candidate.content_start = original_start + shift
+            candidate.content_end = original_end + shift
+        extracted.char_count = len(extracted.content)
+        return True
+
+    @staticmethod
     def _mark_review_in_progress(document: Document) -> None:
         if document.review_status not in {ReviewStatus.PENDING.value, ReviewStatus.COMPLETED.value}:
             return
@@ -347,6 +508,7 @@ class DocumentService:
             content_changed = self._replace_ocr_contents(document, text_replacements)
             chunk_structure_changed = False
             any_changed = False
+            geometry_changed_pages = set()
 
             for change in changes:
                 element = elements_by_id[change.id]
@@ -386,6 +548,7 @@ class DocumentService:
                     requested_value = getattr(change, field)
                     if requested_value is not None and requested_value != getattr(element, field):
                         setattr(element, field, requested_value)
+                        geometry_changed_pages.add(element.page_id)
                         item_changed = True
 
                 if change.re_ocr_applied:
@@ -396,6 +559,10 @@ class DocumentService:
                 if item_changed:
                     element.version += 1
                     any_changed = True
+
+            for review_page in document.review_pages:
+                if review_page.id in geometry_changed_pages:
+                    content_changed = self._reorder_page_ocr_content(document, review_page) or content_changed
 
             if any_changed:
                 document.ocr_revision += 1
@@ -695,25 +862,18 @@ class DocumentService:
             page = next((item for item in document.review_pages if item.id == page_id), None)
             if page is None:
                 raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
-            reading_order = max((item.reading_order for item in page.elements), default=-1) + 1
-            content_start = content_end = None
-            is_in_content = False
-            if document.extracted_text is not None:
-                separator = "\n" if document.extracted_text.content else ""
-                content_start = len(document.extracted_text.content) + len(separator)
-                document.extracted_text.content += separator + text
-                content_end = content_start + len(text)
-                document.extracted_text.char_count = len(document.extracted_text.content)
-                document.extracted_text.ocr_char_count += len(text)
-                document.extracted_text.text_version += 1
-                is_in_content = True
             element = self._document_repository.create_ocr_element(OcrElement(
                 page_id=page.id, original_text=text, text=text, x=x, y=y, width=width, height=height,
                 confidence=None, source="USER", element_type="TEXT_LINE", element_type_source="USER",
-                is_paragraph_start=False, reading_order=reading_order, version=1, is_deleted=False,
-                is_excluded=False, content_start=content_start, content_end=content_end, is_in_content=is_in_content,
+                is_paragraph_start=False, reading_order=len(page.elements), version=1, is_deleted=False,
+                is_excluded=False, content_start=None, content_end=None, is_in_content=False,
             ))
             page.elements.append(element)
+            if document.extracted_text is not None:
+                self._insert_page_ocr_content(document, page, element)
+                self._reorder_page_ocr_content(document, page)
+                document.extracted_text.ocr_char_count += len(text)
+                document.extracted_text.text_version += 1
             document.ocr_revision += 1
             self._mark_review_in_progress(document)
         return element

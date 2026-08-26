@@ -3,10 +3,11 @@ import { parseFilename, triggerBrowserDownload } from '../utils/download'
 
 // GET /api/documents — 목록 + 검색 + 페이징
 // 응답: { items, page, size, total, total_pages }
-export async function listDocuments(projectId, { q, documentType, category, page = 1, size = 20 } = {}) {
+export async function listDocuments(projectId, { q, documentType, documentState, category, page = 1, size = 20 } = {}) {
   const params = { page, size }
   if (q) params.q = q
   if (documentType) params.document_type = documentType
+  if (documentState) params.document_state = documentState
   if (category) params.category = category
 
   const { data } = await http.get(`/api/projects/${projectId}/documents`, { params })
