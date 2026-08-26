@@ -130,7 +130,7 @@ def preview_deliverable(
 
 
 @router.post("/deliverables", response_model=DeliverableResponse, status_code=201)
-def create_deliverable(
+async def create_deliverable(
     request: DeliverableCreateRequest,
     access: ProjectAccess = Depends(get_project_editor_access),
     service: DeliverableService = Depends(get_deliverable_service),
@@ -149,9 +149,10 @@ def create_deliverable(
     두 형식은 **같은 내용**이다. 절을 고르는 규칙이 한 곳(build_document)에 있고
     형식별 파일은 표를 그리는 방법만 안다.
 
-    ⚠️ 개요 문장은 아직 비어 있다. `DLV-002-1` 완료 판정의 "LLM 호출은 개요 1회"
-    가 붙지 않았다. 표는 모두 실제 자료이고, 개요 자리에 비었다고 적는다 —
-    없는 문장을 지어내지 않는다.
+    ⚠️ 개요 문장은 `WEEKLY_REPORT`·`PROJECT_STATUS` 에서 LLM 을 **1회** 불러
+    채운다(`DLV-002-1`·`DLV-002-2`, "LLM 호출은 개요 1회"). 표는 예나 지금이나
+    모두 실제 자료다. LLM 이 없거나(미연결) 호출이 실패하면 개요만 비운 문구로
+    되돌아가고 표는 그대로 나온다 — 개요 하나 때문에 보고서 전체를 막지 않는다.
 
     ⚠️ HTML 산출물의 모든 칸은 escape 한다. 문서 이름은 사용자가 올린 파일에서 온
     값이라 `<script>` 가 들어올 수 있다. 다운로드도 첨부로 내려간다.
@@ -167,7 +168,7 @@ def create_deliverable(
       `501 DELIVERABLE_FORMAT_NOT_READY`  아직 못 만드는 형식이다
       `403 PROJECT_FORBIDDEN`             VIEWER 다
     """
-    row = service.generate(
+    row = await service.generate(
         access.project.id,
         kind=request.kind,
         deliverable_format=request.format,
@@ -266,7 +267,7 @@ def delete_deliverable(
 #   **다만 `/deliverables/{deliverable_id}` 같은 조회를 나중에 더한다면 그것을 이 줄
 #   아래에 둬야 한다** — 위에 두면 `preview` 를 id 로 읽어서 이 경로가 가려진다.
 @router.get("/deliverables/preview/content", response_model=DeliverableContentResponse)
-def preview_deliverable_content(
+async def preview_deliverable_content(
     kind: str = Query(
         description="WEEKLY_REPORT · DECISION_LOG · MEETING_AGENDA · PROJECT_STATUS",
     ),
@@ -341,7 +342,7 @@ def preview_deliverable_content(
       `501 DELIVERABLE_FORMAT_NOT_READY`   XLSX(이 응답만)·PDF
       `404`                                내가 멤버가 아닌 프로젝트
     """
-    return service.preview_content(
+    return await service.preview_content(
         access.project.id,
         kind=kind,
         deliverable_format=deliverable_format,

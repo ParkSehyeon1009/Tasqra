@@ -16,7 +16,9 @@
 # Spring 비교: Mockito 로 Repository 를 스텁하고 Service 만 단위 검증.
 # =============================================================================
 
-from datetime import date
+import asyncio
+from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -244,3 +246,96 @@ def test_countable_total_sums_five_kinds():
         completed_tasks=7, pending_suggestions=99,
     )
     assert counts.countable_total == 29
+
+
+
+# --- ⑥ 본문 미리보기(preview_content)의 개요 (DLV-002-1·DLV-002-2) -----------
+#
+# 만들기(generate)의 개요는 test_deliverable_generate.py 가 검증한다. 여기서는
+# **본문 미리보기가 같은 개요를 만드는가** 를 잠근다 — 이 엔드포인트의 존재 이유가
+# "미리 본 것과 만든 것이 어긋나지 않게" 이므로, 개요만 갈라지면 그 약속이 깨진다.
+# preview_content 는 파일을 쓰지 않으므로 db 없이 검증한다.
+
+
+class _FakeAI:
+    """개요 LLM 경로 검증용 최소 클라이언트. 계약(generate_with_meta)만 만족시킨다."""
+
+    provider = "fake"
+
+    def __init__(self, *, text='{"summary": "미리보기 개요입니다."}'):
+        self._text = text
+        self.calls = 0
+
+    async def generate(self, prompt: str) -> str:
+        return (await self.generate_with_meta(prompt)).text
+
+    async def generate_with_meta(self, prompt: str):
+        from app.ai.client_protocol import AIResult
+
+        self.calls += 1
+        return AIResult(text=self._text, model_name="fake-model")
+
+
+def _document(name="과업지시서.pdf"):
+    return SimpleNamespace(
+        filename=name,
+        document_type="CONTRACT",
+        created_at=datetime(2026, 8, 17, 9, 30, tzinfo=timezone.utc),
+    )
+
+
+def _content_service(*, documents=1, rows=None, ai_client=None):
+    """preview_content 용 서비스. count_* 로 생성 가능 판정을 통과시키고 list_* 로
+    본문 재료를 준다(preview 전용 _service 는 count_* 만 세우므로 따로 둔다)."""
+    repo = MagicMock()
+    repo.count_documents.return_value = documents
+    repo.count_schedule_items.return_value = 0
+    repo.count_amount_items.return_value = 0
+    repo.count_completed_tasks.return_value = 0
+    repo.count_pending_suggestions.return_value = 0
+    repo.count_decisions.return_value = 0
+
+    rows = rows or {"documents": [_document()]}
+    repo.list_documents.return_value = rows.get("documents", [])
+    repo.list_completed_tasks.return_value = rows.get("completed_tasks", [])
+    repo.list_decisions.return_value = rows.get("decisions", [])
+    repo.list_schedule_items.return_value = rows.get("schedule_items", [])
+    repo.list_amount_items.return_value = rows.get("amount_items", [])
+    return DeliverableService(repo, None, ai_client), repo
+
+
+def _content(service, **kwargs):
+    """preview_content 는 async(개요 LLM)라 asyncio.run 으로 부른다."""
+    return asyncio.run(
+        service.preview_content(1, kind="PROJECT_STATUS", deliverable_format="MD", **kwargs)
+    )
+
+
+def test_preview_content_fills_overview_with_one_llm_call():
+    ai = _FakeAI(text='{"summary": "문서 1건이 반영된 현황입니다."}')
+    service, _ = _content_service(ai_client=ai)
+    out = _content(service)
+
+    assert ai.calls == 1  # 만들기와 같은 "개요 1회"
+    assert "## 개요" in out.body
+    assert "문서 1건이 반영된 현황입니다." in out.body
+    assert "아직" not in out.body  # 미연결 안내 문구가 아니다
+    assert "과업지시서.pdf" in out.body  # 표는 실제 자료
+
+
+def test_preview_content_uses_placeholder_without_llm():
+    """LLM 이 없으면 미리보기도 개요를 지어내지 않는다(만들기와 같은 판단)."""
+    service, _ = _content_service(ai_client=None)
+    out = _content(service)
+    assert "## 개요" in out.body
+    assert "아직" in out.body
+
+
+def test_preview_content_blocks_when_nothing_to_include():
+    """담을 것이 없으면 미리보기도 막는다 — 개요 LLM 을 부르기 전에 막힌다."""
+    ai = _FakeAI()
+    service, _ = _content_service(documents=0, rows={"documents": []}, ai_client=ai)
+    with pytest.raises(BusinessError) as err:
+        _content(service)
+    assert err.value.error_code is ErrorCode.DELIVERABLE_EMPTY
+    assert ai.calls == 0  # 막힌 뒤엔 헛 호출을 하지 않는다
