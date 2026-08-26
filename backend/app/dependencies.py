@@ -420,4 +420,8 @@ def get_deliverable_service(
     # 읽기만 하고 조회는 전부 리포지토리를 거친다.
     # ProjectRepository 는 넘기지 않는다 — 범위가 현재 프로젝트 하나로 정해져 있고
     # 권한은 라우터의 get_project_access 가 이미 판정했다.
-    return DeliverableService(deliverable_repository, db)
+    #
+    # ai_client 는 개요(DLV-002-1·DLV-002-2)를 1회 호출로 만들 때 쓴다. analyzer
+    # 레지스트리와 같은 get_ai_client() 를 공유하므로 USE_FAKE_AI·AI_PROVIDER
+    # 설정이 산출물 개요에도 그대로 적용된다.
+    return DeliverableService(deliverable_repository, db, get_ai_client())

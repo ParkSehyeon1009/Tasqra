@@ -17,6 +17,7 @@
 #   파일 쓰기는 @TempDir 로 실제 디스크를 쓰는 것과 같다.
 # =============================================================================
 
+import asyncio
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
@@ -81,7 +82,7 @@ def _amount(name="직접인건비", quantity=Decimal("6.0000"), unit_price=1_000
 
 
 def _service(*, documents=0, decisions=0, schedules=0, amounts=0, tasks=0, pending=0,
-             open_decisions=0, rows=None):
+             open_decisions=0, rows=None, ai_client=None):
     repo = MagicMock()
     repo.count_documents.return_value = documents
     repo.count_schedule_items.return_value = schedules
@@ -101,7 +102,7 @@ def _service(*, documents=0, decisions=0, schedules=0, amounts=0, tasks=0, pendi
     repo.list_schedule_items.return_value = rows.get("schedule_items", [])
     repo.list_amount_items.return_value = rows.get("amount_items", [])
     repo.add.side_effect = lambda row: _with_id(row)
-    return DeliverableService(repo, MagicMock()), repo
+    return DeliverableService(repo, MagicMock(), ai_client), repo
 
 
 def _with_id(row, value=9):
@@ -115,6 +116,17 @@ def _read(row) -> str:
         return file.read()
 
 
+def _gen(service, **kwargs):
+    """`generate` 는 async 다(개요 LLM 호출 때문). 이 파일은 DB 없이 도는 단위
+    테스트라 asyncio.run 으로 직접 부른다 — test_error_response_format.py 가 async
+    핸들러를 부르는 방식과 같다. project_id 는 이 파일에서 늘 1 이다.
+
+    `_service()` 는 ai_client 를 주지 않으므로 개요는 SUMMARY_PLACEHOLDER 로 남는다
+    (LLM 을 부르지 않는다). 개요 LLM 경로는 test_overview_* 에서 따로 검증한다.
+    """
+    return asyncio.run(service.generate(1, **kwargs))
+
+
 # --- ① 담을 것이 없으면 만들지 않는다 ---------------------------------------
 
 
@@ -122,7 +134,7 @@ def test_blocked_when_nothing_to_include():
     """미리보기가 막은 것과 같은 판단이어야 한다."""
     service, repo = _service()
     with pytest.raises(BusinessError) as err:
-        service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+        _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     # 이미 있던 코드를 쓴다. 뜻이 같은 코드를 하나 더 만들지 않는다.
     assert err.value.error_code is ErrorCode.DELIVERABLE_EMPTY
     # 파일도 이력도 만들지 않는다.
@@ -133,7 +145,7 @@ def test_blocked_reason_comes_from_preview():
     """이유 문장을 만들기가 따로 쓰지 않는다 — 두 곳이 갈리면 안 된다."""
     service, _ = _service(pending=4)
     with pytest.raises(BusinessError) as err:
-        service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+        _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     assert "승인" in str(err.value)
     assert "4건" in str(err.value)
 
@@ -141,7 +153,7 @@ def test_blocked_reason_comes_from_preview():
 def test_period_required_is_checked_before_writing():
     service, repo = _service(documents=3)
     with pytest.raises(BusinessError) as err:
-        service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD")
+        _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD")
     assert err.value.error_code is ErrorCode.PERIOD_REQUIRED
     repo.add.assert_not_called()
 
@@ -157,9 +169,7 @@ def test_unsupported_format_is_not_ready_not_invalid():
     for unsupported in ("PDF",):
         service, repo = _service(documents=3)
         with pytest.raises(BusinessError) as err:
-            service.generate(
-                1, kind="WEEKLY_REPORT", deliverable_format=unsupported, **WEEK
-            )
+            _gen(service, kind="WEEKLY_REPORT", deliverable_format=unsupported, **WEEK)
         assert err.value.error_code is ErrorCode.DELIVERABLE_FORMAT_NOT_READY, unsupported
         # 형식을 먼저 보므로 DB 조회도 하지 않는다.
         repo.count_documents.assert_not_called()
@@ -169,7 +179,7 @@ def test_unsupported_format_is_not_ready_not_invalid():
 def test_unknown_format_is_invalid():
     service, _ = _service(documents=3)
     with pytest.raises(BusinessError) as err:
-        service.generate(1, kind="WEEKLY_REPORT", deliverable_format="DOCX", **WEEK)
+        _gen(service, kind="WEEKLY_REPORT", deliverable_format="DOCX", **WEEK)
     assert err.value.error_code is ErrorCode.INVALID_DOCUMENT_TYPE
 
 
@@ -180,7 +190,7 @@ def test_meeting_agenda_takes_only_open_decisions():
     service, repo = _service(
         open_decisions=2, rows={"decisions": [_decision(status="PENDING")]}
     )
-    service.generate(1, kind="MEETING_AGENDA", deliverable_format="MD")
+    _gen(service, kind="MEETING_AGENDA", deliverable_format="MD")
     assert repo.list_decisions.call_args.kwargs["status"] == "PENDING"
     repo.list_documents.assert_not_called()
     repo.list_amount_items.assert_not_called()
@@ -188,14 +198,14 @@ def test_meeting_agenda_takes_only_open_decisions():
 
 def test_decision_log_takes_all_decisions_without_period():
     service, repo = _service(decisions=3, rows={"decisions": [_decision()]})
-    service.generate(1, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
+    _gen(service, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
     assert repo.list_decisions.call_args.kwargs.get("status") is None
     assert "since" not in repo.list_decisions.call_args.kwargs
 
 
 def test_weekly_report_takes_five_materials_with_period():
     service, repo = _service(documents=1, rows={"documents": [_document()]})
-    service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+    _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     for name in ("list_documents", "list_completed_tasks", "list_decisions",
                  "list_schedule_items", "list_amount_items"):
         call = getattr(repo, name).call_args
@@ -217,7 +227,7 @@ def test_body_contains_real_rows():
             "amount_items": [_amount("직접인건비")],
         },
     )
-    row = service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+    row = _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     body = _read(row)
 
     assert "과업지시서.pdf" in body
@@ -234,18 +244,97 @@ def test_body_contains_real_rows():
     assert "2026-08-14 ~ 2026-08-20" in body
 
 
-def test_body_marks_summary_as_not_written():
-    """없는 개요를 지어내지 않는다. 비었다고 적는다."""
+def test_body_marks_summary_as_not_written_without_llm():
+    """LLM 이 없으면 개요를 지어내지 않고 비었다고 적는다(SUMMARY_PLACEHOLDER)."""
     service, _ = _service(documents=1, rows={"documents": [_document()]})
-    body = _read(service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
     assert "## 개요" in body
     assert "아직" in body
+
+
+# --- 개요(LLM 1회) DLV-002-1·DLV-002-2 --------------------------------------
+
+
+class _FakeAI:
+    """개요 LLM 경로를 검증하기 위한 최소 클라이언트.
+
+    실제 어댑터(fake_client·local_client)와 같은 계약(generate_with_meta)만
+    만족시킨다. 호출 횟수를 세어 "LLM 호출은 개요 1회" 를 검사한다.
+    """
+
+    provider = "fake"
+
+    def __init__(self, *, text='{"summary": "이번 주 핵심 개요입니다."}', fail=False):
+        self._text = text
+        self._fail = fail
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    async def generate(self, prompt: str) -> str:  # 계약상 존재해야 한다
+        result = await self.generate_with_meta(prompt)
+        return result.text
+
+    async def generate_with_meta(self, prompt: str):
+        from app.ai.client_protocol import AIResult
+
+        self.calls += 1
+        self.prompts.append(prompt)
+        if self._fail:
+            raise RuntimeError("provider down")
+        return AIResult(text=self._text, model_name="fake-model")
+
+
+def test_overview_is_filled_by_one_llm_call():
+    """개요를 LLM 1회 호출로 채운다 — 완료 판정 "LLM 호출은 개요 1회"."""
+    ai = _FakeAI(text='{"summary": "문서 1건과 결정 1건이 반영됐습니다."}')
+    service, _ = _service(
+        documents=1, decisions=1,
+        rows={"documents": [_document("과업지시서.pdf")], "decisions": [_decision()]},
+        ai_client=ai,
+    )
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+
+    assert ai.calls == 1  # 정확히 한 번
+    assert "문서 1건과 결정 1건이 반영됐습니다." in body
+    # 개요가 채워졌으므로 미연결 안내 문구(SUMMARY_PLACEHOLDER)는 없다.
+    assert "아직" not in body
+    # 표는 여전히 실제 자료다.
+    assert "과업지시서.pdf" in body
+
+
+def test_overview_llm_not_called_for_kinds_without_overview():
+    """결정 대장·회의 안건에는 개요 절이 없다. 헛 호출을 하지 않는다."""
+    ai = _FakeAI()
+    service, _ = _service(decisions=2, rows={"decisions": [_decision()]}, ai_client=ai)
+    _gen(service, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
+    assert ai.calls == 0
+
+
+def test_overview_falls_back_to_placeholder_when_llm_fails():
+    """개요 하나 때문에 보고서 전체를 막지 않는다. 실패하면 안내 문구로 되돌아간다."""
+    ai = _FakeAI(fail=True)
+    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+
+    assert ai.calls == 1
+    assert "## 개요" in body
+    assert "아직" in body  # SUMMARY_PLACEHOLDER 로 되돌아간다
+    # 표는 정상적으로 만들어진다(제목이 머리에 있다).
+    assert body.startswith("# 주간 보고서")
+
+
+def test_overview_uses_raw_text_when_json_broken():
+    """JSON 이 깨져 와도 서버가 죽지 않고 본문 텍스트를 그대로 개요로 쓴다."""
+    ai = _FakeAI(text="그냥 평문 개요입니다")
+    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+    assert "그냥 평문 개요입니다" in body
 
 
 def test_empty_section_says_so_instead_of_empty_table():
     """머리글만 있는 표는 '자료를 못 가져온 것' 처럼 보인다."""
     service, _ = _service(documents=1, rows={"documents": [_document()]})
-    body = _read(service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
     assert "이 기간에 완료한 태스크가 없습니다." in body
 
 
@@ -295,7 +384,7 @@ def test_snapshot_uses_preview_count_keys():
         documents=7, tasks=8, decisions=3, schedules=2, amounts=1,
         rows={"documents": [_document()]},
     )
-    service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+    _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     saved = repo.add.call_args.args[0]
     assert saved.source_counts_json == {
         "documents": 7, "completed_tasks": 8, "decisions": 3,
@@ -308,7 +397,7 @@ def test_snapshot_uses_preview_count_keys():
 
 def test_saved_row_keeps_kind_format_and_period():
     service, repo = _service(documents=1, rows={"documents": [_document()]})
-    service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+    _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
     saved = repo.add.call_args.args[0]
     assert (saved.kind, saved.format) == ("WEEKLY_REPORT", "MD")
     assert (saved.period_from, saved.period_to) == (WEEK["period_from"], WEEK["period_to"])
@@ -319,7 +408,7 @@ def test_saved_row_keeps_kind_format_and_period():
 def test_period_is_ignored_for_kinds_without_period():
     """결정사항 대장에 기간을 걸면 대장이 아니게 된다."""
     service, repo = _service(decisions=2, rows={"decisions": [_decision()]})
-    service.generate(1, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
+    _gen(service, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
     saved = repo.add.call_args.args[0]
     assert saved.period_from is None and saved.period_to is None
 
@@ -332,7 +421,7 @@ def test_file_is_removed_when_history_fails():
     service, repo = _service(documents=1, rows={"documents": [_document()]})
     repo.add.side_effect = RuntimeError("이력 저장 실패")
     with pytest.raises(RuntimeError):
-        service.generate(1, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
+        _gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK)
 
     from app.core.config import settings
 

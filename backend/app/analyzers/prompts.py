@@ -56,3 +56,29 @@ CATEGORY_SYSTEM_PROMPT = """문서를 정해진 카테고리 중 하나로 분�
 def build_category_prompt(text: str) -> str:
     return f"{CATEGORY_SYSTEM_PROMPT}\n\n다음은 분류할 문서 내용입니다:\n---\n{text}\n---"
 
+
+
+
+#산출물(주간 보고서·프로젝트 현황) 개요 문장 생성용 프롬프트 (DLV-002-1·DLV-002-2)
+#문서 하나를 요약하는 SUMMARY_SYSTEM_PROMPT 와 달리, 이미 집계된 산출물 자료
+#(문서·태스크·결정·일정·금액 건수와 대표 항목)를 받아 보고서 첫 절에 넣을 개요를
+#만든다. 표는 실제 자료가 채우므로 개요는 그 표를 사람이 읽는 요약으로만 쓴다.
+DELIVERABLE_OVERVIEW_SYSTEM_PROMPT = """당신은 프로젝트 산출물의 개요를 작성합니다. 아래 규칙을 지켜주세요.
+1. 반드시 한국어로 작성합니다.
+2. 아래에 주어진 자료(건수와 대표 항목)에 근거해서만 작성합니다. 없는 사실을 지어내지 않습니다.
+3. 2~4문장, 250자 이내로 요약합니다. 무엇이 얼마나 진행됐는지 사실 위주로 적습니다.
+4. 표에 이미 있는 항목을 그대로 나열하지 말고, 전체 흐름과 핵심만 짚습니다.
+5. 아래 JSON 형식으로 응답하고, 다른 텍스트는 추가하지 않습니다.
+
+{
+    "summary" : "개요 내용"
+}
+"""
+
+
+#지시문 + 산출물 자료 요약(digest)을 합쳐 최종 프롬프트 문자열을 리턴한다.
+def build_deliverable_overview_prompt(digest: str) -> str:
+    return (
+        f"{DELIVERABLE_OVERVIEW_SYSTEM_PROMPT}\n\n"
+        f"다음은 이 산출물에 담긴 자료입니다:\n\n---\n{digest}\n---"
+    )

@@ -35,6 +35,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import uuid
@@ -43,6 +45,11 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.ai.client_protocol import AIClientProtocol
+from app.analyzers.prompts import (
+    build_deliverable_overview_prompt,
+    truncate_for_prompt,
+)
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
@@ -104,17 +111,34 @@ SNAPSHOT_KEYS = (
 # 다음에 못 세는 재료가 생겨도 화면을 고치지 않고 여기에 이름만 더하면 된다.
 UNCOUNTABLE: list[str] = []
 
+# 개요 절이 있는 유형. deliverable_markdown.build_document 가 이 두 유형에만 개요
+# 절을 넣는다(회의 안건·결정 대장에는 개요가 없다). 그래서 **이 유형일 때만**
+# LLM 을 불러 개요를 만든다 — 없는 절에 헛 호출을 하지 않는다.
+OVERVIEW_KINDS = frozenset({"WEEKLY_REPORT", "PROJECT_STATUS"})
+
+# 개요를 만들 때 LLM 에 넘길 대표 항목 수 상한. 표 전체가 아니라 몇 건만 보여
+# 흐름을 잡게 한다 — 좁은 컨텍스트 창(prompts.py 주석)과 1회 호출 비용 때문이다.
+OVERVIEW_SAMPLE_ROWS = 5
+
 __all__ = ["DeliverableService", "UNCOUNTABLE"]
 
 
 class DeliverableService:
     def __init__(
-        self, repository: DeliverableRepository, db: Session | None = None
+        self,
+        repository: DeliverableRepository,
+        db: Session | None = None,
+        ai_client: AIClientProtocol | None = None,
     ) -> None:
         self._repo = repository
         # 미리보기는 읽기만 해서 세션이 필요 없다. **만들기(generate)는 필요하다** —
         # 파일 저장과 이력 저장을 한 트랜잭션으로 묶어야 하기 때문이다.
         self._db = db
+        # 개요(DLV-002-1·DLV-002-2)를 만드는 LLM 클라이언트. `None` 이면 개요를
+        # 만들지 않고 SUMMARY_PLACEHOLDER 로 둔다 — LLM 을 아직 붙이지 않은 환경과
+        # 단위 테스트가 그렇다. analysis_service 가 analyzer 를 주입받는 것과 같은
+        # 구조다(구현체 선택은 dependencies.get_ai_client 가 한다).
+        self._ai_client = ai_client
 
     def preview(
         self,
@@ -163,7 +187,7 @@ class DeliverableService:
             uncountable=list(UNCOUNTABLE),
         )
 
-    def generate(
+    async def generate(
         self,
         project_id: int,
         *,
@@ -179,7 +203,8 @@ class DeliverableService:
           ① 형식을 먼저 본다 — DB 를 건드리기 전에 막을 수 있는 것은 먼저 막는다
           ② 미리보기를 그대로 부른다 — **세는 규칙을 두 번 쓰지 않는다**
           ③ 담을 것이 없으면 만들지 않는다 (DLV-001-2 완료 판정)
-          ④ 본문을 만들고 파일에 쓴 뒤 이력을 커밋한다
+          ④ 개요를 LLM 으로 1회 만들고(있으면), 본문을 만들어 파일에 쓴 뒤 이력을
+             커밋한다. LLM 호출은 transactional 을 열기 전에 끝낸다
 
         ②가 이 함수의 핵심이다. 만들기가 자기만의 집계를 갖게 되면 "미리보기는
         12건이라 했는데 보고서는 9건" 이 생긴다. 그래서 건수는 미리보기 것을 쓰고
@@ -219,6 +244,10 @@ class DeliverableService:
         since, until = preview.period_from, preview.period_to
         materials = self._materials(project_id, kind=kind, since=since, until=until)
         title = build_title(kind, since, until)
+        # 개요를 만드는 LLM 호출은 **여기**다 — transactional 을 열기 전이다.
+        # analysis_service 와 같은 판단이다: AI 응답을 기다리는 동안 DB 트랜잭션을
+        # 열어두지 않는다. 담을 것이 없으면 위에서 이미 막혔으므로 헛 호출이 아니다.
+        summary = await self._overview(kind, title, since, until, materials)
         generated_at = datetime.now(timezone.utc)
         # 형식별 본문 생성기는 RENDERERS 에서 고른다. 절을 고르는 규칙은 어느
         # 형식이든 같다(build_document) — 한쪽에만 절을 더하는 실수를 막는다.
@@ -229,6 +258,7 @@ class DeliverableService:
             period_to=until,
             materials=materials,
             generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
+            summary=summary,
         )
 
         extension, _ = FORMAT_FILE_TYPES[deliverable_format]
@@ -261,7 +291,7 @@ class DeliverableService:
         )
         return row
 
-    def preview_content(
+    async def preview_content(
         self,
         project_id: int,
         *,
@@ -340,6 +370,10 @@ class DeliverableService:
         since, until = preview.period_from, preview.period_to
         materials = self._materials(project_id, kind=kind, since=since, until=until)
         title = build_title(kind, since, until)
+        # 만들기(generate)와 **같은 개요**를 만든다. 여기서 개요를 비워 두면 미리 본
+        # 것과 실제로 만든 것이 개요만 달라진다 — 이 메서드가 존재하는 이유(미리 본
+        # 것과 만든 것이 어긋나지 않게)에 어긋난다. 그래서 본문 미리보기도 1회 부른다.
+        summary = await self._overview(kind, title, since, until, materials)
         generated_at = datetime.now(timezone.utc)
         body = RENDERERS[deliverable_format](
             kind=kind,
@@ -348,6 +382,7 @@ class DeliverableService:
             period_to=until,
             materials=materials,
             generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
+            summary=summary,
         )
         return DeliverableContentResponse(
             kind=kind,
@@ -476,6 +511,114 @@ class DeliverableService:
                 project_id, since=since, until=until, limit=MATERIAL_ROW_LIMIT
             ),
         )
+
+    async def _overview(
+        self,
+        kind: str,
+        title: str,
+        since: date | None,
+        until: date | None,
+        materials: DeliverableMaterials,
+    ) -> str | None:
+        """개요 문장을 LLM 으로 **1회** 만든다 (DLV-002-1·DLV-002-2).
+
+        완료 판정이 "LLM 호출은 개요 1회" 다 — 그래서 이 메서드가 산출물 하나당
+        딱 한 번, 개요 절이 있는 유형(OVERVIEW_KINDS)에서만 부른다. 표의 다섯 절은
+        이미 실제 자료로 채워지므로 LLM 은 개요에만 쓴다.
+
+        호출 방식은 **기존 어댑터 패턴**(analyzers/summary_analyzer.py)을 그대로
+        따른다: `generate_with_meta` 를 `asyncio.wait_for` 로 감싸 시간 초과를 막고,
+        JSON 응답이 깨져도 서버가 죽지 않게 방어적으로 파싱한다.
+
+        ⚠️ **실패해도 산출물 생성을 막지 않는다.** analyzer 는 AI 오류를
+        BusinessError 로 올리지만(그쪽은 AI 가 결과의 전부다), 산출물은 표가 실제
+        내용이고 개요는 그 위의 요약이다. 그래서 시간 초과·오류면 `None` 을 돌려
+        SUMMARY_PLACEHOLDER 로 되돌아간다 — 개요 하나 때문에 보고서 전체를 못 만드는
+        일을 피한다.
+
+        `ai_client` 가 없으면(단위 테스트·LLM 미연결) 아예 부르지 않고 `None` 이다.
+        """
+        if self._ai_client is None or kind not in OVERVIEW_KINDS:
+            return None
+
+        digest = self._overview_digest(title, since, until, materials)
+        prompt = build_deliverable_overview_prompt(
+            truncate_for_prompt(digest, settings.AI_MAX_INPUT_CHARS)
+        )
+
+        try:
+            result = await asyncio.wait_for(
+                self._ai_client.generate_with_meta(prompt),
+                timeout=settings.AI_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("개요 생성 시간 초과 kind=%s", kind)
+            return None
+        except Exception:
+            logger.warning("개요 생성 실패 kind=%s", kind, exc_info=True)
+            return None
+
+        # summary_analyzer 와 같은 방어적 파싱. JSON 이 깨져 오면 본문 전체를 쓴다.
+        try:
+            summary = json.loads(result.text)["summary"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            summary = result.text
+        summary = (summary or "").strip()
+        return summary or None
+
+    @staticmethod
+    def _overview_digest(
+        title: str,
+        since: date | None,
+        until: date | None,
+        materials: DeliverableMaterials,
+    ) -> str:
+        """LLM 에 넘길 자료 요약(digest).
+
+        표 전체가 아니라 **건수 + 대표 항목 몇 건**만 넘긴다. 로컬 소형 모델의
+        컨텍스트 창이 좁고(prompts.py 주석) 1회 호출로 끝내야 하기 때문이다.
+        여기서 만든 문장이 곧 프롬프트의 근거가 되므로 사실만 담는다.
+        """
+        period = (
+            f"{since.isoformat()} ~ {until.isoformat()}"
+            if since and until
+            else "기간 전체"
+        )
+        lines = [f"제목: {title}", f"대상 기간: {period}", ""]
+
+        def _names(items: list, attr: str) -> str:
+            picked = [
+                str(getattr(item, attr, "") or "").strip()
+                for item in items[:OVERVIEW_SAMPLE_ROWS]
+            ]
+            picked = [name for name in picked if name]
+            tail = " 등" if len(items) > OVERVIEW_SAMPLE_ROWS else ""
+            return ", ".join(picked) + tail if picked else ""
+
+        groups = [
+            ("등록된 문서", materials.documents, "filename"),
+            ("완료한 태스크", materials.completed_tasks, "title"),
+            ("결정사항", materials.decisions, "title"),
+            ("일정·기한", materials.schedule_items, "title"),
+            ("금액 항목", materials.amount_items, "item_name"),
+        ]
+        for label, items, attr in groups:
+            if not items:
+                continue
+            names = _names(items, attr)
+            lines.append(f"{label} {len(items)}건" + (f": {names}" if names else ""))
+
+        # 금액은 합계가 흐름을 잡는 데 크다. 셀 수 있으면 한 줄 더한다.
+        total = sum(
+            int(getattr(item, "amount", 0) or 0) for item in materials.amount_items
+        )
+        if total:
+            lines.append(f"금액 합계: {total:,}원")
+
+        # 표에 담긴 자료가 하나도 없으면(개요 유형인데 경계 상황) 그 사실만 적는다.
+        if len(lines) == 3:
+            lines.append("담긴 자료가 없습니다.")
+        return "\n".join(lines)
 
     @staticmethod
     def _write_file(project_id: int, body: str | bytes, extension: str) -> str:

@@ -23,10 +23,12 @@
 #   다르므로 구조에는 원래 값을 담고 각 포매터가 자기 규칙으로 바꾼다.
 #   구조 단계에서 한쪽 규칙으로 바꿔 두면 다른 형식에서 값이 이상해진다.
 #
-# ⚠ 개요는 비어 있다 — 일부러 그렇다
-#   DLV-002-1 완료 판정에 "LLM 호출은 개요 1회" 가 있다. 아직 LLM 이 붙지 않아
-#   개요 문장을 만들 수 없다. **없는 문장을 지어내지 않고** 자리를 비워 두고
-#   비었다고 적는다. 표는 전부 실제 자료다.
+# ⚠ 개요는 LLM 이 채운다 — 단, 이 파일은 채우지 않는다
+#   DLV-002-1·DLV-002-2 완료 판정의 "LLM 호출은 개요 1회" 를 위해 개요 문장은
+#   서비스(deliverable_service)가 LLM 을 1회 불러 만들고 `summary` 인자로 넘긴다.
+#   이 파일은 받은 문장을 개요 절에 넣기만 한다(구조 함수는 DB·LLM 을 모른다).
+#   `summary` 가 없으면(LLM 미연결·호출 실패) SUMMARY_PLACEHOLDER 로 되돌아간다 —
+#   **없는 문장을 지어내지 않는다.** 표는 예나 지금이나 전부 실제 자료다.
 # =============================================================================
 
 from __future__ import annotations
@@ -154,11 +156,19 @@ def build_document(
     period_to: date | None,
     materials: DeliverableMaterials,
     generated_at_text: str,
+    summary: str | None = None,
 ) -> DeliverableDocument:
     """유형에 맞는 절을 골라 문서 구조를 만든다.
 
     유형별 규칙은 deliverable_service._count 의 표와 같아야 한다 — 세어서 보여준
     것과 담기는 것이 다르면 미리보기가 거짓이 된다.
+
+    `summary` 는 LLM 이 만든 개요 문장이다 (DLV-002-1·DLV-002-2, "LLM 호출은 개요
+    1회"). WEEKLY_REPORT·PROJECT_STATUS 에만 개요 절이 있으므로 그 유형에서만
+    쓰인다. `None` 이면 — LLM 을 아직 붙이지 않았거나 호출이 실패한 경우 —
+    SUMMARY_PLACEHOLDER 로 되돌아간다. **없는 문장을 지어내지 않는다.**
+    개요를 만드는 곳은 서비스(deliverable_service)이고 여기는 받은 문장을 넣기만
+    한다 — 구조 함수는 DB·LLM 을 모른다.
     """
     period = (
         f"{period_from.isoformat()} ~ {period_to.isoformat()}"
@@ -171,7 +181,9 @@ def build_document(
     )
 
     if kind in ("WEEKLY_REPORT", "PROJECT_STATUS"):
-        document.sections.append(Section(title="개요", note=SUMMARY_PLACEHOLDER))
+        document.sections.append(
+            Section(title="개요", note=summary or SUMMARY_PLACEHOLDER)
+        )
         document.sections.append(
             Section(
                 title="문서",
