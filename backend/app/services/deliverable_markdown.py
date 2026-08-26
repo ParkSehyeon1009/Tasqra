@@ -39,6 +39,8 @@ from typing import Any
 from app.schemas.deliverable import DELIVERABLE_KIND_LABELS
 
 __all__ = [
+    "EMPTY",
+    "NUMERIC_HEADERS",
     "DeliverableDocument",
     "DeliverableMaterials",
     "Section",
@@ -50,6 +52,17 @@ __all__ = [
 
 # 값이 없을 때 표에 넣는 글자. 0 과 구별한다.
 EMPTY = "—"
+
+# 숫자가 담기는 칸의 머리글. 형식별 포매터가 이것을 보고 다르게 그린다 —
+# HTML 은 오른쪽으로 맞추고, XLSX 는 문자열을 숫자로 되돌려 합계가 되게 한다.
+#
+# **값이 아니라 머리글로 판단하는 이유**: 값만 보고 «숫자처럼 생겼으면 숫자» 로
+# 다루면 "2026" 같은 제목이 숫자가 된다. 머리글은 build_document 가 정하므로
+# 뜻이 분명하다.
+#
+# ⚠ 이 파일의 절 머리글을 바꾸면 여기도 바꿔야 한다. 안 바꿔도 에러는 나지 않고
+#   **조용히 왼쪽 정렬·문자열로 남는다** — 그래서 한 곳에 모아 두었다.
+NUMERIC_HEADERS = frozenset({"수량", "단가", "금액", "건수"})
 
 SUMMARY_PLACEHOLDER = (
     "개요 문장은 아직 넣지 않았습니다. 저장된 문서 요약을 한 번 재요약해 채울"

@@ -28,7 +28,9 @@ __all__ = [
     "FORMAT_FILE_TYPES",
     "PERIOD_REQUIRED_KINDS",
     "SUPPORTED_DELIVERABLE_FORMATS",
+    "TEXT_PREVIEW_FORMATS",
     "DeliverableCreateRequest",
+    "DeliverableContentResponse",
     "DeliverablePreviewResponse",
     "DeliverableResponse",
     "PreviewCounts",
@@ -45,16 +47,26 @@ DELIVERABLE_FORMATS = ("XLSX", "HTML", "MD", "PDF")
 # 만드는 코드는 아직 둘이다. 나머지는 501 로 분명히 알린다. 값이 틀린 것(400)과
 # 서버가 아직 못 하는 것(501)은 다른 상황이다.
 #
-# XLSX·PDF 를 아직 안 한 이유는 **새 라이브러리가 필요해서**다. MD·HTML 은
-# 문자열만 만들면 되고 의존성이 0 이다. 팀 이미지가 이미 11.1GB 라 라이브러리를
-# 더 얹는 판단은 따로 받는 편이 낫다.
-SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML")
+# PDF 를 아직 안 한 이유는 한글 폰트까지 붙어야 해서 XLSX 와 다른 방에서
+# 한다(2026-08-25 판단). XLSX 는 openpyxl 로 만든다(requirements.txt 추가).
+SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML", "XLSX")
+
+# 본문을 **문자열로 돌려주는** 형식. `DeliverableContentResponse.body` 가 `str`
+# 이라 XLSX(바이너리) 는 여기 없다 — `preview_deliverable_content` 가 이 상수로
+# 막는다. `SUPPORTED_DELIVERABLE_FORMATS` 와 다른 이유: XLSX 는 **만들 수는
+# 있지만**(생성·다운로드는 파일이라 바이너리를 그대로 쓴다) 이 텍스트 미리보기
+# 응답에는 담을 수 없다 — "아직 못 만든다" 와는 다른 제약이다.
+TEXT_PREVIEW_FORMATS = ("MD", "HTML")
 
 # 형식별 파일 확장자와 MIME 타입. 저장(서비스)과 내려보내기(라우터)가 같은 값을
 # 봐야 해서 한 곳에 둔다 — 갈리면 .md 파일을 text/html 로 주는 일이 생긴다.
 FORMAT_FILE_TYPES = {
     "MD": ("md", "text/markdown; charset=utf-8"),
     "HTML": ("html", "text/html; charset=utf-8"),
+    "XLSX": (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
 }
 
 # 제목에 쓰는 사람이 읽는 이름. 화면의 KINDS 목록과 문구를 맞춘다.
@@ -156,7 +168,7 @@ class DeliverableCreateRequest(BaseModel):
     )
     format: str = Field(
         min_length=1,
-        description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD · HTML 이다",
+        description="XLSX · HTML · MD · PDF. 지금 만들 수 있는 것은 MD · HTML · XLSX 다",
     )
     period_from: date | None = None
     period_to: date | None = None

@@ -277,7 +277,10 @@ def preview_deliverable_content(
     deliverable_format: str = Query(
         "HTML",
         alias="format",
-        description="MD · HTML. XLSX·PDF 는 아직 501 이다(만들기와 같다)",
+        description=(
+            "MD · HTML. XLSX 는 만들 수 있지만 이 본문 미리보기 응답에는 담을 수"
+            " 없다(바이너리) — 501. PDF 는 아직 501 이다(만들기와 같다)"
+        ),
     ),
     access: ProjectAccess = Depends(get_project_access),
     service: DeliverableService = Depends(get_deliverable_service),
@@ -307,12 +310,16 @@ def preview_deliverable_content(
 
     ### 형식 검사가 만들기와 같습니다
 
-    없는 형식은 `422 INVALID_DOCUMENT_TYPE`, 아직 못 만드는 형식은
-    `501 DELIVERABLE_FORMAT_NOT_READY` 입니다. **미리보기만 되고 만들기는 안 되는
-    형식을 두지 않습니다** — 미리 본 뒤 만들기에서 처음 막히면 헛수고입니다.
+    없는 형식은 `422 INVALID_DOCUMENT_TYPE`, 이 응답에 담을 수 없는 형식은
+    `501 DELIVERABLE_FORMAT_NOT_READY` 입니다.
 
-    `XLSX`·`PDF` 가 준비되면 이 엔드포인트는 **고칠 것 없이** 그 형식을 돌려줍니다.
-    형식별 생성기를 `RENDERERS` 에서 고르는 구조입니다.
+    `XLSX` 는 **만들기(`POST /deliverables`)는 되지만 이 엔드포인트는 501 입니다** —
+    `DeliverableContentResponse.body` 가 `str` 인데 XLSX 는 바이너리라 이 응답에
+    담을 수 없습니다(`app.schemas.deliverable.TEXT_PREVIEW_FORMATS`). 파일로
+    받으려면 먼저 만들고(`POST`) `GET .../file` 로 받으세요.
+
+    `PDF` 가 준비되면 만들기·이 엔드포인트 모두 **고칠 것 없이** 그 형식을
+    돌려줍니다. 형식별 생성기를 `RENDERERS` 에서 고르는 구조입니다.
 
     ### 화면이 HTML 을 안전하게 그리는 방법
 
@@ -331,7 +338,7 @@ def preview_deliverable_content(
       `422 DELIVERABLE_EMPTY`              담을 것이 없다
       `422 INVALID_DOCUMENT_TYPE`          없는 유형 · 없는 형식
       `422 PERIOD_REQUIRED`                주간 보고서인데 기간이 없다
-      `501 DELIVERABLE_FORMAT_NOT_READY`   XLSX·PDF — 만들기와 같다
+      `501 DELIVERABLE_FORMAT_NOT_READY`   XLSX(이 응답만)·PDF
       `404`                                내가 멤버가 아닌 프로젝트
     """
     return service.preview_content(
