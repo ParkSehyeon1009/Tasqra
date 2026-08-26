@@ -156,6 +156,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       setStructureDrafts({})
       setGeometryDrafts({})
       setReOcrDrafts({})
+      queryClient.invalidateQueries({ queryKey: reviewKey, exact: true })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true })
       notify('success', 'OCR 검수 내용 저장 완료', result.items.length + '개 영역의 변경 내용을 한 번에 저장했습니다.')
@@ -177,7 +178,8 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const createMutation = useMutation({
     mutationFn: geometry => createOcrElement(projectId, documentId, { page_id: page.id, text: '새 OCR 영역', ...geometry }),
     onSuccess: created => {
-      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: current.ocr_revision + 1, review_status: 'IN_PROGRESS', pages: current.pages.map(item => item.id === page.id ? { ...item, elements: [...item.elements, created] } : item) }) : current)
+      queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: current.ocr_revision + 1, review_status: 'IN_PROGRESS', pages: current.pages.map(item => item.id === page.id ? { ...item, elements: [...item.elements.map(element => element.reading_order >= created.reading_order ? { ...element, reading_order: element.reading_order + 1 } : element), created].sort((a, b) => a.reading_order - b.reading_order) } : item) }) : current)
+      queryClient.invalidateQueries({ queryKey: reviewKey, exact: true })
       setCreateMode(false)
       setSelectedId(created.id)
       notify('success', 'OCR 박스 추가', '새 영역의 위치와 텍스트를 조정한 뒤 저장해 주세요.')

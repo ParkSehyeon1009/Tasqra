@@ -8,12 +8,12 @@
   position: relative;
 }
 
-.document-filter-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 13px 24px; border-top: 1px solid #e8edf4; border-bottom: 1px solid #e8edf4; background: #fafbfd; }
+.document-filter-bar { display: flex; align-items: flex-end; justify-content: flex-start; gap: 14px; padding: 13px 24px; border-top: 1px solid #e8edf4; border-bottom: 1px solid #e8edf4; background: #fafbfd; }
 .document-filter-bar label { display: grid; gap: 5px; }
 .document-filter-bar label > span { color: #65748a; font-size: 12px; font-weight: 700; }
 .document-filter-bar select { min-width: min(300px, 75vw); min-height: 38px; padding: 7px 32px 7px 10px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #2c326b; font: inherit; }
 .document-filter-bar select:focus-visible { border-color: #756de8; outline: none; }
-.document-filter-bar > button, .document-filter-empty button { min-height: 36px; padding: 8px 12px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #5148c8; font: inherit; font-weight: 700; cursor: pointer; }
+.document-filter-bar > button, .document-filter-empty button { min-height: 36px; margin-left: auto; padding: 8px 12px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #5148c8; font: inherit; font-weight: 700; cursor: pointer; }
 .document-filter-bar > button:hover, .document-filter-bar > button:focus-visible, .document-filter-empty button:hover, .document-filter-empty button:focus-visible { border-color: #756de8; background: #f5f4ff; }
 .document-filter-empty { display: grid; min-height: 190px; place-items: center; align-content: center; gap: 7px; padding: 28px; text-align: center; }
 .document-filter-empty strong { color: #36435a; }

@@ -16,11 +16,15 @@ import { formatNumber } from '../../utils/format'
 import './DocumentsView.css'
 import './DocumentReviewBadge.css'
 
-export default function DocumentsView({ projectId, documents, documentsTotal, documentType, onDocumentTypeChange, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
+const DOCUMENT_STATE_FILTERS = [['PROCESSING', '처리 중'], ['REVIEW_REQUIRED', '검수 필요'], ['COMPLETED', '완료'], ['FAILED', '실패']]
+
+export default function DocumentsView({ projectId, documents, documentsTotal, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearFilters, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
   const [dragging, setDragging] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const selectedTypeLabel = documentType ? getDocumentTypeFilterLabel(documentType) : null
+  const selectedStateLabel = DOCUMENT_STATE_FILTERS.find(([value]) => value === documentState)?.[1] ?? null
+  const hasFilter = Boolean(selectedTypeLabel || selectedStateLabel)
   const documentListUrl = location.pathname + location.search
   const openDocument = documentId => navigate('/projects/' + projectId + '/documents/' + documentId, { state: { documentListUrl } })
   const openPrimaryAction = document => {
@@ -57,13 +61,17 @@ export default function DocumentsView({ projectId, documents, documentsTotal, do
           {DOCUMENT_TYPES.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
           <option value={UNCLASSIFIED_DOCUMENT_TYPE}>미분류</option>
         </select></label>
-        {selectedTypeLabel && <button type='button' onClick={() => onDocumentTypeChange('')}>필터 해제</button>}
+        <label><span>처리·검수 상태</span><select value={documentState} onChange={event => onDocumentStateChange(event.target.value)}>
+          <option value=''>전체 상태</option>
+          {DOCUMENT_STATE_FILTERS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        </select></label>
+        {hasFilter && <button type='button' onClick={onClearFilters}>필터 해제</button>}
       </div>
       {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onRetry={onRetryUpload} onClear={onClearUploadQueue}/>}
       {documents.length
         ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/>
-        : selectedTypeLabel
-          ? <EmptyFilteredDocuments label={selectedTypeLabel} onClear={() => onDocumentTypeChange('')}/>
+        : hasFilter
+          ? <EmptyFilteredDocuments label={[selectedTypeLabel, selectedStateLabel].filter(Boolean).join(' / ')} onClear={onClearFilters}/>
           : !uploadQueue.some(item => ['QUEUED', 'UPLOADING'].includes(item.status)) && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
       {canEdit && documents.length > 0 && <UploadDropHint onUpload={onUpload}/>}
     </section>
