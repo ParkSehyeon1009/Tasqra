@@ -55,6 +55,7 @@ from app.schemas.deliverable import (
     FORMAT_FILE_TYPES,
     PERIOD_REQUIRED_KINDS,
     SUPPORTED_DELIVERABLE_FORMATS,
+    TEXT_PREVIEW_FORMATS,
     DeliverableContentResponse,
     DeliverablePreviewResponse,
     PreviewCounts,
@@ -65,13 +66,17 @@ from app.services.deliverable_markdown import (
     build_title,
     render_markdown,
 )
+from app.services.deliverable_xlsx import render_xlsx
 
 # 형식별 본문 생성 함수. 형식을 늘릴 때 **여기와 SUPPORTED_DELIVERABLE_FORMATS**
 # 두 곳만 고치면 된다. if 문으로 늘리면 형식이 늘 때마다 분기가 깊어진다.
 # Spring 비교: Map<String, Renderer> 로 전략을 주입하는 것과 같다.
+#
+# ⚠ MD·HTML 은 str 을, XLSX 는 bytes 를 돌려준다. _write_file 이 둘 다 받는다.
 RENDERERS = {
     "MD": render_markdown,
     "HTML": render_html,
+    "XLSX": render_xlsx,
 }
 
 logger = logging.getLogger(__name__)
@@ -287,8 +292,14 @@ class DeliverableService:
         `DELIVERABLE_FORMAT_NOT_READY`(501) 다. **미리보기만 되고 만들기는 안 되는
         형식을 만들지 않는다** — 미리 본 뒤 만들기를 눌렀을 때 처음 막히면 헛수고다.
 
-        `XLSX`·`PDF` 가 준비되면 이 메서드는 **그대로** 그 형식을 돌려준다. 형식별
+        `PDF` 가 준비되면 이 메서드는 **그대로** 그 형식을 돌려준다. 형식별
         생성기를 `RENDERERS` 에서 고르는 구조라 여기 고칠 것이 없다.
+
+        `XLSX` 는 예외다 — **만들 수는 있지만 이 응답에는 담을 수 없다.**
+        `DeliverableContentResponse.body` 가 `str` 인데 XLSX 는 바이너리다.
+        그래서 `SUPPORTED_DELIVERABLE_FORMATS` 가 아니라 `TEXT_PREVIEW_FORMATS`
+        (`MD`·`HTML`) 로 막는다 — "아직 못 만든다"(`generate` 의 제약)와 "이
+        응답에 못 담는다"(이 메서드만의 제약)는 다른 판정이다.
 
         ### 화면이 HTML 을 어떻게 안전하게 그리나
 
@@ -309,12 +320,12 @@ class DeliverableService:
                 ErrorCode.INVALID_DOCUMENT_TYPE,
                 detail=f"출력 형식은 {' · '.join(DELIVERABLE_FORMATS)} 중 하나여야 합니다.",
             )
-        if deliverable_format not in SUPPORTED_DELIVERABLE_FORMATS:
+        if deliverable_format not in TEXT_PREVIEW_FORMATS:
             raise BusinessError(
                 ErrorCode.DELIVERABLE_FORMAT_NOT_READY,
                 detail=(
                     f"{deliverable_format} 형식은 아직 미리 볼 수 없습니다. "
-                    f"지금 가능한 형식은 {' · '.join(SUPPORTED_DELIVERABLE_FORMATS)} 입니다."
+                    f"지금 가능한 형식은 {' · '.join(TEXT_PREVIEW_FORMATS)} 입니다."
                 ),
             )
 
@@ -467,18 +478,26 @@ class DeliverableService:
         )
 
     @staticmethod
-    def _write_file(project_id: int, body: str, extension: str) -> str:
+    def _write_file(project_id: int, body: str | bytes, extension: str) -> str:
         """산출물 파일을 저장하고 경로를 돌려준다.
 
         프로젝트별 폴더에 uuid 이름으로 둔다. 제목을 파일명에 쓰지 않는 이유는
         제목에 한글·공백·특수문자가 들어가고 같은 제목이 여러 번 생기기 때문이다.
         사용자가 받을 때의 이름은 다운로드 응답에서 따로 정한다.
+
+        `body` 는 `str`(MD·HTML) 이거나 `bytes`(XLSX) 다. XLSX 는 zip 컨테이너라
+        텍스트로 쓰면 인코딩이 깨진다 — `bytes` 면 `"wb"` 로, `str` 이면 지금까지의
+        `"w", encoding="utf-8"` 로 쓴다.
         """
         directory = os.path.join(settings.UPLOAD_DIR, "deliverables", str(project_id))
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, f"{uuid.uuid4().hex}.{extension}")
-        with open(path, "w", encoding="utf-8") as file:
-            file.write(body)
+        if isinstance(body, bytes):
+            with open(path, "wb") as file:
+                file.write(body)
+        else:
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(body)
         return path
 
     @staticmethod

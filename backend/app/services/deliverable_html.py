@@ -4,6 +4,7 @@
 #
 # 다른 파일과의 관계
 #   services/deliverable_markdown.py  문서 구조(DeliverableDocument)와 그 빌더
+#   services/deliverable_xlsx.py      같은 구조를 XLSX 로 그린다 (형제 파일)
 #   services/deliverable_service.py   형식에 따라 이 함수나 render_markdown 을 부른다
 #
 # Spring 비교: 같은 모델을 다른 View 로 그리는 것이다(JSON 뷰 대 HTML 뷰).
@@ -18,10 +19,22 @@
 #   Content-Disposition 이 attachment 가 되어 브라우저가 우리 도메인에서 바로
 #   렌더링하지 않는다. escape 와 함께 두 겹이다.
 #
-# ⚠ 색을 쓰지 않는다
-#   보고서는 흑백으로 만든다. 인쇄와 캡처에서 흐려지지 않고, 강조가 필요한 곳은
-#   굵기와 선으로만 나타낸다. 스타일은 파일 안에 넣는다 — 산출물은 한 파일로
-#   주고받으므로 외부 CSS 를 참조하면 받는 쪽에서 깨진다.
+# ⚠ 왜 HTML 만 꾸미는가 (2026-08-26 판단)
+#   `XLSX`·`MD` 는 **받아서 더 가공하는** 형식이다. 셀 배경이나 글꼴을 넣으면
+#   붙여 쓸 때 오히려 방해가 되므로 무채색·최소 서식으로 둔다.
+#   `HTML`(그리고 나중의 `PDF`)은 **그대로 보내고 그대로 인쇄하는** 형식이다.
+#   그래서 이 파일만 표지·절 번호·머리글 대비 같은 짜임을 갖는다.
+#
+# ⚠ 색은 여전히 쓰지 않는다 — 무채색 안에서 짜임으로만 정리한다
+#   검정(#1b1b1b)·회색 몇 단계·흰색뿐이다. 인쇄와 흑백 복사에서 흐려지지 않고,
+#   강조는 **면(검정 배경)·굵기·선·여백**으로만 만든다. 스타일은 파일 안에 넣는다 —
+#   산출물은 한 파일로 주고받으므로 외부 CSS·웹폰트를 참조하면 받는 쪽에서 깨진다.
+#
+# ⚠ 마크업을 바꿀 때 테스트를 먼저 본다
+#   test_deliverable_html.py 가 `<h2>{절 제목}</h2>` 와 `<table>` 을 **속성 없이
+#   그대로** 찾는다(두 형식이 같은 절을 담는지, 빈 표를 그리지 않는지 검사한다).
+#   그래서 절 번호는 `<h2>` **밖에** 두고 표에는 class 를 붙이지 않는다. 꾸미는
+#   것은 바깥 요소와 CSS 선택자로 한다.
 # =============================================================================
 
 from __future__ import annotations
@@ -29,24 +42,71 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
-from app.services.deliverable_markdown import DeliverableDocument, build_document
+from app.services.deliverable_markdown import (
+    NUMERIC_HEADERS,
+    DeliverableDocument,
+    build_document,
+)
 
 __all__ = ["render_html", "to_html"]
 
 # 흑백 무채색. 폰트는 받는 쪽에 있는 것을 쓴다(웹폰트를 내려받게 하지 않는다).
+#
+# CSS 변수(--foo)를 쓰지 않았다. 나중에 PDF 변환기를 붙일 때 오래된 엔진이
+# 변수를 이해하지 못하면 색이 전부 빠진다 — 값을 그대로 적어 두면 그런 일이 없다.
 STYLE = """
-body { max-width: 900px; margin: 40px auto; padding: 0 20px;
-  font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
-  color: #1b1b1b; line-height: 1.6; }
-h1 { margin: 0 0 6px; font-size: 24px; }
-h2 { margin: 32px 0 10px; padding-bottom: 6px; font-size: 17px;
-  border-bottom: 1px solid #1b1b1b; }
-ul.meta { margin: 0 0 8px; padding-left: 18px; color: #555; font-size: 13px; }
-p.note { color: #555; font-size: 14px; }
-table { width: 100%; margin: 0; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 7px 9px; border: 1px solid #c9c9c9; text-align: left;
-  vertical-align: top; }
-th { background: #f2f2f2; font-weight: 700; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; background: #ffffff; color: #1b1b1b; font-size: 14px; line-height: 1.65;
+  font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+
+/* 표지 띠. 제목을 면으로 눌러 첫 화면에서 문서의 격을 만든다. */
+.cover { padding: 38px 44px 30px; background: #1b1b1b; color: #ffffff; }
+.cover h1 { margin: 0; font-size: 25px; font-weight: 700; line-height: 1.35;
+  letter-spacing: -0.01em; }
+.cover .meta { display: flex; flex-wrap: wrap; gap: 2px 20px; margin: 18px 0 0; padding: 0;
+  list-style: none; }
+.cover .meta li { position: relative; padding-left: 13px; color: #bdbdbd; font-size: 12px; }
+.cover .meta li::before { content: ""; position: absolute; left: 0; top: 11px; width: 6px;
+  height: 1px; background: #7d7d7d; }
+
+main { max-width: 920px; margin: 0 auto; padding: 34px 44px 4px; }
+
+/* 절 머리. 번호 뱃지 + 제목 + 남는 폭을 채우는 가는 선. */
+.block { margin: 0 0 32px; }
+.block-head { display: flex; align-items: center; gap: 10px; margin: 0 0 13px; }
+.block-num { flex: none; min-width: 25px; padding: 3px 5px; background: #1b1b1b; color: #ffffff;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-align: center; }
+.block-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: 0.02em;
+  white-space: nowrap; }
+.block-head::after { content: ""; flex: 1 1 auto; height: 1px; background: #d6d6d6; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { padding: 9px 11px; background: #1b1b1b; color: #ffffff; font-size: 11px;
+  font-weight: 700; letter-spacing: 0.06em; text-align: left; white-space: nowrap; }
+tbody td { padding: 9px 11px; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+tbody tr:nth-child(even) td { background: #fafafa; }
+/* 숫자 칸. 오른쪽으로 맞추고 자릿수 폭을 고정해 금액이 나란히 읽히게 한다. */
+.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* 자료가 없는 절과 개요. 빈 표 대신 문장을 두고 왼쪽 굵은 선으로 구분한다. */
+p.note { margin: 0; padding: 12px 15px; border-left: 3px solid #1b1b1b; background: #f6f6f6;
+  color: #4a4a4a; font-size: 13px; }
+
+footer { max-width: 920px; margin: 0 auto; padding: 14px 44px 42px; }
+footer p { margin: 0; padding-top: 14px; border-top: 1px solid #e0e0e0; color: #8a8a8a;
+  font-size: 11px; }
+
+@media print {
+  @page { margin: 14mm; }
+  body { font-size: 10.5pt; }
+  .cover { padding: 22px 24px 18px; }
+  main, footer { max-width: none; padding-left: 24px; padding-right: 24px; }
+  /* 절과 행이 페이지 경계에서 잘리지 않게. 머리글은 다음 장에도 따라간다. */
+  .block { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+}
 """.strip()
 
 
@@ -61,10 +121,12 @@ def to_html(document: DeliverableDocument) -> str:
         '<html lang="ko">',
         "<head>",
         '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
         f"<title>{escape(document.title)}</title>",
         f"<style>{STYLE}</style>",
         "</head>",
         "<body>",
+        '<header class="cover">',
         f"<h1>{escape(document.title)}</h1>",
     ]
 
@@ -72,26 +134,56 @@ def to_html(document: DeliverableDocument) -> str:
         parts.append('<ul class="meta">')
         parts.extend(f"<li>{escape(line)}</li>" for line in document.meta)
         parts.append("</ul>")
+    parts.append("</header>")
 
-    for section in document.sections:
+    parts.append("<main>")
+    for number, section in enumerate(document.sections, start=1):
+        parts.append('<section class="block">')
+        # 번호를 h2 밖에 두는 이유는 파일 머리말 참고(테스트가 h2 를 그대로 찾는다).
+        parts.append('<div class="block-head">')
+        parts.append(f'<span class="block-num">{number:02d}</span>')
         parts.append(f"<h2>{escape(section.title)}</h2>")
+        parts.append("</div>")
+
         if section.header and section.rows:
-            parts.append("<table>")
-            parts.append("<thead><tr>")
-            parts.extend(f"<th>{escape(name)}</th>" for name in section.header)
-            parts.append("</tr></thead>")
-            parts.append("<tbody>")
-            for row in section.rows:
-                parts.append("<tr>")
-                parts.extend(f"<td>{escape(value)}</td>" for value in row)
-                parts.append("</tr>")
-            parts.append("</tbody>")
-            parts.append("</table>")
+            parts.extend(_table(section.header, section.rows))
         else:
             # 표가 없는 절(개요)과 행이 없는 표는 같은 모양으로 문장만 낸다.
             # 빈 표를 그리면 "자료를 못 가져온 것" 처럼 보인다.
             note = section.note or "해당 자료가 없습니다."
             parts.append(f'<p class="note">{escape(note)}</p>')
+        parts.append("</section>")
+    parts.append("</main>")
+
+    # 꼬리말. 인쇄해서 나눠줬을 때 어느 문서의 몇 시 기준인지 남는다.
+    colophon = " · ".join([document.title, *document.meta])
+    parts.extend(["<footer>", f"<p>{escape(colophon)}</p>", "</footer>"])
 
     parts.extend(["</body>", "</html>", ""])
     return "\n".join(parts)
+
+
+def _table(header: list[str], rows: list[list[str]]) -> list[str]:
+    """표 하나. `<table>` 에 속성을 붙이지 않는다 — 파일 머리말 참고.
+
+    숫자 칸만 `class="num"` 으로 오른쪽에 맞춘다. 어느 칸이 숫자인지는 머리글로
+    판단하고 그 목록은 `deliverable_markdown.NUMERIC_HEADERS` 한 곳에 있다.
+    """
+    numeric = [name in NUMERIC_HEADERS for name in header]
+    parts = ["<table>", "<thead><tr>"]
+    parts.extend(
+        f'<th class="num">{escape(name)}</th>' if numeric[index] else f"<th>{escape(name)}</th>"
+        for index, name in enumerate(header)
+    )
+    parts.extend(["</tr></thead>", "<tbody>"])
+    for row in rows:
+        parts.append("<tr>")
+        parts.extend(
+            f'<td class="num">{escape(value)}</td>'
+            if index < len(numeric) and numeric[index]
+            else f"<td>{escape(value)}</td>"
+            for index, value in enumerate(row)
+        )
+        parts.append("</tr>")
+    parts.extend(["</tbody>", "</table>"])
+    return parts

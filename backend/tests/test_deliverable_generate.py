@@ -150,8 +150,11 @@ def test_period_required_is_checked_before_writing():
 
 
 def test_unsupported_format_is_not_ready_not_invalid():
-    """DB 가 허용하는 값이다. 값이 틀린 것과 서버가 아직 못 하는 것을 구분한다."""
-    for unsupported in ("XLSX", "PDF"):
+    """DB 가 허용하는 값이다. 값이 틀린 것과 서버가 아직 못 하는 것을 구분한다.
+
+    XLSX 는 2026-08-26 부터 만들 수 있어 여기서 뺐다 — 501 은 이제 PDF 만.
+    """
+    for unsupported in ("PDF",):
         service, repo = _service(documents=3)
         with pytest.raises(BusinessError) as err:
             service.generate(
