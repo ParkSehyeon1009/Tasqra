@@ -43,13 +43,14 @@ PERIOD_REQUIRED_KINDS = ("WEEKLY_REPORT",)
 
 # models/deliverable.py 의 _FORMAT 과 같아야 한다. 리비전 0021 이 PDF 를 더했다.
 DELIVERABLE_FORMATS = ("XLSX", "HTML", "MD", "PDF")
-# 실제로 만들 수 있는 형식. **DB 가 허용하는 것과 다르다** — 허용값은 넷인데
-# 만드는 코드는 아직 둘이다. 나머지는 501 로 분명히 알린다. 값이 틀린 것(400)과
-# 서버가 아직 못 하는 것(501)은 다른 상황이다.
+# 실제로 만들 수 있는 형식. 2026-08-26 에 PDF 가 붙어 **DB 허용값 넷과 같아졌다**
+# (리비전 0021 의 넷 = MD·HTML·XLSX·PDF). 이제 "DB 는 허용하는데 서버가 못 만드는"
+# 형식이 없다. 값이 틀린 것(400)과 서버가 아직 못 하는 것(501)을 구분하는 판단은
+# 그대로 둔다 — 다음에 DB 가 새 형식을 허용하면 다시 벌어질 수 있어서다.
 #
-# PDF 를 아직 안 한 이유는 한글 폰트까지 붙어야 해서 XLSX 와 다른 방에서
-# 한다(2026-08-25 판단). XLSX 는 openpyxl 로 만든다(requirements.txt 추가).
-SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML", "XLSX")
+# PDF 는 HTML→PDF 변환(weasyprint)이다. render_html 의 print CSS 를 그대로 쓰고
+# 한글은 이미지에 깐 fonts-nanum 으로 그린다(deliverable_pdf.py 머리말 참고).
+SUPPORTED_DELIVERABLE_FORMATS = ("MD", "HTML", "XLSX", "PDF")
 
 # 본문을 **문자열로 돌려주는** 형식. `DeliverableContentResponse.body` 가 `str`
 # 이라 XLSX(바이너리) 는 여기 없다 — `preview_deliverable_content` 가 이 상수로
@@ -67,6 +68,7 @@ FORMAT_FILE_TYPES = {
         "xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ),
+    "PDF": ("pdf", "application/pdf"),
 }
 
 # 제목에 쓰는 사람이 읽는 이름. 화면의 KINDS 목록과 문구를 맞춘다.

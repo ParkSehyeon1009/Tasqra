@@ -11,7 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
         libglib2.0-0 \
         libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+        # 산출물 PDF(weasyprint) 런타임 의존성. weasyprint 53+ 는 cairo/gdk-pixbuf
+        # 없이 Pango 만 있으면 된다. libharfbuzz-subset0 은 폰트 서브셋용이다.
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz-subset0 \
+        # PDF 안의 한글 폰트. 없으면 한글이 네모(□)로 나온다.
+        fonts-nanum \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
