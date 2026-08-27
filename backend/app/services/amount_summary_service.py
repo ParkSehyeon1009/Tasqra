@@ -301,6 +301,31 @@ class AmountSummaryService:
             included_decisions=["PENDING"],
         )
 
+    def list_rejected(self, project_id: int, limit: int) -> AmountItemListResponse:
+        """**거절된(REJECTED)** 금액 항목을 한 줄씩 돌려준다 (되살리기용 「거절함」).
+
+        `list_pending` 과 응답 모양이 같다(같은 `_to_row`). `included_decisions` 만
+        `["REJECTED"]` 다. 화면 맨 아래 접힌 섹션에서 «되살리기»(→PENDING) 대상으로
+        보여준다 — 집계·대기 건수와는 무관한 별개 목록이다.
+        """
+        rows = self._amounts.list_rejected_items(project_id)
+        visible = rows[:limit]
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
+        items = [
+            self._to_row(item, document_id, filename, task_ids.get(item.id))
+            for item, document_id, filename in visible
+        ]
+        return AmountItemListResponse(
+            items=items,
+            total=len(rows),
+            returned=len(items),
+            truncated=len(rows) > len(items),
+            limit=limit,
+            included_decisions=["REJECTED"],
+        )
+
     # --- 내부 ---------------------------------------------------------------
 
     @classmethod

@@ -222,3 +222,18 @@ export async function cancelAmountItem(projectId, itemId) {
   )
   return data
 }
+
+
+
+// GET /api/projects/{projectId}/amount-items/rejected?limit=200
+//
+// 거절된(REJECTED) 금액 항목 (되살리기용 「거절함」). 거절은 데이터를 지우지 않고
+// 상태만 바꾸므로, 실수로 거절한 것을 되살릴 수 있게 이 목록을 화면 맨 아래
+// 접힌 섹션에서 보여준다. 응답 모양은 getAmountItems 와 같고 included_decisions 만
+// ["REJECTED"]. 되살리기는 cancelAmountItem(→PENDING)을 그대로 쓴다.
+export async function getRejectedAmountItems(projectId, { limit = 200 } = {}) {
+  const { data } = await http.get(`/api/projects/${projectId}/amount-items/rejected`, {
+    params: { limit },
+  })
+  return data
+}

@@ -188,3 +188,8 @@
 /* 승인 취소. 되돌릴 수 있는(→대기) 동작이라 거절보다 약하게 — 호버 때 경고색으로만. */
 .amount-task-button.is-cancel:hover:not(:disabled),
 .amount-task-button.is-cancel:focus-visible:not(:disabled) { border-color: var(--c-warning); background: var(--c-warning-bg); color: var(--c-warning); }
+
+
+
+/* 거절함(휴지통) — 맨 아래 접힌 섹션. 집계와 떨어뜨려 두려고 위 여백만 준다. */
+.amount-rejected { margin-top: 18px; }

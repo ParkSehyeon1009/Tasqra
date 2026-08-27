@@ -305,3 +305,27 @@ class AmountRepository:
             (row[0], int(row[1]), row[2])
             for row in self._db.execute(stmt).all()
         ]
+
+    def list_rejected_items(
+        self, project_id: int
+    ) -> list[tuple[AmountItem, int, str]]:
+        """**거절된(REJECTED)** 금액 항목을 문서 정보와 함께 가져온다.
+
+        거절은 데이터를 지우지 않고 `decision='REJECTED'` 로 둘 뿐이라, 실수로
+        거절한 것을 되살릴 수 있어야 한다. 이 목록이 그 「거절함(휴지통)」이다.
+        되살리기는 `AmountItemService.cancel`(→PENDING)을 그대로 쓴다.
+
+        `list_pending_items` 와 같은 구조(최신분석 필터 없이 문서·항목 순서)다.
+        집계·대기 어디에도 세지 않는 별개 조회라 화면 맨 아래 접힌 섹션에서만 쓴다.
+        """
+        stmt: Select = (
+            select(AmountItem, Document.id, Document.filename)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+            .where(AmountItem.decision == "REJECTED")
+            .order_by(Document.id, AmountItem.id)
+        )
+        return [
+            (row[0], int(row[1]), row[2])
+            for row in self._db.execute(stmt).all()
+        ]

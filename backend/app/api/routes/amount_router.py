@@ -187,6 +187,28 @@ def list_pending_amount_items(
     return service.list_pending(access.project.id, limit)
 
 
+@router.get("/amount-items/rejected", response_model=AmountItemListResponse)
+def list_rejected_amount_items(
+    limit: int = Query(200, ge=1, le=500, description="돌려줄 항목 수 상한"),
+    access: ProjectAccess = Depends(get_project_amount_access),
+    service: AmountSummaryService = Depends(get_amount_summary_service),
+) -> AmountItemListResponse:
+    """**거절된(`REJECTED`)** 금액 항목 (되살리기용 「거절함」).
+
+    거절은 데이터를 지우지 않고 상태만 바꿉니다. 실수로 거절한 것을 되살릴 수
+    있도록 이 목록을 화면 맨 아래 접힌 섹션에서 보여줍니다. 되살리기는
+    `POST /amount-items/{id}/cancel`(→ `PENDING`)을 그대로 씁니다.
+
+    응답 모양은 `amount-items` 와 같고 `included_decisions` 만 `["REJECTED"]`
+    입니다. 집계·대기 건수와 무관한 별개 목록입니다.
+
+    오류
+      `403 PROJECT_FORBIDDEN`   VIEWER 다
+      `404`                     내가 멤버가 아닌 프로젝트
+    """
+    return service.list_rejected(access.project.id, limit)
+
+
 
 @router.post(
     "/amount-items/{item_id}/task",

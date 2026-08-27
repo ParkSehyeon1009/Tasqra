@@ -39,9 +39,11 @@ import {
   getAmountItems,
   getAmountSummary,
   getPendingAmountItems,
+  getRejectedAmountItems,
   rejectAmountItem,
   updateAmountItem,
 } from '../../api/amount'
+import ConfirmDialog from '../../components/common/ConfirmDialog'
 import PageHeading from '../../components/common/PageHeading'
 import { formatMoney, formatNumber } from '../../utils/format'
 import './AmountSummaryView.css'
@@ -198,6 +200,10 @@ export default function AmountSummaryView({ projectId, notify }) {
             </tbody>
           </table>}
     </section>
+
+    {/* 거절함(휴지통). 맨 아래 접힌 섹션 — 거절은 데이터를 지우지 않으므로 실수로
+        거절한 것을 되살릴 수 있다. 집계 건수와는 무관한 별개 목록이라 여기 따로 둔다. */}
+    <RejectedPanel projectId={projectId} notify={notify}/>
   </>
 }
 
@@ -666,6 +672,9 @@ function TotalCard({ label, note, value, currency, loading, emphasis }) {
 // 반영된 값인가" 가 흐려진다.
 function PendingPanel({ projectId, notify }) {
   const queryClient = useQueryClient()
+  // 거절 확인 대상. null 이면 확인창이 닫혀 있다. 거절은 화면에서 사라지므로
+  // (되살리려면 맨 아래 「거절함」을 거쳐야 한다) 실수 방지로 한 번 확인받는다.
+  const [rejectTarget, setRejectTarget] = useState(null)
   const pendingQuery = useQuery({
     queryKey: ['projects', projectId, 'amount-pending'],
     queryFn: () => getPendingAmountItems(projectId),
@@ -674,7 +683,9 @@ function PendingPanel({ projectId, notify }) {
   // 승인·거절 뒤에는 대기 목록·합계·항목목록·대시보드 승인대기 건수가 모두
   // 바뀐다. 한곳에서 무효화해 화면들이 어긋나지 않게 한다.
   const invalidateAll = () => {
-    for (const key of ['amount-pending', 'amount-summary', 'amount-items', 'dashboard']) {
+    // amount-rejected 도 갱신한다 — 거절하면 그 항목이 하단 「거절함」에 바로
+    // 나타나야 한다. 없으면 새로고침해야 보인다(실제로 겪은 문제).
+    for (const key of ['amount-pending', 'amount-summary', 'amount-items', 'amount-rejected', 'dashboard']) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, key] })
     }
   }
@@ -734,11 +745,25 @@ function PendingPanel({ projectId, notify }) {
             row={row}
             busy={busyId === row.id}
             onApprove={item => approveMutation.mutate(item)}
-            onReject={item => rejectMutation.mutate(item)}
+            onReject={item => setRejectTarget(item)}
           />)}
         </tbody>
       </table>
     </div>
+
+    {/* 거절 확인. 거절하면 이 목록에서 사라지므로(되살리려면 맨 아래 「거절함」)
+        한 번 물어본다. danger 로 두어 승인과 시각적으로 구분한다. */}
+    <ConfirmDialog
+      open={Boolean(rejectTarget)}
+      title='이 금액을 거절할까요?'
+      message={rejectTarget
+        ? `"${rejectTarget.item_name}" 을(를) 거절하면 합계·집계에 들어가지 않고 목록에서 사라집니다. 맨 아래 「거절된 항목」에서 되살릴 수 있습니다.`
+        : ''}
+      confirmLabel='거절'
+      danger
+      onCancel={() => setRejectTarget(null)}
+      onConfirm={() => { rejectMutation.mutate(rejectTarget); setRejectTarget(null) }}
+    />
   </section>
 }
 
@@ -771,6 +796,102 @@ function PendingRow({ row, busy, onApprove, onReject }) {
         {busy ? '처리 중…' : '승인'}
       </button>
       <button type='button' className='amount-task-button is-reject' disabled={locked} onClick={() => onReject(row)}>거절</button>
+    </td>
+  </tr>
+}
+
+
+
+// 거절함(휴지통) — 거절된(REJECTED) 항목. 맨 아래 접힌 섹션이다. 거절은 데이터를
+// 지우지 않으므로, 실수로 거절한 것을 여기서 「되살리기」(→PENDING)할 수 있다.
+// 집계·대기 건수와 무관한 별개 목록이라 기본은 접어 두고 필요할 때만 편다.
+// 거절한 게 하나도 없으면 섹션 자체가 나타나지 않는다.
+function RejectedPanel({ projectId, notify }) {
+  const queryClient = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+  const rejectedQuery = useQuery({
+    queryKey: ['projects', projectId, 'amount-rejected'],
+    queryFn: () => getRejectedAmountItems(projectId),
+    retry: false,
+  })
+
+  const restoreMutation = useMutation({
+    // 되살리기 = 승인 취소와 같은 동작(→PENDING)이라 cancel 엔드포인트를 그대로 쓴다.
+    mutationFn: item => cancelAmountItem(projectId, item.id),
+    onSuccess: (_row, item) => notify?.('success', '되살렸습니다', `${item.item_name} — 승인 대기로 되돌렸습니다.`),
+    onError: error => notify?.('error', '되살리지 못했습니다', error?.message),
+    onSettled: () => {
+      for (const key of ['amount-rejected', 'amount-pending', 'dashboard']) {
+        queryClient.invalidateQueries({ queryKey: ['projects', projectId, key] })
+      }
+    },
+  })
+
+  // 로딩·오류·0건이면 섹션을 띄우지 않는다 — 거절한 게 없으면 보일 이유가 없다.
+  if (rejectedQuery.isPending || rejectedQuery.isError) return null
+  const rows = rejectedQuery.data?.items ?? []
+  if (rows.length === 0) return null
+
+  const busyId = restoreMutation.isPending ? restoreMutation.variables?.id : null
+
+  return <section className='panel amount-rejected' aria-label='거절된 금액'>
+    <button
+      type='button'
+      className='amount-toggle'
+      aria-expanded={expanded}
+      onClick={() => setExpanded(v => !v)}
+    >{expanded ? '거절된 항목 숨기기' : `거절된 항목 보기 (${formatNumber(rejectedQuery.data.total)}건)`}</button>
+
+    {expanded && <>
+      <p className='amount-scope-note'>
+        거절한 항목입니다. 합계·집계에는 들어가지 않습니다. <strong>되살리면</strong> 승인 대기로 돌아가 다시 승인·거절할 수 있습니다.
+      </p>
+      <div className='amount-table-scroll'>
+        <table className='amount-items-table'>
+          <thead>
+            <tr>
+              <th scope='col'>항목</th>
+              <th scope='col'>원가구분</th>
+              <th scope='col' className='amount-cell-number'>수량 × 단가</th>
+              <th scope='col' className='amount-cell-number'>문서 금액</th>
+              <th scope='col'>원문 근거</th>
+              <th scope='col'>되살리기</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => <RejectedRow
+              key={row.id}
+              row={row}
+              busy={busyId === row.id}
+              onRestore={item => restoreMutation.mutate(item)}
+            />)}
+          </tbody>
+        </table>
+      </div>
+    </>}
+  </section>
+}
+
+// 거절함 한 줄. 검산·태스크는 안 보여준다 — 여기서 할 일은 「되살리기」뿐이다.
+function RejectedRow({ row, busy, onRestore }) {
+  const quote = row.source_quote || ''
+  const quoteClipped = quote.length > QUOTE_INLINE_MAX
+  return <tr>
+    <th scope='row'>
+      <strong>{row.item_name}</strong>
+      <span className='amount-item-source' title={row.filename}>{row.filename}</span>
+    </th>
+    <td>{row.category ? CATEGORY_LABELS[row.category] ?? row.category : '—'}</td>
+    <td className='amount-cell-number'>{quantityText(row)}</td>
+    <td className='amount-cell-number'>{row.amount === null ? '—' : formatMoney(row.amount)}</td>
+    <td
+      className={'amount-quote' + (quoteClipped ? ' is-clipped' : '')}
+      title={quoteClipped ? quote : undefined}
+    >{quote || '—'}</td>
+    <td className='amount-task-cell'>
+      <button type='button' className='amount-task-button' disabled={busy} onClick={() => onRestore(row)}>
+        {busy ? '되살리는 중…' : '되살리기'}
+      </button>
     </td>
   </tr>
 }
