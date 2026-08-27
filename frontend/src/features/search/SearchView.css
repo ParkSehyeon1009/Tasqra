@@ -393,3 +393,43 @@
   padding: 0 1px;
   font-weight: 700;
 }
+
+
+
+/* -----------------------------------------------------------------------------
+   문서 내용 검색 박스 — 밝은 면 + 테마 토큰 (검색 화면 한정).
+
+   래퍼 .search-panel 의 남색 배경(styles/design-refresh.css)이 너무 진해 눈에
+   부담이 됐다. '과거 단가 선례' 패널과 같은 방침으로, 이 모드에서는 SearchView
+   가 .search-panel--content 를 함께 붙이고 여기서 밝은 면으로 덮는다.
+   결과 목록(.search-results·.search-doc)은 design-refresh.css 에서 이미 밝은
+   카드라 여기선 검색창·범위 토글만 되돌린다.
+
+   색은 앱 테마 토큰(tokens.css --c-*)을 따르므로 사용자가 테마색(utils/theme.js)
+   을 바꾸면 강조(검색 버튼·활성 범위·포커스)가 함께 바뀐다. .search-panel 남색
+   규칙과 specificity 동점이 되지 않도록 .search-panel 을 함께 붙여(compound) 이긴다.
+   재정님 design-refresh.css 는 건드리지 않는다.
+   ============================================================================= */
+.search-panel.search-panel--content { background: var(--c-bg-canvas); color: var(--c-text); }
+
+.search-panel.search-panel--content .search-input {
+  border-color: var(--c-border); background: var(--c-bg); color: var(--c-text-strong);
+}
+.search-panel.search-panel--content .search-input::placeholder { color: var(--c-text-muted); }
+.search-panel.search-panel--content .search-input:focus {
+  border-color: var(--c-accent); outline: 3px solid var(--c-accent-bg);
+}
+
+.search-panel.search-panel--content .primary { background: var(--c-accent); }
+.search-panel.search-panel--content .primary:hover:not(:disabled) { background: var(--c-accent-strong); }
+
+.search-panel.search-panel--content .search-scope button {
+  border-color: var(--c-border); background: var(--c-bg); color: var(--c-text);
+}
+.search-panel.search-panel--content .search-scope button:hover:not(:disabled):not(.active) {
+  border-color: var(--c-border-strong); background: var(--c-bg-hover);
+}
+.search-panel.search-panel--content .search-scope button.active {
+  border-color: var(--c-accent); background: var(--c-accent-soft); color: var(--c-accent);
+}
+.search-panel.search-panel--content .search-scope-hint { color: var(--c-text-muted); }

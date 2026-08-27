@@ -150,12 +150,12 @@ export default function SearchView({ projectId, projectName }) {
       </button>
     </div>
 
-    {mode === 'precedent' && <section className='panel search-panel'>
+    {mode === 'precedent' && <section className='panel search-panel search-panel--precedent'>
       <AmountPrecedentPanel projectId={projectId}/>
     </section>}
 
     {mode === 'content' && <>
-    <section className='panel search-panel'>
+    <section className='panel search-panel search-panel--content'>
       <form className='search-form' onSubmit={submit}>
         <input
           className='search-input'
