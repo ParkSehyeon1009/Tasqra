@@ -73,17 +73,20 @@ from app.services.deliverable_markdown import (
     build_title,
     render_markdown,
 )
+from app.services.deliverable_pdf import render_pdf
 from app.services.deliverable_xlsx import render_xlsx
 
 # 형식별 본문 생성 함수. 형식을 늘릴 때 **여기와 SUPPORTED_DELIVERABLE_FORMATS**
 # 두 곳만 고치면 된다. if 문으로 늘리면 형식이 늘 때마다 분기가 깊어진다.
 # Spring 비교: Map<String, Renderer> 로 전략을 주입하는 것과 같다.
 #
-# ⚠ MD·HTML 은 str 을, XLSX 는 bytes 를 돌려준다. _write_file 이 둘 다 받는다.
+# ⚠ MD·HTML 은 str 을, XLSX·PDF 는 bytes 를 돌려준다. _write_file 이 둘 다 받는다.
+#   PDF 는 render_html 을 감싸 WeasyPrint 로 굽는다(deliverable_pdf.py).
 RENDERERS = {
     "MD": render_markdown,
     "HTML": render_html,
     "XLSX": render_xlsx,
+    "PDF": render_pdf,
 }
 
 logger = logging.getLogger(__name__)

@@ -22,7 +22,8 @@
 # ⚠ 왜 HTML 만 꾸미는가 (2026-08-26 판단)
 #   `XLSX`·`MD` 는 **받아서 더 가공하는** 형식이다. 셀 배경이나 글꼴을 넣으면
 #   붙여 쓸 때 오히려 방해가 되므로 무채색·최소 서식으로 둔다.
-#   `HTML`(그리고 나중의 `PDF`)은 **그대로 보내고 그대로 인쇄하는** 형식이다.
+#   `HTML`·`PDF` 는 **그대로 보내고 그대로 인쇄하는** 형식이다(PDF 는 이 HTML 을
+#   그대로 구워 만든다 — deliverable_pdf.py).
 #   그래서 이 파일만 표지·절 번호·머리글 대비 같은 짜임을 갖는다.
 #
 # ⚠ 색은 여전히 쓰지 않는다 — 무채색 안에서 짜임으로만 정리한다
@@ -58,7 +59,8 @@ STYLE = """
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body { margin: 0; background: #ffffff; color: #1b1b1b; font-size: 14px; line-height: 1.65;
-  font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
+    "NanumGothic", "Nanum Gothic", sans-serif; }
 
 /* 표지 띠. 제목을 면으로 눌러 첫 화면에서 문서의 격을 만든다. */
 .cover { padding: 38px 44px 30px; background: #1b1b1b; color: #ffffff; }

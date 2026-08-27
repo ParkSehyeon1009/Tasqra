@@ -28,6 +28,15 @@ python-docx
 # --- 산출물 XLSX 출력 (DLV-002-1) ---
 openpyxl==3.1.5
 
+# --- 산출물 PDF 출력 (DLV-002 계열, HTML→PDF 변환) ---
+# ⚠️ 시스템 라이브러리(libpango 등)와 한글 폰트가 필요하다 — Dockerfile 을 함께 본다.
+#   순수 pip 만으로는 못 돈다. 로컬에서 재빌드해야 실제 렌더가 확인된다.
+weasyprint==62.3
+# ⚠️ pydyf 를 반드시 함께 핀한다 — weasyprint 62.3 은 pydyf 0.10 API 로 작성됐는데,
+#   핀하지 않으면 pip 이 최신 pydyf(0.11+)를 깔아 write_pdf 가 AttributeError 로 죽는다
+#   ('super' object has no attribute 'transform'). 62.3 릴리스 시점의 짝이 0.10.0 이다.
+pydyf==0.10.0
+
 # --- AI ---
 openai
 

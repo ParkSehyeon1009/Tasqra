@@ -64,8 +64,8 @@ const KINDS = [
 // 버튼이 비활성화된다" 이므로, 사용자가 한 번 명시적으로 골라야 한다.
 //
 // 네 번째 칸(ready)은 **지금 실제로 만들 수 있는지**다. 서버의
-// SUPPORTED_DELIVERABLE_FORMATS 가 MD·HTML·XLSX 셋이고(2026-08-26 XLSX 추가)
-// 나머지(PDF)는 501 DELIVERABLE_FORMAT_NOT_READY 로 답한다.
+// SUPPORTED_DELIVERABLE_FORMATS 가 이제 MD·HTML·XLSX·PDF 넷이다(XLSX 2026-08-26,
+// PDF 뒤이어 — HTML→PDF 변환). 넷 다 만들 수 있어 ready 가 모두 true 다.
 //
 // 숨기지 않고 고를 수 없게만 두는 이유
 //   숨기면 DB·명세에 있는 형식이 화면에서 사라져 "안 되는 것" 인지 "없는 것" 인지
@@ -76,7 +76,7 @@ const FORMATS = [
   ['XLSX', 'XLSX', '표 계산과 편집에 적합', true],
   ['HTML', 'HTML', '브라우저에서 바로 확인', true],
   ['MD', 'Markdown', '텍스트 기반 기록과 공유', true],
-  ['PDF', 'PDF', '그대로 인쇄하고 공유', false],
+  ['PDF', 'PDF', '그대로 인쇄하고 공유', true],
 ]
 
 // 산출물에 실제로 담기는 재료. 순서는 명세가 나열한 순서다 —
@@ -367,10 +367,10 @@ function GeneratePanel({ preview, loading, format, generating, onGenerate, conte
 // 두는 이유: HTML 은 결과를 보여주지만 MD 는 **어떤 표가 어떻게 적히는지**를 보여준다.
 // 산출물을 다른 문서에 붙여 쓸 사람에게는 뒤쪽이 필요하다.
 //
-// PDF 는 만들기도 501 이라 여기 없다. XLSX 는 **만들기는 되지만**(2026-08-26)
-// 이 본문 미리보기 엔드포인트만 501 이다 — 응답이 문자열(body: str)인데 XLSX 는
-// 바이너리라 담을 수 없다(app.schemas.deliverable.TEXT_PREVIEW_FORMATS). 그래서
-// 여기 두지 않는다 — 골라도 501 만 받는다.
+// PDF·XLSX 는 **만들기는 되지만** 이 본문 미리보기 엔드포인트만 501 이다 — 응답이
+// 문자열(body: str)인데 둘 다 바이너리라 담을 수 없다(app.schemas.deliverable.
+// TEXT_PREVIEW_FORMATS 는 MD·HTML 뿐). 그래서 여기 두지 않는다 — 골라도 501 만
+// 받는다. 담기는 내용은 형식과 무관하게 같으니 위 두 가지로 확인하면 된다.
 const PREVIEW_VIEWS = [
   ['HTML', '그대로 보기'],
   ['MD', '글자로 보기'],
@@ -440,9 +440,9 @@ function ContentPreview({ projectId, kind, format, periodFrom, periodTo }) {
 
     <p className='deliverable-content-note'>
       <strong>담길 내용은 형식과 무관하게 같습니다</strong> — 절을 고르는 규칙이 하나입니다.
-      모양만 달라집니다. <strong>XLSX</strong> 는 만들 수 있지만 표 파일을 브라우저가
-      그리지 못해 여기서는 위 두 가지로만 봅니다 — 담기는 내용은 같으니 이대로 확인한 뒤
-      만들어 내려받으면 됩니다. <strong>PDF</strong> 는 아직 만들 수 없습니다.
+      모양만 달라집니다. <strong>XLSX·PDF</strong> 는 만들 수 있지만 브라우저가 이
+      미리보기에 바로 그리지 못해 여기서는 위 두 가지로만 봅니다 — 담기는 내용은 같으니
+      이대로 확인한 뒤 만들어 내려받으면 됩니다.
     </p>
   </section>
 }

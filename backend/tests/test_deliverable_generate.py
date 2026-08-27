@@ -161,19 +161,25 @@ def test_period_required_is_checked_before_writing():
 # --- ② 형식 ------------------------------------------------------------------
 
 
-def test_unsupported_format_is_not_ready_not_invalid():
-    """DB 가 허용하는 값이다. 값이 틀린 것과 서버가 아직 못 하는 것을 구분한다.
+def test_every_db_format_has_a_renderer():
+    """DB 가 허용하는 형식마다 만드는 코드가 있다.
 
-    XLSX 는 2026-08-26 부터 만들 수 있어 여기서 뺐다 — 501 은 이제 PDF 만.
+    2026-08-26 에 PDF 가 붙어 XLSX 에 이어 501(DELIVERABLE_FORMAT_NOT_READY)이
+    사라졌다 — 이제 DELIVERABLE_FORMATS(리비전 0021 의 넷)과
+    SUPPORTED_DELIVERABLE_FORMATS 가 같고, RENDERERS 가 그 넷을 모두 덮는다.
+    새 형식을 DB 만 허용하고 생성기를 안 붙이면 이 테스트가 먼저 깨진다.
+
+    (형식이 아직 미지원일 때 501 을 내는 분기 자체는 generate 에 그대로 있다.
+    지금은 겹치는 형식이 없어 도달하지 않을 뿐이라, 값 오류(400)와의 구분은 유지된다.)
     """
-    for unsupported in ("PDF",):
-        service, repo = _service(documents=3)
-        with pytest.raises(BusinessError) as err:
-            _gen(service, kind="WEEKLY_REPORT", deliverable_format=unsupported, **WEEK)
-        assert err.value.error_code is ErrorCode.DELIVERABLE_FORMAT_NOT_READY, unsupported
-        # 형식을 먼저 보므로 DB 조회도 하지 않는다.
-        repo.count_documents.assert_not_called()
-        repo.add.assert_not_called()
+    from app.schemas.deliverable import (
+        DELIVERABLE_FORMATS,
+        SUPPORTED_DELIVERABLE_FORMATS,
+    )
+    from app.services.deliverable_service import RENDERERS
+
+    assert set(SUPPORTED_DELIVERABLE_FORMATS) == set(DELIVERABLE_FORMATS)
+    assert set(RENDERERS) == set(SUPPORTED_DELIVERABLE_FORMATS)
 
 
 def test_unknown_format_is_invalid():
