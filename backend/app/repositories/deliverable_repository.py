@@ -37,6 +37,9 @@ from app.models.deliverable import Deliverable
 from app.models.document import Document
 from app.models.schedule import ScheduleItem
 from app.models.task import Task
+# 산출물에 넣을 금액은 「승인된 것만」이라, 금액 현황(amount-summary)과 같은 기준을
+# 쓴다. 한곳에서 정의한 것을 가져와 두 화면이 어긋나지 않게 한다.
+from app.repositories.amount_repository import APPROVED_DECISIONS
 
 __all__ = ["DeliverableRepository"]
 
@@ -307,10 +310,20 @@ class DeliverableRepository:
         until: date | None = None,
         limit: int = 200,
     ) -> list[AmountItem]:
+        """산출물에 넣을 금액 항목. **승인된 것만**(`APPROVED`·`EDITED`).
+
+        승인 전(`PENDING`)·거절(`REJECTED`) 항목은 뺀다 — 승인해야 어디에도
+        반영된다는 원칙(`AMT-001-2`)이고, 금액 현황(`amount-summary`)이 집계하는
+        조건과 같아야 한다. 이 조건이 없어서 **거절한 금액이 산출물에 그대로
+        남던 버그**를 고친다. `count_amount_items`(PENDING 개수)와는 목적이 다르다.
+        """
         stmt = (
             select(AmountItem)
             .join(Document, Document.id == AmountItem.document_id)
-            .where(Document.project_id == project_id)
+            .where(
+                Document.project_id == project_id,
+                AmountItem.decision.in_(APPROVED_DECISIONS),
+            )
         )
         if since is not None:
             stmt = stmt.where(func.date(Document.created_at) >= since)
