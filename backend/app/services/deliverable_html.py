@@ -26,10 +26,19 @@
 #   그대로 구워 만든다 — deliverable_pdf.py).
 #   그래서 이 파일만 표지·절 번호·머리글 대비 같은 짜임을 갖는다.
 #
-# ⚠ 색은 여전히 쓰지 않는다 — 무채색 안에서 짜임으로만 정리한다
-#   검정(#1b1b1b)·회색 몇 단계·흰색뿐이다. 인쇄와 흑백 복사에서 흐려지지 않고,
-#   강조는 **면(검정 배경)·굵기·선·여백**으로만 만든다. 스타일은 파일 안에 넣는다 —
-#   산출물은 한 파일로 주고받으므로 외부 CSS·웹폰트를 참조하면 받는 쪽에서 깨진다.
+# ⚠ 포인트색 하나만 쓴다 — 나머지는 무채색이다 (2026-08-27 판단)
+#   전에는 완전 무채색이었는데 검정 면(표지 띠·번호 뱃지·표 머리)이 너무 무거웠고,
+#   표지만 화면 폭 전체라 본문(가운데 컬럼)과 왼쪽이 어긋났다. 그래서 검정 면을
+#   걷어내고 **포인트색 #0f6b6b(딥 틸) 하나**만 쓴다 — 표지 아래 선 하나와 절 번호
+#   칩에만. 전체 폭 가로선을 절·표마다 반복하면 조잡해져서("선이 줄줄줄") 표지 아래
+#   한 줄로만 두고, 나머지 위계는 **여백과 글자 크기**로 만든다. 나머지 색은 여전히
+#   검정(#1b1b1b)·회색·흰색이다.
+#
+#   색을 바꾸려면 이 파일의 #0f6b6b 를 모두 바꾼다(지금은 그 한 값뿐이다). CSS
+#   변수를 쓰지 않는 이유는 아래 STYLE 주석 참고 — 오래된 PDF 엔진 대비다.
+#   포인트색은 채도·명도가 있어 흑백 복사에서도 회색으로 남아 뭉개지지 않는다.
+#   스타일은 파일 안에 넣는다 — 산출물은 한 파일로 주고받으므로 외부 CSS·웹폰트를
+#   참조하면 받는 쪽에서 깨진다.
 #
 # ⚠ 마크업을 바꿀 때 테스트를 먼저 본다
 #   test_deliverable_html.py 가 `<h2>{절 제목}</h2>` 와 `<table>` 을 **속성 없이
@@ -51,10 +60,12 @@ from app.services.deliverable_markdown import (
 
 __all__ = ["render_html", "to_html"]
 
-# 흑백 무채색. 폰트는 받는 쪽에 있는 것을 쓴다(웹폰트를 내려받게 하지 않는다).
+# 무채색 + 포인트색 하나(#0f6b6b). 폰트는 받는 쪽에 있는 것을 쓴다(웹폰트를
+# 내려받게 하지 않는다).
 #
 # CSS 변수(--foo)를 쓰지 않았다. 나중에 PDF 변환기를 붙일 때 오래된 엔진이
 # 변수를 이해하지 못하면 색이 전부 빠진다 — 값을 그대로 적어 두면 그런 일이 없다.
+# 그래서 포인트색은 #0f6b6b 리터럴로 반복된다. 색을 바꾸려면 전부 찾아 바꾼다.
 STYLE = """
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -62,48 +73,52 @@ body { margin: 0; background: #ffffff; color: #1b1b1b; font-size: 14px; line-hei
   font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
     "NanumGothic", "Nanum Gothic", sans-serif; }
 
-/* 표지 띠. 제목을 면으로 눌러 첫 화면에서 문서의 격을 만든다. */
-.cover { padding: 38px 44px 30px; background: #1b1b1b; color: #ffffff; }
-.cover h1 { margin: 0; font-size: 25px; font-weight: 700; line-height: 1.35;
-  letter-spacing: -0.01em; }
-.cover .meta { display: flex; flex-wrap: wrap; gap: 2px 20px; margin: 18px 0 0; padding: 0;
-  list-style: none; }
-.cover .meta li { position: relative; padding-left: 13px; color: #bdbdbd; font-size: 12px; }
-.cover .meta li::before { content: ""; position: absolute; left: 0; top: 11px; width: 6px;
-  height: 1px; background: #7d7d7d; }
+/* 표지. 검정 면을 걷어내고 흰 바탕에 제목 블록 아래 포인트색 선 하나만 둔다.
+   본문·꼬리말과 같은 920px 가운데 컬럼에 두어 왼쪽 끝을 맞춘다 — 전에는 표지만
+   화면 폭 전체라 가운데 정렬된 본문과 왼쪽이 어긋나 표지만 튀어 보였다.
+   전체 폭 가로선은 이 한 줄뿐이다 — 절·표마다 선을 반복하면 "선이 줄줄줄" 조잡해져서,
+   나머지 위계는 선이 아니라 여백과 글자 크기로 만든다. */
+.cover { max-width: 920px; margin: 0 auto; padding: 38px 44px 20px;
+  border-bottom: 3px solid #0f6b6b; }
+.cover h1 { margin: 0; font-size: 27px; font-weight: 700; line-height: 1.3;
+  letter-spacing: -0.01em; color: #1b1b1b; }
+/* 메타는 가운뎃점(·)으로 잇는다 — 점 마커를 줄줄이 붙이면 그것도 선처럼 보인다. */
+.cover .meta { display: flex; flex-wrap: wrap; margin: 15px 0 0; padding: 0;
+  list-style: none; color: #6a6a6a; font-size: 12px; }
+.cover .meta li:not(:last-child)::after { content: "·"; margin: 0 10px; color: #c4c4c4; }
 
-main { max-width: 920px; margin: 0 auto; padding: 34px 44px 4px; }
+main { max-width: 920px; margin: 0 auto; padding: 26px 44px 4px; }
 
-/* 절 머리. 번호 뱃지 + 제목 + 남는 폭을 채우는 가는 선. */
-.block { margin: 0 0 32px; }
-.block-head { display: flex; align-items: center; gap: 10px; margin: 0 0 13px; }
-.block-num { flex: none; min-width: 25px; padding: 3px 5px; background: #1b1b1b; color: #ffffff;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-align: center; }
-.block-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: 0.02em;
-  white-space: nowrap; }
-.block-head::after { content: ""; flex: 1 1 auto; height: 1px; background: #d6d6d6; }
+/* 절 머리. keyline 을 두지 않고 여백으로 절을 나눈다. 번호는 작은 포인트색 칩,
+   제목은 굵게. 위계를 선이 아니라 .block 위 여백과 글자로 드러낸다. */
+.block { margin: 32px 0 0; }
+.block-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.block-num { flex: none; min-width: 22px; padding: 3px 6px; background: #0f6b6b; color: #ffffff;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-align: center; border-radius: 2px; }
+.block-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.01em; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-thead th { padding: 9px 11px; background: #1b1b1b; color: #ffffff; font-size: 11px;
-  font-weight: 700; letter-spacing: 0.06em; text-align: left; white-space: nowrap; }
-tbody td { padding: 9px 11px; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+/* 표 머리. 검정 면도 포인트색 밑선도 없이 연회색 바탕만으로 구분한다 — 표 안의 얇은
+   행선은 데이터를 읽는 격자라 남기지만, 강조하는 가로선은 두지 않는다. */
+thead th { padding: 9px 11px; background: #f4f4f4; color: #5a5a5a;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-align: left; white-space: nowrap; }
+tbody td { padding: 9px 11px; border-bottom: 1px solid #eeeeee; vertical-align: top; }
 tbody tr:nth-child(even) td { background: #fafafa; }
 /* 숫자 칸. 오른쪽으로 맞추고 자릿수 폭을 고정해 금액이 나란히 읽히게 한다. */
 .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* 자료가 없는 절과 개요. 빈 표 대신 문장을 두고 왼쪽 굵은 선으로 구분한다. */
-p.note { margin: 0; padding: 12px 15px; border-left: 3px solid #1b1b1b; background: #f6f6f6;
-  color: #4a4a4a; font-size: 13px; }
+/* 자료가 없는 절과 개요. 선 대신 연회색 면으로 문장을 감싼다(왼쪽 선을 두지 않는다). */
+p.note { margin: 0; padding: 14px 16px; background: #f5f5f5; color: #4a4a4a;
+  font-size: 13px; border-radius: 3px; }
 
-footer { max-width: 920px; margin: 0 auto; padding: 14px 44px 42px; }
-footer p { margin: 0; padding-top: 14px; border-top: 1px solid #e0e0e0; color: #8a8a8a;
-  font-size: 11px; }
+footer { max-width: 920px; margin: 0 auto; padding: 22px 44px 42px; }
+footer p { margin: 0; color: #8a8a8a; font-size: 11px; }
 
 @media print {
   @page { margin: 14mm; }
   body { font-size: 10.5pt; }
-  .cover { padding: 22px 24px 18px; }
-  main, footer { max-width: none; padding-left: 24px; padding-right: 24px; }
+  .cover, main, footer { max-width: none; padding-left: 24px; padding-right: 24px; }
+  .cover { padding-top: 22px; padding-bottom: 16px; }
   /* 절과 행이 페이지 경계에서 잘리지 않게. 머리글은 다음 장에도 따라간다. */
   .block { page-break-inside: avoid; }
   thead { display: table-header-group; }
