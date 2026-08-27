@@ -102,6 +102,83 @@ class AmountItemService:
         self._note_task(project_id, row, user_id)
         return row
 
+    def approve(self, project_id: int, item_id: int, user_id: int) -> AmountItemRow:
+        """대기 항목을 **값 그대로** 승인한다 (`APPROVED`).
+
+        `update`(EDITED)와 나누는 이유: 수정은 «값을 고쳐서» 인정하는 것이고,
+        이건 «문서에서 읽은 값이 맞다» 고 그대로 인정하는 것이다. 채택률 지표에서
+        APPROVED 와 EDITED 를 구분해야 "AI 가 그대로 쓸 만했는가" 를 알 수 있다
+        (enums.py 의 SuggestionDecision 주석).
+        """
+        return self._decide(project_id, item_id, user_id, "APPROVED")
+
+    def reject(self, project_id: int, item_id: int, user_id: int) -> AmountItemRow:
+        """항목을 거절한다 (`REJECTED`). 집계·선례·산출물에서 빠진다.
+
+        **이미 승인된 항목에도 걸 수 있다** — 잘못 승인한 것을 빼는 «취소» 가
+        따로 필요 없이 거절이 그 역할을 한다. 매번 `decided_by`·`decided_at` 를
+        새로 남겨 마지막 판단이 누구 것인지 남긴다.
+        """
+        return self._decide(project_id, item_id, user_id, "REJECTED")
+
+    def cancel(self, project_id: int, item_id: int) -> AmountItemRow:
+        """승인을 취소해 **대기(`PENDING`)로 되돌린다** (`APPROVED`/`EDITED` → `PENDING`).
+
+        합계·집계 목록에서 빠지고 「승인 대기」에 다시 나타난다. 거절(REJECTED)과
+        다른 점: 거절은 «버린다», 취소는 «아직 안 정한 상태로 되돌린다» 라 다시
+        승인·거절을 받을 수 있다. 잘못 승인한 것을 무르는 용도다.
+
+        승인/거절과 달리 `decided_by`·`decided_at` 를 **지운다** — 다시 미결
+        상태이므로 «누가 언제 정했는가» 가 없는 것이 맞다. 값(quantity·amount 등)은
+        건드리지 않는다.
+        """
+        found = self._amounts.get_item(project_id, item_id)
+        if found is None:
+            raise BusinessError(ErrorCode.AMOUNT_ITEM_NOT_FOUND)
+        item, document_id, filename = found
+
+        with transactional(self._db):
+            item.decision = "PENDING"
+            item.decided_by = None
+            item.decided_at = None
+
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
+        return AmountSummaryService._to_row(
+            item, document_id, filename, task_ids.get(item.id)
+        )
+
+    def _decide(
+        self, project_id: int, item_id: int, user_id: int, decision: str
+    ) -> AmountItemRow:
+        """값은 그대로 두고 `decision` 상태만 바꾼다 (승인/거절 공통).
+
+        `update`(수정)와 달리 `quantity`·`amount` 등 값을 건드리지 않는다 — 그래서
+        검산 결과도 그대로다. 응답은 목록의 한 줄과 **같은 모양**이라, 화면이
+        전체를 다시 받지 않고 그 줄만 옮길 수 있다.
+
+        상태 전이를 막지 않는다(예: APPROVED → REJECTED). 잘못 승인한 것을 거절로
+        빼거나 거절한 것을 되살리는 정정이 필요하기 때문이다. `decided_at` 이 늘
+        마지막 판단 시점을 가리킨다.
+        """
+        found = self._amounts.get_item(project_id, item_id)
+        if found is None:
+            raise BusinessError(ErrorCode.AMOUNT_ITEM_NOT_FOUND)
+        item, document_id, filename = found
+
+        with transactional(self._db):
+            item.decision = decision
+            item.decided_by = user_id
+            item.decided_at = datetime.now(timezone.utc)
+
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
+        return AmountSummaryService._to_row(
+            item, document_id, filename, task_ids.get(item.id)
+        )
+
     def _note_task(self, project_id: int, row: AmountItemRow, user_id: int) -> None:
         """이 항목으로 만든 태스크가 있으면 지금 상태를 그 설명에 적는다.
 

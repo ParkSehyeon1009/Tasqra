@@ -33,9 +33,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  approveAmountItem,
+  cancelAmountItem,
   createTaskFromMismatch,
   getAmountItems,
   getAmountSummary,
+  getPendingAmountItems,
+  rejectAmountItem,
   updateAmountItem,
 } from '../../api/amount'
 import PageHeading from '../../components/common/PageHeading'
@@ -79,6 +83,11 @@ export default function AmountSummaryView({ projectId, notify }) {
       title='금액'
       description='승인된 금액 항목만 집계합니다. 합계에 들어가지 않은 항목은 따로 셉니다.'
     />
+
+    {/* 승인 대기 항목 (AMT-001-2). 있을 때만 맨 위에 띄운다 — 사용자가 금액
+        페이지에 온 이유가 "대시보드의 승인 대기 N건" 을 처리하려는 것일 때가
+        많아서, 합계보다 먼저 눈에 들어와야 한다. 0 건이면 스스로 사라진다. */}
+    <PendingPanel projectId={projectId} notify={notify}/>
 
     {summaryQuery.isError && <section className='panel amount-notice'>
       <div>
@@ -210,9 +219,12 @@ function describeDecisions(decisions) {
 function TotalCheckPanel({ summary, loading }) {
   const checks = summary?.total_checks ?? []
   const missing = summary?.documents_without_stated_total ?? 0
-  // 대조할 것도 없고 대조 못 한 문서도 없으면 이 절 자체를 띄우지 않는다 —
-  // 금액 항목이 아직 없는 프로젝트에서 빈 칸만 늘어난다.
-  if (!loading && checks.length === 0 && missing === 0) return null
+  // **실제로 대조한 문서가 하나도 없으면 이 절을 통째로 숨긴다.** 문서에 「적힌
+  // 합계」(documents.stated_total_amount)가 없으면 대조할 게 없어 "대조 못 함" 만
+  // 뜨는데, 그건 정보가 아니라 잡음이다 — 자동 추출(AMT-001-1) 전에는 그 값이
+  // 대부분 비어 있다. 대조할 게 하나라도 있을 때만 띄운다(로딩 중엔 checks 가
+  // 비어 있어 자연히 숨겨지고, 값이 온 뒤 대조분이 있으면 나타난다).
+  if (checks.length === 0) return null
 
   return <section className='panel amount-total-check' aria-label='문서 합계 대조'>
     <div className='amount-category-heading'>
@@ -314,6 +326,20 @@ function ItemTable({ projectId, notify }) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'tasks'] })
     },
   })
+
+  // 승인 취소 (APPROVED/EDITED → PENDING). 잘못 승인한 항목을 무른다 — 집계에서
+  // 빠지고 「승인 대기」에 다시 나타난다. 그래서 대기 목록·대시보드 건수도 갱신한다.
+  const cancelMutation = useMutation({
+    mutationFn: item => cancelAmountItem(projectId, item.id),
+    onSuccess: (_row, item) => notify?.('success', '승인을 취소했습니다', `${item.item_name} — 승인 대기로 되돌렸습니다.`),
+    onError: error => notify?.('error', '취소하지 못했습니다', error?.message),
+    onSettled: () => {
+      for (const key of ['amount-items', 'amount-summary', 'amount-pending', 'dashboard']) {
+        queryClient.invalidateQueries({ queryKey: ['projects', projectId, key] })
+      }
+    },
+  })
+
   const rows = itemsQuery.data?.items ?? []
   const matcher = FILTERS.find(([key]) => key === filter)?.[2] ?? (() => true)
   const visible = rows.filter(matcher)
@@ -355,7 +381,7 @@ function ItemTable({ projectId, notify }) {
             <th scope='col'>검산</th>
             <th scope='col'>원문 근거</th>
             <th scope='col'>태스크</th>
-            <th scope='col'>고치기</th>
+            <th scope='col'>관리</th>
           </tr>
         </thead>
         <tbody>
@@ -364,8 +390,10 @@ function ItemTable({ projectId, notify }) {
             row={row}
             pending={taskMutation.isPending && taskMutation.variables?.id === row.id}
             editing={editing?.id === row.id}
+            cancelPending={cancelMutation.isPending && cancelMutation.variables?.id === row.id}
             onCreateTask={item => taskMutation.mutate(item)}
             onEdit={item => setEditing(item)}
+            onCancel={item => cancelMutation.mutate(item)}
           />)}
         </tbody>
       </table>
@@ -421,7 +449,7 @@ function ItemEditor({ projectId, item, notify, onClose }) {
       const detail = row.verified === true ? '검산이 맞았습니다.' : verifyText(row)[0]
       notify?.(
         'success',
-        '금액 항목을 고쳤습니다',
+        '금액 항목을 수정했습니다',
         row.task_id
           ? `${detail} 연결된 태스크에도 적었습니다 — 보드에서 확인해 주세요.`
           : detail,
@@ -429,6 +457,9 @@ function ItemEditor({ projectId, item, notify, onClose }) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'amount-items'] })
       // 합계·원가구분별·문서 합계 대조가 다 바뀐다.
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'amount-summary'] })
+      // 대기 항목을 수정하면 EDITED(=승인)가 되어 승인 대기 목록·대시보드 건수에서 빠진다.
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'amount-pending'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'dashboard'] })
       onClose()
     },
     onError: error => notify?.('error', '고치지 못했습니다', error?.message),
@@ -460,7 +491,7 @@ function ItemEditor({ projectId, item, notify, onClose }) {
 
   return <form className='amount-edit' onSubmit={submit}>
     <div className='amount-edit-heading'>
-      <strong>{item.item_name} 고치기</strong>
+      <strong>{item.item_name} 수정</strong>
       <span>{item.filename}</span>
     </div>
 
@@ -511,7 +542,7 @@ function ItemEditor({ projectId, item, notify, onClose }) {
       <button type='submit' className='is-primary' disabled={saveMutation.isPending}>
         {saveMutation.isPending ? '저장 중…' : '저장'}
       </button>
-      <button type='button' onClick={onClose} disabled={saveMutation.isPending}>취소</button>
+      <button type='button' onClick={onClose} disabled={saveMutation.isPending}>닫기</button>
     </div>
   </form>
 }
@@ -527,7 +558,7 @@ function ItemEditor({ projectId, item, notify, onClose }) {
 // 해서 얻는 것보다 복잡하다. 어긋나도 손해가 "툴팁이 한 번 더 뜬다" 뿐이다.
 const QUOTE_INLINE_MAX = 24
 
-function ItemRow({ row, pending, editing, onCreateTask, onEdit }) {
+function ItemRow({ row, pending, editing, cancelPending, onCreateTask, onEdit, onCancel }) {
   const [text, tone] = verifyText(row)
   const quote = row.source_quote || ''
   const quoteClipped = quote.length > QUOTE_INLINE_MAX
@@ -536,6 +567,9 @@ function ItemRow({ row, pending, editing, onCreateTask, onEdit }) {
       <strong>{row.item_name}</strong>
       {/* 어느 문서에서 나온 값인지. 근거를 되짚는 출발점이다. */}
       <span className='amount-item-source' title={row.filename}>{row.filename}</span>
+      {/* 이 목록은 승인된 것만 담는다(서버가 APPROVED·EDITED 만 준다). 어떤 방식으로
+          승인됐는지 배지로 밝혀, 승인 대기와 헷갈리지 않게 한다. */}
+      {row.decision && <span className='amount-decision'>{DECISION_LABELS[row.decision] ?? row.decision}</span>}
     </th>
     <td>{row.category ? CATEGORY_LABELS[row.category] ?? row.category : '—'}</td>
     <td className='amount-cell-number'>{quantityText(row)}</td>
@@ -556,11 +590,15 @@ function ItemRow({ row, pending, editing, onCreateTask, onEdit }) {
           </button>
           : <span className='amount-task-none'>—</span>}
     </td>
-    {/* 어긋난 항목만이 아니라 **모든 항목**을 고칠 수 있다. 맞은 항목도 원가구분이
-        틀렸거나 단위가 잘못 읽혔을 수 있다. */}
-    <td className='amount-task-cell'>
-      <button type='button' className='amount-task-button' disabled={editing} onClick={() => onEdit(row)}>
-        {editing ? '고치는 중' : '고치기'}
+    {/* 관리: 수정(값 정정, →EDITED) · 취소(승인 무름, →PENDING). 모든 항목을 고칠
+        수 있다 — 맞은 항목도 원가구분이 틀렸거나 단위가 잘못 읽혔을 수 있다.
+        취소는 잘못 승인된 것을 「승인 대기」로 되돌린다(거절과 달리 되살릴 수 있다). */}
+    <td className='amount-task-cell amount-manage-cell'>
+      <button type='button' className='amount-task-button' disabled={editing || cancelPending} onClick={() => onEdit(row)}>
+        {editing ? '수정 중' : '수정'}
+      </button>
+      <button type='button' className='amount-task-button is-cancel' disabled={editing || cancelPending} onClick={() => onCancel(row)}>
+        {cancelPending ? '취소 중…' : '취소'}
       </button>
     </td>
   </tr>
@@ -614,4 +652,125 @@ function TotalCard({ label, note, value, currency, loading, emphasis }) {
     </strong>
     <p>{note}</p>
   </div>
+}
+
+
+
+// 승인 대기 금액 항목 (AMT-001-2). 문서에서 뽑았지만 아직 승인·거절되지 않은
+// 것들이다. **승인해야 합계·선례·산출물에 들어간다** — 승인 전에는 어디에도
+// 반영하지 않는 것이 완료 판정이다. 0 건이면 아무것도 그리지 않는다(스스로 사라짐).
+//
+// 승인 목록(ItemTable)과 따로 두는 이유: 저쪽은 «이미 승인된 것의 현황·검산»
+// 이고 여기는 «아직 결정 안 된 것의 처리» 다. 대상이 다르므로 서버도 목록을
+// 나눠 준다(getPendingAmountItems vs getAmountItems). 한 표에 섞으면 "이건
+// 반영된 값인가" 가 흐려진다.
+function PendingPanel({ projectId, notify }) {
+  const queryClient = useQueryClient()
+  const pendingQuery = useQuery({
+    queryKey: ['projects', projectId, 'amount-pending'],
+    queryFn: () => getPendingAmountItems(projectId),
+    retry: false,
+  })
+  // 승인·거절 뒤에는 대기 목록·합계·항목목록·대시보드 승인대기 건수가 모두
+  // 바뀐다. 한곳에서 무효화해 화면들이 어긋나지 않게 한다.
+  const invalidateAll = () => {
+    for (const key of ['amount-pending', 'amount-summary', 'amount-items', 'dashboard']) {
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, key] })
+    }
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: item => approveAmountItem(projectId, item.id),
+    onSuccess: (_row, item) => notify?.('success', '승인했습니다', `${item.item_name} — 합계에 반영됩니다.`),
+    onError: error => notify?.('error', '승인하지 못했습니다', error?.message),
+    onSettled: invalidateAll,
+  })
+  const rejectMutation = useMutation({
+    mutationFn: item => rejectAmountItem(projectId, item.id),
+    onSuccess: (_row, item) => notify?.('success', '거절했습니다', `${item.item_name} — 집계에서 빠집니다.`),
+    onError: error => notify?.('error', '거절하지 못했습니다', error?.message),
+    onSettled: invalidateAll,
+  })
+
+  // 대기 조회 실패·로딩은 화면 전체를 막지 않는다 — 합계는 따로 뜬다. 조용히 접는다.
+  if (pendingQuery.isPending || pendingQuery.isError) return null
+  const rows = pendingQuery.data?.items ?? []
+  if (rows.length === 0) return null
+
+  // 처리 중인 항목 id (버튼 비활성화용). 승인·거절 둘 중 도는 것을 본다.
+  const busyId = approveMutation.isPending
+    ? approveMutation.variables?.id
+    : rejectMutation.isPending
+      ? rejectMutation.variables?.id
+      : null
+
+  return <section className='panel amount-pending' aria-label='승인 대기 금액'>
+    <div className='amount-category-heading'>
+      <h2>승인 대기 <span className='amount-pending-count'>{formatNumber(pendingQuery.data.total)}건</span></h2>
+      <span>문서에서 뽑은 금액입니다. 승인해야 합계·선례·산출물에 들어갑니다.</span>
+    </div>
+
+    {pendingQuery.data.truncated && <p className='amount-scope-note'>
+      전체 <strong>{formatNumber(pendingQuery.data.total)}건</strong> 중 앞
+      {formatNumber(pendingQuery.data.returned)}건만 보여줍니다.
+    </p>}
+
+    <div className='amount-table-scroll'>
+      <table className='amount-items-table'>
+        <thead>
+          <tr>
+            <th scope='col'>항목</th>
+            <th scope='col'>원가구분</th>
+            <th scope='col' className='amount-cell-number'>수량 × 단가</th>
+            <th scope='col' className='amount-cell-number'>문서 금액</th>
+            <th scope='col'>검산</th>
+            <th scope='col'>원문 근거</th>
+            <th scope='col'>처리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => <PendingRow
+            key={row.id}
+            row={row}
+            busy={busyId === row.id}
+            onApprove={item => approveMutation.mutate(item)}
+            onReject={item => rejectMutation.mutate(item)}
+          />)}
+        </tbody>
+      </table>
+    </div>
+  </section>
+}
+
+// 승인 대기 한 줄. 검산 표시는 승인 목록과 같은 helper(verifyText·quantityText)를
+// 써서 두 화면이 같은 규칙으로 읽히게 한다. 처리 버튼은 승인·거절 둘뿐이다 —
+// 값 정정(수정)은 승인한 뒤 아래 집계 목록에서 한다.
+function PendingRow({ row, busy, onApprove, onReject }) {
+  const [text, tone] = verifyText(row)
+  const quote = row.source_quote || ''
+  const quoteClipped = quote.length > QUOTE_INLINE_MAX
+  const locked = busy
+  return <tr className={tone === 'bad' ? 'is-mismatch' : undefined}>
+    <th scope='row'>
+      <strong>{row.item_name}</strong>
+      <span className='amount-item-source' title={row.filename}>{row.filename}</span>
+    </th>
+    <td>{row.category ? CATEGORY_LABELS[row.category] ?? row.category : '—'}</td>
+    <td className='amount-cell-number'>{quantityText(row)}</td>
+    <td className='amount-cell-number'>{row.amount === null ? '—' : formatMoney(row.amount)}</td>
+    <td className={'amount-verify is-' + tone}>{text}</td>
+    <td
+      className={'amount-quote' + (quoteClipped ? ' is-clipped' : '')}
+      title={quoteClipped ? quote : undefined}
+    >{quote || '—'}</td>
+    {/* 여기선 받아들일지(승인)·뺄지(거절)만 정한다. 값 정정은 승인한 뒤 아래
+        「무엇을 집계했나 → 항목 보기」에서 «수정» 으로 한다 — 대기와 집계의
+        역할을 갈라 둔다. 승인만 강조색으로 채워 기본 동작임을 보인다. */}
+    <td className='amount-pending-actions'>
+      <button type='button' className='amount-task-button is-approve' disabled={locked} onClick={() => onApprove(row)}>
+        {busy ? '처리 중…' : '승인'}
+      </button>
+      <button type='button' className='amount-task-button is-reject' disabled={locked} onClick={() => onReject(row)}>거절</button>
+    </td>
+  </tr>
 }

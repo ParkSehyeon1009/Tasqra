@@ -161,6 +161,33 @@ def list_amount_items(
 
 
 
+@router.get("/amount-items/pending", response_model=AmountItemListResponse)
+def list_pending_amount_items(
+    limit: int = Query(200, ge=1, le=500, description="돌려줄 항목 수 상한"),
+    access: ProjectAccess = Depends(get_project_amount_access),
+    service: AmountSummaryService = Depends(get_amount_summary_service),
+) -> AmountItemListResponse:
+    """승인 **대기(`PENDING`)** 금액 항목 (`AMT-001-2` 승인·수정의 대상 목록).
+
+    `amount-items` 는 **이미 승인된** 것만 주므로, 사람이 승인·거절할 대기 항목은
+    거기 나오지 않습니다. 이 엔드포인트가 그 대기 목록입니다.
+
+    응답 모양은 `amount-items` 와 같습니다 — 검산 결과(`expected`·`verified`·
+    `difference`)가 함께 옵니다. **승인할지 판단하려면 수량 × 단가가 맞는지 바로
+    보여야** 하기 때문입니다. `included_decisions` 만 `["PENDING"]` 입니다.
+
+    경로가 `/amount-items/{item_id}` 와 겹치지 않습니다 — `{item_id}` 를 받는 것은
+    `PATCH`·`POST`(task/approve/reject)뿐이고 여기는 `GET /amount-items/pending`
+    입니다.
+
+    오류
+      `403 PROJECT_FORBIDDEN`   VIEWER 다. 금액 열람 정책이 미결이라 지금은 막는다
+      `404`                     내가 멤버가 아닌 프로젝트
+    """
+    return service.list_pending(access.project.id, limit)
+
+
+
 @router.post(
     "/amount-items/{item_id}/task",
     response_model=TaskResponse,
@@ -279,3 +306,65 @@ def update_amount_item(
         access.member.user_id,
         body.model_dump(exclude_unset=True),
     )
+
+
+@router.post("/amount-items/{item_id}/approve", response_model=AmountItemRow)
+def approve_amount_item(
+    item_id: int,
+    access: ProjectAccess = Depends(get_project_editor_access),
+    service: AmountItemService = Depends(get_amount_item_service),
+) -> AmountItemRow:
+    """대기 항목을 **값 그대로** 승인한다 (`AMT-001-2`, `PENDING → APPROVED`).
+
+    본문이 없습니다 — 항목 id 만 받고 값은 문서에서 읽은 그대로 인정합니다. 값을
+    고쳐서 승인하는 것은 `PATCH /amount-items/{id}`(→ `EDITED`)입니다. 둘을 나눠야
+    채택률 지표에서 "AI 가 그대로 쓸 만했는가(APPROVED)" 와 "사람이 고쳐야
+    했는가(EDITED)" 를 구분할 수 있습니다.
+
+    승인하면 합계·선례·산출물에 들어옵니다. 응답은 목록의 한 줄과 같은 모양
+    (재검산 포함)이라 화면이 그 줄만 갈아끼울 수 있습니다.
+
+    오류
+      `404 AMOUNT_ITEM_NOT_FOUND`   그 항목이 없다 (다른 프로젝트 것 포함)
+      `403 PROJECT_FORBIDDEN`       VIEWER 다
+    """
+    return service.approve(access.project.id, item_id, access.member.user_id)
+
+
+@router.post("/amount-items/{item_id}/reject", response_model=AmountItemRow)
+def reject_amount_item(
+    item_id: int,
+    access: ProjectAccess = Depends(get_project_editor_access),
+    service: AmountItemService = Depends(get_amount_item_service),
+) -> AmountItemRow:
+    """항목을 거절한다 (`AMT-001-2`, `→ REJECTED`). 집계·선례·산출물에서 빠집니다.
+
+    **이미 승인된 항목에도 걸 수 있습니다** — 잘못 승인한 것을 빼는 «승인 취소» 를
+    따로 두지 않고 거절이 그 역할을 합니다. 되살리려면 다시 `approve` 하면 됩니다.
+    매번 `decided_by`·`decided_at` 를 새로 남겨 마지막 판단을 기록합니다.
+
+    오류
+      `404 AMOUNT_ITEM_NOT_FOUND`   그 항목이 없다 (다른 프로젝트 것 포함)
+      `403 PROJECT_FORBIDDEN`       VIEWER 다
+    """
+    return service.reject(access.project.id, item_id, access.member.user_id)
+
+
+@router.post("/amount-items/{item_id}/cancel", response_model=AmountItemRow)
+def cancel_amount_item(
+    item_id: int,
+    access: ProjectAccess = Depends(get_project_editor_access),
+    service: AmountItemService = Depends(get_amount_item_service),
+) -> AmountItemRow:
+    """승인을 취소해 **대기(`PENDING`)로 되돌린다** (`APPROVED`/`EDITED` → `PENDING`).
+
+    합계·집계 목록에서 빠지고 「승인 대기」에 다시 나타납니다. `decided_by`·
+    `decided_at` 를 지워 다시 미결 상태로 둡니다. 잘못 승인한 항목을 무를 때
+    씁니다 — 거절(`REJECTED`, 버림)과 달리 **다시 승인·거절할 수 있는 상태**로
+    갑니다.
+
+    오류
+      `404 AMOUNT_ITEM_NOT_FOUND`   그 항목이 없다 (다른 프로젝트 것 포함)
+      `403 PROJECT_FORBIDDEN`       VIEWER 다
+    """
+    return service.cancel(access.project.id, item_id)
