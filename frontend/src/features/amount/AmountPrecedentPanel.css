@@ -126,3 +126,95 @@
   .precedent-form { flex-direction: column; }
   .precedent-submit { width: 100%; }
 }
+
+
+/* -----------------------------------------------------------------------------
+   '과거 단가 선례' 모드 색 — 밝은 면 + 테마 토큰 연동 (검색 화면 한정).
+
+   래퍼 .search-panel 의 남색 배경(styles/design-refresh.css)이 너무 진해 눈에
+   부담이 됐다. 그래서 이 모드에서는 SearchView 가 .search-panel--precedent 를
+   함께 붙이고, 여기서 밝은 면으로 덮는다. '문서 내용' 탭의 남색은 그대로 둔다
+   (재정님 design-refresh.css 는 건드리지 않는다).
+
+   ▼ 변경 가능점 — 색은 아래 변수만 바꾸면 전부 따라온다. 기본값이 tokens.css 의
+     테마 토큰을 가리키므로, 사용자가 테마색(utils/theme.js)을 바꾸면 강조색
+     (중앙값 카드·버튼·포커스)이 함께 따라온다. 특정 색으로 고정하려면 오른쪽
+     var(...) 를 원하는 값으로 바꾼다. 이름은 앱 토큰 규칙(--c-*)에 맞췄다.
+   ============================================================================= */
+.search-panel--precedent {
+  --precedent-surface: var(--c-bg-canvas);           /* 섹션 배경 (남색 → 밝게) */
+  --precedent-card: var(--c-bg);                     /* 통계 카드 4개 배경 */
+  --precedent-border: var(--c-border);               /* 카드·목록 구분선 */
+  --precedent-ink: var(--c-text-strong);             /* 본문 강조 글자 (항목명·단가) */
+  --precedent-ink-soft: var(--c-text);               /* 본문 글자 */
+  --precedent-ink-muted: var(--c-text-muted);        /* 보조 글자 (안내문·출처) */
+  --precedent-accent: var(--c-accent);               /* 강조 — 테마색 따라감 */
+  --precedent-accent-strong: var(--c-accent-strong); /* 강조(짙게) — 중앙값·버튼 hover */
+  --precedent-accent-surface: var(--c-accent-soft);  /* 강조 카드 배경 */
+  --precedent-accent-border: var(--c-accent-border); /* 강조 카드 테두리·포커스 */
+  --precedent-hover-surface: var(--c-accent-bg);     /* 줄 호버 배경 (테마색 옅은 워시) */
+}
+
+/* 남색 배경을 밝은 면으로 덮고, .search-panel 의 color:#fff 를 본문색으로 되돌린다.
+   .search-panel 남색 규칙과 specificity 동점이 되지 않도록 .search-panel 을 함께
+   붙여(0,0,2,0) 로드 순서와 무관하게 이긴다. */
+.search-panel.search-panel--precedent { background: var(--precedent-surface); color: var(--precedent-ink-soft); }
+
+/* 검색창·버튼 — 하드코딩 파랑(#355ad9)을 테마 강조색으로 바꿔 테마를 따르게 한다. */
+.search-panel--precedent .precedent-input { border-color: var(--precedent-border); color: var(--precedent-ink); }
+.search-panel--precedent .precedent-input:focus { border-color: var(--precedent-accent); outline-color: var(--precedent-accent-border); }
+.search-panel--precedent .precedent-submit { background: var(--precedent-accent); }
+.search-panel--precedent .precedent-submit:hover:not(:disabled) { background: var(--precedent-accent-strong); }
+
+/* 안내문·용어 설명 */
+.search-panel--precedent .precedent-hint { color: var(--precedent-ink-muted); }
+.search-panel--precedent .precedent-meta { color: var(--precedent-ink-muted); }
+.search-panel--precedent .precedent-hint--term { background: var(--precedent-accent-surface); color: var(--precedent-ink-soft); }
+.search-panel--precedent .precedent-hint--term b { color: var(--precedent-accent-strong); }
+
+/* 통계 카드 4개 (선례·최저·중앙값·최고) */
+.search-panel--precedent .precedent-stat { background: var(--precedent-card); border-color: var(--precedent-border); }
+.search-panel--precedent .precedent-stat > span { color: var(--precedent-ink-muted); }
+.search-panel--precedent .precedent-stat > strong { color: var(--precedent-ink); }
+/* 중앙값 카드만 테마 강조색으로 도드라지게 */
+.search-panel--precedent .precedent-stat.is-emphasis { background: var(--precedent-accent-surface); border-color: var(--precedent-accent-border); }
+.search-panel--precedent .precedent-stat.is-emphasis > strong { color: var(--precedent-accent-strong); }
+
+/* 상태 상자 (첫 화면·결과 없음) */
+.search-panel--precedent .precedent-box { background: var(--precedent-card); border-color: var(--precedent-border); }
+.search-panel--precedent .precedent-box strong { color: var(--precedent-ink); }
+.search-panel--precedent .precedent-box p { color: var(--precedent-ink-muted); }
+
+/* 선례 목록 */
+.search-panel--precedent .precedent-item { border-top-color: var(--precedent-border); }
+.search-panel--precedent .precedent-item__main strong { color: var(--precedent-ink); }
+.search-panel--precedent .precedent-item__where { color: var(--precedent-ink-muted); }
+.search-panel--precedent .precedent-item__quote { background: var(--c-bg-subtle); border-left-color: var(--precedent-border); color: var(--precedent-ink-soft); }
+.search-panel--precedent .precedent-item__unit { color: var(--precedent-ink); }
+.search-panel--precedent .precedent-item__unit small { color: var(--precedent-ink-muted); }
+.search-panel--precedent .precedent-item__total { color: var(--precedent-ink-soft); }
+.search-panel--precedent .precedent-item__total b { color: var(--precedent-ink); }
+.search-panel--precedent .precedent-item__tags { color: var(--precedent-ink-muted); }
+
+
+
+/* 줄 호버 강조 — 이름은 왼쪽에, 단가는 오른쪽에 그대로 두고(정렬 유지), 마우스를
+   올리면 줄 전체에 옅은 테마색 배경이 깔리고 이름·단가가 살짝 커지며 강조된다.
+   배경 밴드가 글자에 딱 붙지 않도록 좌우 14px 을 주되, 같은 크기의 음수 마진으로
+   내용 위치(위 카드·제목과의 정렬)는 그대로 둔다. */
+.search-panel--precedent .precedent-item { padding-left: 14px; padding-right: 14px; margin-left: -14px; margin-right: -14px; }
+
+/* transform 은 레이아웃을 밀지 않아(리플로우 없음) 줄 높이가 흔들리지 않는다.
+   hover 가 있는 기기에서만 걸어 터치에서 sticky hover 로 남지 않게 한다. */
+@media (hover: hover) {
+  .search-panel--precedent .precedent-item { transition: background .14s ease; }
+  .search-panel--precedent .precedent-item:hover { background: var(--precedent-hover-surface); }
+  .search-panel--precedent .precedent-item__main strong,
+  .search-panel--precedent .precedent-item__unit { transition: transform .14s ease, color .14s ease; }
+  .search-panel--precedent .precedent-item:hover .precedent-item__main strong {
+    transform: scale(1.04); transform-origin: left center; color: var(--precedent-accent-strong);
+  }
+  .search-panel--precedent .precedent-item:hover .precedent-item__unit {
+    transform: scale(1.06); transform-origin: right center; color: var(--precedent-accent-strong);
+  }
+}
