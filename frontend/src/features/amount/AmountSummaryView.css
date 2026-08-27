@@ -153,3 +153,43 @@
 @media (max-width: 560px) {
   .amount-edit-fields { grid-template-columns: 1fr; }
 }
+
+
+
+/* 승인 대기 (AMT-001-2). 합계 위에 둔다 — 처리해야 할 것이 먼저 보이게. 색은
+   여기서도 --c-* 토큰만 써서 테마를 따른다. */
+.amount-pending { margin-bottom: 18px; }
+.amount-pending-count { color: var(--c-accent); font-variant-numeric: tabular-nums; }
+
+/* 한 항목의 승인·수정·거절을 한 줄에. 좁아도 줄바꿈되지 않게 nowrap. */
+.amount-pending-actions { display: flex; gap: 6px; white-space: nowrap; }
+
+/* 승인은 강조색으로 채운다 — 기본 동작이라 가장 눈에 띄어야 한다.
+   (.amount-task-button 기본 모양을 그대로 쓰고 색만 덮는다) */
+.amount-task-button.is-approve { border-color: var(--c-accent); background: var(--c-accent); color: #fff; }
+.amount-task-button.is-approve:hover:not(:disabled),
+.amount-task-button.is-approve:focus-visible:not(:disabled) { border-color: var(--c-accent-strong); background: var(--c-accent-strong); }
+/* 거절은 되돌리기 번거로운 방향이라 평소엔 테두리만, 누르려 할 때 경고색으로. */
+.amount-task-button.is-reject:hover:not(:disabled),
+.amount-task-button.is-reject:focus-visible:not(:disabled) { border-color: var(--c-danger); background: var(--c-danger-bg); color: var(--c-danger); }
+
+
+
+/* 집계 목록 행의 승인 상태 배지 (승인 / 수정 승인). 이 목록은 승인분만 담으므로
+   "이건 승인된 값" 임을 눈으로 확인시켜, 위 「승인 대기」와 헷갈리지 않게 한다. */
+.amount-decision {
+  display: inline-block; margin-top: 5px; padding: 2px 8px; border-radius: 999px;
+  background: var(--c-success-bg); color: var(--c-success);
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+
+/* 관리 칸: 수정·취소 두 버튼을 한 줄에. */
+.amount-manage-cell { display: flex; gap: 6px; }
+/* 승인 취소. 되돌릴 수 있는(→대기) 동작이라 거절보다 약하게 — 호버 때 경고색으로만. */
+.amount-task-button.is-cancel:hover:not(:disabled),
+.amount-task-button.is-cancel:focus-visible:not(:disabled) { border-color: var(--c-warning); background: var(--c-warning-bg); color: var(--c-warning); }
+
+
+
+/* 거절함(휴지통) — 맨 아래 접힌 섹션. 집계와 떨어뜨려 두려고 위 여백만 준다. */
+.amount-rejected { margin-top: 18px; }

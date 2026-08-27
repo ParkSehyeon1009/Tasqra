@@ -271,3 +271,61 @@ class AmountRepository:
             (row[0], int(row[1]), row[2])
             for row in self._db.execute(stmt).all()
         ]
+
+    def list_pending_items(
+        self, project_id: int
+    ) -> list[tuple[AmountItem, int, str]]:
+        """승인 **대기(PENDING)** 금액 항목을 문서 정보와 함께 가져온다.
+
+        (금액 항목, 문서 id, 문서 파일명) 을 돌려준다. 「승인 대기」 화면
+        (AMT-001-2)이 이걸로 목록을 만들고, 사람이 승인·거절·수정한다.
+
+        `list_project_items` 와 다른 점 둘
+
+        1. **decision == 'PENDING'** 만 본다. 그쪽은 이미 승인된 것만 봤다.
+
+        2. **`_latest_approved_analysis` 로 거르지 않는다.** 그 서브쿼리는 "승인된
+           항목이 있는 최신 분석" 만 남기는데, 대기 항목은 아직 승인이 없어 그
+           분류에 들지 못한다. 대기 항목은 재분석 중복이 문제 되기 전 상태라
+           문서·항목 순서로만 정렬해 그대로 준다. (자동 추출 AMT-001-1 이 붙어
+           재분석으로 대기 항목이 쌓이게 되면, 그때 여기에도 최신 분석 필터를
+           더한다.)
+
+        `amount IS NULL` 인 항목도 가져온다 — 금액이 안 적힌 항목도 사람이 보고
+        승인·거절해야 한다. 정렬을 고정하는 이유는 list_project_items 와 같다.
+        """
+        stmt: Select = (
+            select(AmountItem, Document.id, Document.filename)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+            .where(AmountItem.decision == "PENDING")
+            .order_by(Document.id, AmountItem.id)
+        )
+        return [
+            (row[0], int(row[1]), row[2])
+            for row in self._db.execute(stmt).all()
+        ]
+
+    def list_rejected_items(
+        self, project_id: int
+    ) -> list[tuple[AmountItem, int, str]]:
+        """**거절된(REJECTED)** 금액 항목을 문서 정보와 함께 가져온다.
+
+        거절은 데이터를 지우지 않고 `decision='REJECTED'` 로 둘 뿐이라, 실수로
+        거절한 것을 되살릴 수 있어야 한다. 이 목록이 그 「거절함(휴지통)」이다.
+        되살리기는 `AmountItemService.cancel`(→PENDING)을 그대로 쓴다.
+
+        `list_pending_items` 와 같은 구조(최신분석 필터 없이 문서·항목 순서)다.
+        집계·대기 어디에도 세지 않는 별개 조회라 화면 맨 아래 접힌 섹션에서만 쓴다.
+        """
+        stmt: Select = (
+            select(AmountItem, Document.id, Document.filename)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(Document.project_id == project_id)
+            .where(AmountItem.decision == "REJECTED")
+            .order_by(Document.id, AmountItem.id)
+        )
+        return [
+            (row[0], int(row[1]), row[2])
+            for row in self._db.execute(stmt).all()
+        ]

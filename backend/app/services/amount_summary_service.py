@@ -270,6 +270,62 @@ class AmountSummaryService:
             included_decisions=list(APPROVED_DECISIONS),
         )
 
+    def list_pending(self, project_id: int, limit: int) -> AmountItemListResponse:
+        """승인 **대기(PENDING)** 금액 항목을 한 줄씩 돌려준다 (AMT-001-2).
+
+        `list_items` 와 **응답 모양이 같다** — 같은 `_to_row` 로 검산 결과
+        (`expected`·`verified`·`difference`)를 함께 붙인다. 대기 항목을 승인할지
+        판단하려면 "수량 × 단가가 맞는지" 가 바로 보여야 하기 때문이다.
+
+        `included_decisions` 만 `["PENDING"]` 로 다르다 — 이 목록이 무엇을 담고
+        있는지 화면이 상태 목록을 외우지 않고 서버가 준 값으로 적는다.
+
+        태스크 연결(`task_id`)도 붙인다. 대기 항목에는 보통 없지만, 규칙을 화면이
+        다시 만들지 않도록 승인 목록과 같은 방식으로 채운다.
+        """
+        rows = self._amounts.list_pending_items(project_id)
+        visible = rows[:limit]
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
+        items = [
+            self._to_row(item, document_id, filename, task_ids.get(item.id))
+            for item, document_id, filename in visible
+        ]
+        return AmountItemListResponse(
+            items=items,
+            total=len(rows),
+            returned=len(items),
+            truncated=len(rows) > len(items),
+            limit=limit,
+            included_decisions=["PENDING"],
+        )
+
+    def list_rejected(self, project_id: int, limit: int) -> AmountItemListResponse:
+        """**거절된(REJECTED)** 금액 항목을 한 줄씩 돌려준다 (되살리기용 「거절함」).
+
+        `list_pending` 과 응답 모양이 같다(같은 `_to_row`). `included_decisions` 만
+        `["REJECTED"]` 다. 화면 맨 아래 접힌 섹션에서 «되살리기»(→PENDING) 대상으로
+        보여준다 — 집계·대기 건수와는 무관한 별개 목록이다.
+        """
+        rows = self._amounts.list_rejected_items(project_id)
+        visible = rows[:limit]
+        task_ids = (
+            self._tasks.suggestion_task_ids(project_id) if self._tasks else {}
+        )
+        items = [
+            self._to_row(item, document_id, filename, task_ids.get(item.id))
+            for item, document_id, filename in visible
+        ]
+        return AmountItemListResponse(
+            items=items,
+            total=len(rows),
+            returned=len(items),
+            truncated=len(rows) > len(items),
+            limit=limit,
+            included_decisions=["REJECTED"],
+        )
+
     # --- 내부 ---------------------------------------------------------------
 
     @classmethod

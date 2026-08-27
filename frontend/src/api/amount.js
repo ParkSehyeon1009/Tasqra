@@ -163,3 +163,77 @@ export async function updateAmountItem(projectId, itemId, changes) {
   )
   return data
 }
+
+
+
+// GET /api/projects/{projectId}/amount-items/pending?limit=200
+//
+// 승인 대기(PENDING) 금액 항목 (AMT-001-2 승인·수정의 대상). getAmountItems 는
+// 이미 승인된 것만 주므로, 사람이 승인·거절할 대기 항목은 이 함수로 받는다.
+//
+// 응답은 getAmountItems 와 **같은 모양**이다 — items[]에 검산 결과
+// (expected·verified·difference)가 함께 온다. 승인할지 판단하려면 수량×단가가
+// 맞는지 바로 보여야 하기 때문이다. included_decisions 는 ["PENDING"] 이다.
+export async function getPendingAmountItems(projectId, { limit = 200 } = {}) {
+  const { data } = await http.get(`/api/projects/${projectId}/amount-items/pending`, {
+    params: { limit },
+  })
+  return data
+}
+
+
+// POST /api/projects/{projectId}/amount-items/{itemId}/approve
+//
+// 대기 항목을 값 그대로 승인한다 (PENDING→APPROVED). 본문 없음 — 항목 id 만 보낸다.
+// 값을 고쳐서 승인하는 것은 updateAmountItem(→EDITED)이다. 둘을 나눠야 채택률
+// 지표에서 "그대로 쓸 만했는가" 와 "고쳐야 했는가" 를 구분한다.
+//
+// 응답은 목록의 한 줄과 같은 모양(재검산 포함)이라 화면이 그 줄만 갈아끼울 수 있다.
+export async function approveAmountItem(projectId, itemId) {
+  const { data } = await http.post(
+    `/api/projects/${projectId}/amount-items/${itemId}/approve`,
+  )
+  return data
+}
+
+
+// POST /api/projects/{projectId}/amount-items/{itemId}/reject
+//
+// 항목을 거절한다 (→REJECTED). 집계·선례·산출물에서 빠진다. 본문 없음.
+// **이미 승인된 항목에도 걸 수 있다** — 잘못 승인한 것을 빼는 「취소」 역할을
+// 거절이 겸한다. 되살리려면 다시 approveAmountItem 을 부른다.
+export async function rejectAmountItem(projectId, itemId) {
+  const { data } = await http.post(
+    `/api/projects/${projectId}/amount-items/${itemId}/reject`,
+  )
+  return data
+}
+
+
+
+// POST /api/projects/{projectId}/amount-items/{itemId}/cancel
+//
+// 승인을 취소해 대기(PENDING)로 되돌린다 (APPROVED/EDITED→PENDING). 잘못 승인한
+// 항목을 무를 때 쓴다. 거절(reject, 버림)과 달리 「승인 대기」에 다시 나타나
+// 승인·거절을 다시 받을 수 있다. decided_by·decided_at 는 서버가 지운다.
+export async function cancelAmountItem(projectId, itemId) {
+  const { data } = await http.post(
+    `/api/projects/${projectId}/amount-items/${itemId}/cancel`,
+  )
+  return data
+}
+
+
+
+// GET /api/projects/{projectId}/amount-items/rejected?limit=200
+//
+// 거절된(REJECTED) 금액 항목 (되살리기용 「거절함」). 거절은 데이터를 지우지 않고
+// 상태만 바꾸므로, 실수로 거절한 것을 되살릴 수 있게 이 목록을 화면 맨 아래
+// 접힌 섹션에서 보여준다. 응답 모양은 getAmountItems 와 같고 included_decisions 만
+// ["REJECTED"]. 되살리기는 cancelAmountItem(→PENDING)을 그대로 쓴다.
+export async function getRejectedAmountItems(projectId, { limit = 200 } = {}) {
+  const { data } = await http.get(`/api/projects/${projectId}/amount-items/rejected`, {
+    params: { limit },
+  })
+  return data
+}
