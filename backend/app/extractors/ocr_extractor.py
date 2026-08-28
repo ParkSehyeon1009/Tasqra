@@ -1,5 +1,6 @@
 from dataclasses import asdict
 from logging import getLogger
+import re
 from threading import Lock
 
 import numpy as np
@@ -26,6 +27,10 @@ class OcrExtractor:
     _LINE_OVERLAP_RATIO = 0.45
     # 한 글자씩 분리된 박스 사이의 간격이 글자 높이의 이 비율 이하면 붙인다.
     _CHAR_JOIN_GAP_RATIO = 0.60
+    # 영수증·청구서의 오른쪽 금액/수량 값.
+    _NUMERIC_VALUE_PATTERN = re.compile(
+        r"^(?:[₩$€¥]?\s*)?[-+]?\d[\d,.]*%?$"
+    )
 
     def __init__(self) -> None:
         self._ocr = PaddleOCR(
@@ -210,15 +215,19 @@ class OcrExtractor:
         *,
         page_left: float = 0,
     ) -> list[LayoutElement]:
+        # 반복되는 ``라벨: 값`` 행은 가운데 공백 때문에 2단 문서로 오인되기
+        # 전에 행 단위로 묶는다. 일반 2단 문서는 이 단계에서 그대로 통과한다.
+        row_elements, remaining_elements = cls._extract_key_value_rows(elements)
+        combined_atomic = [*atomic_elements, *row_elements]
         groups = build_reading_groups(
-            elements,
-            atomic_elements,
+            remaining_elements,
+            combined_atomic,
             page_width=page_width,
             page_left=page_left,
         )
         if groups is None:
-            merged = cls._merge_same_line_elements(elements)
-            merged.extend(atomic_elements)
+            merged = cls._merge_same_line_elements(remaining_elements)
+            merged.extend(combined_atomic)
             merged.sort(key=lambda element: (element.y, element.x))
             return merged
 
@@ -229,6 +238,111 @@ class OcrExtractor:
             else:
                 ordered.extend(cls._merge_same_line_elements(group.elements))
         return ordered
+
+    @classmethod
+    def _extract_key_value_rows(
+        cls,
+        elements: list[LayoutElement],
+    ) -> tuple[list[LayoutElement], list[LayoutElement]]:
+        """반복·정렬된 영수증형 키-값 블록을 행 요소로 추출한다.
+
+        한두 개의 우연한 ``라벨: 값``은 일반 문서일 수 있으므로 합치지 않는다.
+        최소 3행, 그중 절반 이상이 숫자 값이고 좌우 정렬선이 반복될 때만
+        영수증/청구서형 블록으로 인정한다.
+        """
+        if len(elements) < 6:
+            return [], elements
+
+        lines: list[list[LayoutElement]] = []
+        for element in sorted(elements, key=cls._vertical_sort_key):
+            matching = next(
+                (line for line in lines if cls._belongs_to_line(element, line)),
+                None,
+            )
+            if matching is None:
+                lines.append([element])
+            else:
+                matching.append(element)
+
+        candidates: list[tuple[LayoutElement, LayoutElement]] = []
+        for line in lines:
+            ordered = sorted(line, key=lambda item: item.x)
+            if len(ordered) != 2:
+                continue
+            label, value = ordered
+            label_x2 = label.x2 if label.x2 is not None else label.x
+            label_y2 = label.y2 if label.y2 is not None else label.y
+            value_y2 = value.y2 if value.y2 is not None else value.y
+            average_height = (
+                max(label_y2 - label.y, 1.0)
+                + max(value_y2 - value.y, 1.0)
+            ) / 2
+            if (
+                label.content.strip().endswith((":", "："))
+                and value.content.strip()
+                and value.x - label_x2 > average_height * 2.0
+            ):
+                candidates.append((label, value))
+
+        if len(candidates) < 3:
+            return [], elements
+
+        heights = [
+            max((item.y2 if item.y2 is not None else item.y) - item.y, 1.0)
+            for pair in candidates
+            for item in pair
+        ]
+        alignment_tolerance = float(np.median(heights)) * 3.0
+        clusters: list[list[tuple[LayoutElement, LayoutElement]]] = []
+        for candidate in candidates:
+            label, value = candidate
+            value_x2 = value.x2 if value.x2 is not None else value.x
+            cluster = next(
+                (
+                    group
+                    for group in clusters
+                    if abs(label.x - group[0][0].x) <= alignment_tolerance
+                    and abs(
+                        value_x2
+                        - (
+                            group[0][1].x2
+                            if group[0][1].x2 is not None
+                            else group[0][1].x
+                        )
+                    )
+                    <= alignment_tolerance
+                ),
+                None,
+            )
+            if cluster is None:
+                clusters.append([candidate])
+            else:
+                cluster.append(candidate)
+
+        accepted = [
+            group
+            for group in clusters
+            if len(group) >= 3
+            and sum(
+                bool(cls._NUMERIC_VALUE_PATTERN.fullmatch(value.content.strip()))
+                for _, value in group
+            )
+            / len(group)
+            >= 0.5
+        ]
+        accepted_ids = {
+            id(item)
+            for group in accepted
+            for pair in group
+            for item in pair
+        }
+        rows = [
+            cls._merge_line([label, value])
+            for group in accepted
+            for label, value in group
+        ]
+        remaining = [item for item in elements if id(item) not in accepted_ids]
+        return rows, remaining
 
     @classmethod
     def _build_table_rows(
