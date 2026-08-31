@@ -175,20 +175,30 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
 
     async def run():
         # asyncio.run마다 루프가 달라지므로 캐시된 AsyncOpenAI 클라이언트를 재사용하지 않는다.
+        from contextlib import AsyncExitStack
         from app.ai.fake_client import FakeAIClient
         from app.ai.local_client import LocalAIClient
         from app.ai.openai_client import OpenAIClient
-        client = FakeAIClient() if settings.USE_FAKE_AI else (
-            LocalAIClient(settings) if settings.AI_PROVIDER.lower() == "local" else OpenAIClient(settings))
-        try:
+
+        def make_client(model):
+            if settings.USE_FAKE_AI:
+                return FakeAIClient()
+            client_type = LocalAIClient if settings.AI_PROVIDER.lower() == "local" else OpenAIClient
+            return client_type(settings, model or None)
+
+        async with AsyncExitStack() as stack:
+            # API와 동일하게 개별 모델을 선택하고, 비어 있으면 AI_MODEL을 사용한다.
+            summary_client = make_client(settings.AI_MODEL_SUMMARY)
+            if hasattr(summary_client, "aclose"):
+                stack.push_async_callback(summary_client.aclose)
+            category_client = make_client(settings.AI_MODEL_CATEGORY)
+            if hasattr(category_client, "aclose"):
+                stack.push_async_callback(category_client.aclose)
             with SessionLocal() as db:
                 documents = DocumentRepository(db)
                 analysis = AnalysisService(db, documents, AnalysisRepository(db),
-                    {"summary": SummaryAnalyzer(client), "category": CategoryAnalyzer(client)})
+                    {"summary": SummaryAnalyzer(summary_client), "category": CategoryAnalyzer(category_client)})
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)
-        finally:
-            if hasattr(client, "aclose"):
-                await client.aclose()
     asyncio.run(run())
     return job_id
