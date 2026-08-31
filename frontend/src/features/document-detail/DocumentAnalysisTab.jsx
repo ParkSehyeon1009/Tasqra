@@ -1,4 +1,12 @@
-import { useMemo, useState } from 'react'
+// =============================================================================
+// 이 파일의 책임: 문서의 최신 요약·분류와 과거 분석 이력을 보여준다.
+// 다른 파일과의 관계: DocumentDetailPage의 분석 결과 왼쪽 영역으로 조립되며,
+//   긴 최신 결과는 접어서 오른쪽 액션 아이템과 한 화면에서 비교하게 한다.
+// Spring 비교: 분석 결과 DTO를 표시하는 MVC View이며 재분석·다운로드 이벤트는
+//   상위 Controller 역할의 DocumentDetailPage에 위임한다.
+// =============================================================================
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getAnalysisCategoryLabel } from '../../utils/analysisCategory'
 
 export default function DocumentAnalysisTab({ document, canAnalyze, analyzing, onAnalyze, downloading, onDownload }) {
@@ -14,9 +22,36 @@ export default function DocumentAnalysisTab({ document, canAnalyze, analyzing, o
   </div>
 }
 
-function AnalysisCard({ analysis, textVersion, compact = false }) { return <article className={`detail-card${compact ? ' compact-analysis' : ''}`}><header><h2>{analysis.analyzer_type === 'summary' ? '문서 요약' : '문서 분류'}</h2>{analysis.source_text_revision !== textVersion && <span className="stale-badge">이전 텍스트 기준</span>}</header><AnalysisBody analysis={analysis}/><AnalysisScope result={analysis.result ?? {}}/><footer>{analysis.model_name} · {analysis.prompt_version ?? "이전 프롬프트"} · 텍스트 v{analysis.source_text_revision} · {new Date(analysis.created_at).toLocaleString()}</footer></article> }
+function AnalysisCard({ analysis, textVersion, compact = false }) {
+  const contentRef = useRef(null)
+  const [expanded, setExpanded] = useState(false)
+  const [expandable, setExpandable] = useState(false)
+  const collapsed = !compact && !expanded
+  useEffect(() => {
+    if (compact || expanded || !contentRef.current) return undefined
+    const measure = () => {
+      const content = contentRef.current
+      setExpandable(Boolean(content && content.scrollHeight > content.clientHeight + 1))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [analysis, compact, expanded])
+  return <article className={`detail-card${compact ? ' compact-analysis' : ''}`}>
+    <header><h2>{analysis.analyzer_type === 'summary' ? '문서 요약' : '문서 분류'}</h2>{analysis.source_text_revision !== textVersion && <span className="stale-badge">이전 텍스트 기준</span>}</header>
+    <AnalysisBody analysis={analysis} collapsed={collapsed} contentRef={contentRef}/>
+    {expandable && <button type="button" className="analysis-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? '간략히 보기' : '전체 내용 보기'}</button>}
+    <AnalysisScope result={analysis.result ?? {}}/>
+    <footer>{analysis.model_name} · {analysis.prompt_version ?? "이전 프롬프트"} · 텍스트 v{analysis.source_text_revision} · {new Date(analysis.created_at).toLocaleString()}</footer>
+  </article>
+}
 function AnalysisHistory({ analyses, type, textVersion }) { return <section className="analysis-history"><h3>과거 {type === 'summary' ? '요약' : '분류'} 기록</h3>{analyses.length ? analyses.map(item => <AnalysisCard key={item.id} analysis={item} textVersion={textVersion} compact/>) : <p>과거 기록이 없습니다.</p>}</section> }
-function AnalysisBody({ analysis }) { const result = analysis.result ?? {}; if (analysis.analyzer_type === 'summary') return <p className="analysis-copy">{result.summary ?? '요약 내용이 없습니다.'}</p>; if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>분류</dt><dd>{getAnalysisCategoryLabel(result.category)}</dd><dt>근거</dt><dd>{result.reason ?? '-'}</dd></dl>; return <pre>{JSON.stringify(result, null, 2)}</pre> }
+function AnalysisBody({ analysis, collapsed = false, contentRef }) {
+  const result = analysis.result ?? {}
+  if (analysis.analyzer_type === 'summary') return <p ref={contentRef} className={`analysis-copy${collapsed ? ' is-collapsed' : ''}`}>{result.summary ?? '요약 내용이 없습니다.'}</p>
+  if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>분류</dt><dd>{getAnalysisCategoryLabel(result.category)}</dd><dt>근거</dt><dd ref={contentRef} className={collapsed ? 'analysis-reason is-collapsed' : 'analysis-reason'}>{result.reason ?? '-'}</dd></dl>
+  return <pre>{JSON.stringify(result, null, 2)}</pre>
+}
 function groupAnalyses(analyses) { return analyses.reduce((result, item) => { (result[item.analyzer_type] ??= []).push(item); result[item.analyzer_type].sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id); return result }, {}) }
 
 function AnalysisScope({ result }) {
