@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { getAnalysisCategoryLabel } from '../../utils/analysisCategory'
 
 export default function DocumentAnalysisTab({ document, canAnalyze, analyzing, onAnalyze, downloading, onDownload }) {
   const [historyType, setHistoryType] = useState(null)
@@ -13,7 +14,15 @@ export default function DocumentAnalysisTab({ document, canAnalyze, analyzing, o
   </div>
 }
 
-function AnalysisCard({ analysis, textVersion, compact = false }) { return <article className={`detail-card${compact ? ' compact-analysis' : ''}`}><header><h2>{analysis.analyzer_type === 'summary' ? '문서 요약' : '문서 분류'}</h2>{analysis.source_text_revision !== textVersion && <span className="stale-badge">이전 텍스트 기준</span>}</header><AnalysisBody analysis={analysis}/><footer>{analysis.model_name} · 텍스트 v{analysis.source_text_revision} · {new Date(analysis.created_at).toLocaleString()}</footer></article> }
+function AnalysisCard({ analysis, textVersion, compact = false }) { return <article className={`detail-card${compact ? ' compact-analysis' : ''}`}><header><h2>{analysis.analyzer_type === 'summary' ? '문서 요약' : '문서 분류'}</h2>{analysis.source_text_revision !== textVersion && <span className="stale-badge">이전 텍스트 기준</span>}</header><AnalysisBody analysis={analysis}/><AnalysisScope result={analysis.result ?? {}}/><footer>{analysis.model_name} · {analysis.prompt_version ?? "이전 프롬프트"} · 텍스트 v{analysis.source_text_revision} · {new Date(analysis.created_at).toLocaleString()}</footer></article> }
 function AnalysisHistory({ analyses, type, textVersion }) { return <section className="analysis-history"><h3>과거 {type === 'summary' ? '요약' : '분류'} 기록</h3>{analyses.length ? analyses.map(item => <AnalysisCard key={item.id} analysis={item} textVersion={textVersion} compact/>) : <p>과거 기록이 없습니다.</p>}</section> }
-function AnalysisBody({ analysis }) { const result = analysis.result ?? {}; if (analysis.analyzer_type === 'summary') return <p className="analysis-copy">{result.summary ?? '요약 내용이 없습니다.'}</p>; if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>분류</dt><dd>{result.category ?? '-'}</dd><dt>근거</dt><dd>{result.reason ?? '-'}</dd></dl>; return <pre>{JSON.stringify(result, null, 2)}</pre> }
+function AnalysisBody({ analysis }) { const result = analysis.result ?? {}; if (analysis.analyzer_type === 'summary') return <p className="analysis-copy">{result.summary ?? '요약 내용이 없습니다.'}</p>; if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>분류</dt><dd>{getAnalysisCategoryLabel(result.category)}</dd><dt>근거</dt><dd>{result.reason ?? '-'}</dd></dl>; return <pre>{JSON.stringify(result, null, 2)}</pre> }
 function groupAnalyses(analyses) { return analyses.reduce((result, item) => { (result[item.analyzer_type] ??= []).push(item); result[item.analyzer_type].sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id); return result }, {}) }
+
+function AnalysisScope({ result }) {
+  return <>
+    {result.input_scope?.truncated && <p role="note">분류는 원문 중 앞·중간·뒤 일부를 참고했습니다. {result.input_scope.included_chars?.toLocaleString()} / {result.input_scope.original_chars?.toLocaleString()}자</p>}
+    {result.strategy === 'hierarchical' && <p role="note">원문 전체 {result.chunk_count}개 구간을 처리한 뒤 선택한 근거로 요약했습니다. {result.call_count}회 호출{result.hard_split_count > 0 ? ` · ${result.hard_split_count}개 구간은 크기 제한으로 문장·표 중간에서 나뉘었습니다.` : ''}{result.empty_evidence_chunks?.length > 0 ? ` · ${result.empty_evidence_chunks.length}개 구간에서는 핵심 근거가 선택되지 않았습니다.` : ''}</p>}
+    {result.evidence?.length > 0 && <details><summary>요약 근거 원문 확인</summary><p>인용의 원문 존재를 검사했습니다. 요약 의미의 정확성은 원문과 함께 확인해 주세요.</p>{result.evidence.filter(item => result.evidence_ids?.includes(item.id)).map(item => <blockquote key={item.id}><p>{item.quote}</p><small>원문 {item.start + 1}~{item.end}자 · 상태: {item.status}</small></blockquote>)}</details>}
+  </>
+}

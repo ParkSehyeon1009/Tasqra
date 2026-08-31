@@ -59,6 +59,7 @@ class AnalysisResponse(BaseModel):
     result: dict[str, Any] = Field(validation_alias="result_json")
     provider: str
     model_name: str
+    prompt_version: str | None = None
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
@@ -69,6 +70,18 @@ class AnalysisResponse(BaseModel):
 class AnalyzeResponse(BaseModel):
     document_id: int
     analyses: list[AnalysisResponse]
+
+
+class AnalysisJobResponse(BaseModel):
+    job_id: str
+    document_id: int
+    status: str
+    stage: str
+    completed_units: int
+    total_units: int
+    error_code: str | None = None
+    error_message: str | None = None
+    analyses: list[AnalysisResponse] = Field(default_factory=list)
 
 
 class DocumentListItem(BaseModel):

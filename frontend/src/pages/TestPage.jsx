@@ -7,6 +7,7 @@ import ErrorBanner from '../components/ErrorBanner'
 import Spinner from '../components/Spinner'
 import { formatNumber } from '../utils/format'
 import './TestPage.css'
+import { getAnalysisCategoryLabel } from '../utils/analysisCategory'
 
 const ACCEPTED_EXTENSIONS = ['pdf', 'docx', 'hwpx', 'png', 'jpg', 'jpeg']
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg']
@@ -58,7 +59,7 @@ function ResultCard({ analysis }) {
           </span>
         </div>
         <strong className="analysis-result__category">
-          {analysis.result?.category || '기타'}
+          {getAnalysisCategoryLabel(analysis.result?.category)}
         </strong>
         <div className="analysis-result__reason">
           <span>분류 사유</span>
@@ -167,7 +168,7 @@ export default function TestPage() {
     setError(null)
 
     try {
-      const result = await analyzeDocument(document.id, selectedTypes)
+      const result = await analyzeDocument(document.project_id, document.id, selectedTypes)
       setAnalyses(result.analyses)
     } catch (err) {
       setError(err)

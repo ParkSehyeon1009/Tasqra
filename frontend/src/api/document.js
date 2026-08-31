@@ -102,13 +102,31 @@ export async function downloadSummary(projectId, documentId, fallbackName = 'sum
   return filename
 }
 
-// POST /api/documents/{id}/analyze — AI 요약 + 카테고리 분류 실행
-// analyzerTypes 를 생략하면 서버가 summary/category 둘 다 실행한다.
-// AnalyzeRequest 는 body 가 필수라서, 생략 시에도 빈 객체를 보내야 422 가 나지 않는다.
-export async function analyzeDocument(projectId, documentId, analyzerTypes = null) {
+// 분석은 202로 작업을 접수한다. 긴 문서는 워커에서 처리한다.
+export async function startDocumentAnalysis(projectId, documentId, analyzerTypes = null) {
   const body = analyzerTypes ? { analyzer_types: analyzerTypes } : {}
-  const { data } = await http.post(`/api/projects/${projectId}/documents/${documentId}/analyze`, body)
-  return data
+  return (await http.post(`/api/projects/${projectId}/documents/${documentId}/analyze`, body)).data
+}
+
+export async function getAnalysisJob(projectId, documentId, jobId = 'latest') {
+  return (await http.get(`/api/projects/${projectId}/documents/${documentId}/analysis-jobs/${jobId}`)).data
+}
+
+// 완료 결과를 기다리는 호출부용. HTTP 요청 하나를 오래 유지하지 않는다.
+export async function analyzeDocument(projectId, documentId, analyzerTypes = null, onProgress = () => {}) {
+  let job = await startDocumentAnalysis(projectId, documentId, analyzerTypes)
+  while (job.status === 'PENDING' || job.status === 'RUNNING') {
+    onProgress(job)
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    job = await getAnalysisJob(projectId, documentId, job.job_id)
+  }
+  onProgress(job)
+  if (job.status !== 'COMPLETED') {
+    const error = new Error(job.error_message || '문서 분석에 실패했습니다.')
+    error.code = job.error_code
+    throw error
+  }
+  return { document_id: documentId, analyses: job.analyses }
 }
 
 // DELETE /api/documents/{id} — 문서·추출 텍스트·분석 결과·원본 파일 삭제

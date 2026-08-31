@@ -34,5 +34,6 @@ from app.models.decision import Decision
 from app.models.schedule import ScheduleItem
 from app.models.deliverable import Deliverable
 from app.models.task import Task, TaskActivityLog
+from app.models.analysis_job import AnalysisJob
 
 __all__ = ["User", "RefreshToken", "Project", "ProjectMember", "ProjectInvitation", "Document", "DocumentPage", "ExtractedText", "OcrElement", "OcrElementRevision", "OcrMergeOperation", "OcrStructureEvent", "Analysis", "DocumentChunk", "AmountItem", "Decision", "ScheduleItem", "Deliverable", "Task", "TaskActivityLog"]

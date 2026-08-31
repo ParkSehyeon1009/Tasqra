@@ -1,61 +1,25 @@
-import asyncio
-import json
-
-from app.ai.client_protocol import AIClientProtocol
-from app.analyzers.prompts import (
-    CATEGORY_CANDIDATES,
-    PROMPT_VERSION,
-    build_category_prompt,
-    truncate_for_prompt,
-)
-from app.analyzers.protocol import Analyzer, AnalyzeResult
+from app.analyzers.output_schemas import CategoryOutput
+from app.analyzers.prompt_input import PromptBudget, sample_input
+from app.analyzers.prompts import CATEGORY_PROMPT_VERSION, build_category_prompt
+from app.analyzers.protocol import AnalyzeResult
+from app.analyzers.runner import Runner
 from app.core.config import settings
-from app.core.error_codes import ErrorCode
-from app.core.exceptions import BusinessError
-
-FALLBACK_CATEGORY = "기타"
 
 
-class CategoryAnalyzer(Analyzer):
-    def __init__(self, ai_client: AIClientProtocol) -> None:
+class CategoryAnalyzer:
+    def __init__(self, ai_client, config=None):
         self._ai_client = ai_client
+        self._settings = config or settings
 
-    async def analyze(self, text: str) -> AnalyzeResult:
-        prompt = build_category_prompt(
-            truncate_for_prompt(text, settings.AI_MAX_INPUT_CHARS)
-        )
-
-        try:
-            ai_result = await asyncio.wait_for(
-                self._ai_client.generate_with_meta(prompt),
-                timeout=settings.AI_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError as exc:
-            raise BusinessError(ErrorCode.AI_TIMEOUT) from exc
-        except Exception as exc:
-            raise BusinessError(ErrorCode.AI_PROVIDER_ERROR) from exc
-
-        try:
-            parsed = json.loads(ai_result.text)
-            category = parsed["category"]
-            reason = parsed.get("reason", "")
-        except (json.JSONDecodeError, KeyError):
-            category = FALLBACK_CATEGORY
-            reason = ai_result.text
-
-        # LLM이 후보 목록 밖의 값을 반환해도 담당자 C의 category 필터/검색이
-        # 깨지지 않도록 여기서 한 번 더 방어한다.
-        if category not in CATEGORY_CANDIDATES:
-            category = FALLBACK_CATEGORY
-
-        provider = self._ai_client.provider
-
+    async def analyze(self, text: str, *, progress=None) -> AnalyzeResult:
+        budget = PromptBudget(self._settings)
+        prompt, meta = sample_input(text, budget, build_category_prompt)
+        runner = Runner(self._ai_client, self._settings, budget, progress)
+        runner.progress("문서 분류", 0, 1)
+        parsed = await runner.call(prompt, CategoryOutput, stage="문서 분류")
+        runner.progress("문서 분류", 1, 1)
         return AnalyzeResult(
-            result={"category": category, "reason": reason},
-            provider=provider,
-            model_name=ai_result.model_name,
-            prompt_version=PROMPT_VERSION,
-            tokens_in=ai_result.tokens_in,
-            tokens_out=ai_result.tokens_out,
-            latency_ms=ai_result.latency_ms,
+            result={**parsed.model_dump(), "input_scope": meta, "call_count": runner.calls},
+            provider=self._ai_client.provider, prompt_version=CATEGORY_PROMPT_VERSION,
+            **runner.metadata(),
         )

@@ -31,11 +31,5 @@ export async function uploadDocument(projectId, file) {
   return parseResponse(response)
 }
 
-export async function analyzeDocument(projectId, documentId, analyzerTypes) {
-  const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/documents/${documentId}/analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('tasqra_token')}` },
-    body: JSON.stringify({ analyzer_types: analyzerTypes ?? null }),
-  })
-  return parseResponse(response)
-}
+// 레거시 호출부도 같은 백그라운드 분석 계약을 사용한다.
+export { analyzeDocument } from './document'

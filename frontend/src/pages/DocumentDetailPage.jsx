@@ -6,10 +6,10 @@
 //   RedirectAttributes처럼 다음 화면 이동에만 쓰는 탐색 상태다.
 // =============================================================================
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { analyzeDocument, deleteDocument, downloadDocumentSource, downloadSummary, getDocument, retryDocumentProcessing } from '../api/document'
+import { startDocumentAnalysis, getAnalysisJob, deleteDocument, downloadDocumentSource, downloadSummary, getDocument, retryDocumentProcessing } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import ConfirmDialog from '../components/common/ConfirmDialog'
@@ -46,7 +46,24 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const documentQuery = useQuery({ queryKey: documentKey, queryFn: () => getDocument(projectId, documentId), retry: false, refetchInterval: query => ['PENDING', 'EXTRACTING'].includes(query.state.data?.status) ? 3_000 : false })
   const document = documentQuery.data
   const canEdit = projectQuery.data?.role !== 'VIEWER'
-  const analyzeMutation = useMutation({ mutationFn: () => analyzeDocument(projectId, documentId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: documentKey }); notify('success', '문서 분석 완료', '현재 텍스트를 기준으로 분석 결과를 생성했습니다.') }, onError: error => notify('error', '문서 분석 실패', error.message) })
+  const jobKey = ['analysis-jobs', projectId, documentId]
+  const jobQuery = useQuery({ queryKey: jobKey, queryFn: () => getAnalysisJob(projectId, documentId), retry: false,
+    refetchInterval: query => ['PENDING', 'RUNNING'].includes(query.state.data?.status) ? 2000 : false })
+  const job = jobQuery.data
+  const analysisRunning = ['PENDING', 'RUNNING'].includes(job?.status)
+  const previousJob = useRef(null)
+  const completedJob = useRef(null)
+  useEffect(() => {
+    if (job?.status === 'COMPLETED' && completedJob.current !== job.job_id) {
+      completedJob.current = job.job_id
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId] })
+      if (previousJob.current === job.job_id) notify('success', '문서 분석 완료', '분석 결과를 생성했습니다.')
+    }
+    previousJob.current = ['PENDING', 'RUNNING'].includes(job?.status) ? job.job_id : null
+  }, [job?.status, job?.job_id, projectId, documentId, queryClient, notify])
+  const analyzeMutation = useMutation({ mutationFn: () => startDocumentAnalysis(projectId, documentId),
+    onSuccess: data => { queryClient.setQueryData(jobKey, data); notify('success', '문서 분석 접수', '화면을 닫아도 분석은 계속됩니다.') },
+    onError: error => notify('error', '문서 분석 실패', error.message) })
   const deleteMutation = useMutation({ mutationFn: () => deleteDocument(projectId, documentId), onSuccess: () => { queryClient.removeQueries({ queryKey: documentKey }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', '문서 삭제 완료', `${document.filename} 문서를 삭제했습니다.`); navigate(documentListUrl, { replace: true }) }, onError: error => notify('error', '문서 삭제 실패', error.message) })
   const downloadMutation = useMutation({ mutationFn: () => downloadDocumentSource(projectId, documentId, document.filename), onError: error => notify('error', '원본 다운로드 실패', error.message) })
   const summaryDownloadMutation = useMutation({ mutationFn: () => downloadSummary(projectId, documentId, `${document.filename.replace(/\.[^.]+$/, '')}_요약.txt`), onSuccess: () => notify('success', '분석 결과 다운로드 완료', '최신 요약과 분류 결과를 저장했습니다.'), onError: error => notify('error', '분석 결과 다운로드 실패', error.message) })
@@ -62,9 +79,12 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
       <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}{key === 'analysis' && document.analyses.length > 0 && <b>{document.analyses.length}</b>}</button>)}</nav>
       <main className="document-tab-body">
+        {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
+        {job?.status === 'FAILED' && <section className="detail-card" role="alert"><strong>AI 분석 실패: {job.stage}</strong><p>{job.error_message}</p></section>}
+        {jobQuery.error && <p role="alert">분석 상태 조회 실패: {jobQuery.error.message}</p>}
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
-        {activeTab === 'analysis' && <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>}
+        {activeTab === 'analysis' && <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>
     </div></div>

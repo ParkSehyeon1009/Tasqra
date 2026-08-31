@@ -68,7 +68,7 @@ async def main() -> None:
     if extracted.char_count > settings.AI_MAX_INPUT_CHARS:
         print(
             f"주의: 추출 텍스트가 AI_MAX_INPUT_CHARS"
-            f"({settings.AI_MAX_INPUT_CHARS}자)를 넘어 앞부분만 분석합니다."
+            f"({settings.AI_MAX_INPUT_CHARS}자)를 넘어 요약은 구간별 처리하고 분류는 앞·중간·뒤를 표본으로 분석합니다."
         )
     print("---- content (앞 500자) ----")
     print(extracted.content[:500])

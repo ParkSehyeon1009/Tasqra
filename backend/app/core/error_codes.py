@@ -107,6 +107,11 @@ class ErrorCode(Enum):
     AI_MODEL_NOT_LOADED = ("AI_MODEL_NOT_LOADED", "AI 모델이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.", 503)
     AI_MODEL_OUT_OF_MEMORY = ("AI_MODEL_OUT_OF_MEMORY", "AI 처리 자원이 부족합니다. 잠시 후 다시 시도해 주세요.", 503)
     AI_INVALID_RESPONSE = ("AI_INVALID_RESPONSE", "AI 응답을 해석할 수 없습니다.", 502)
+    AI_INPUT_TOO_LARGE = ("AI_INPUT_TOO_LARGE", "모델 입력 예산을 초과했습니다. 컨텍스트 설정이나 문서 크기를 확인해 주세요.", 422)
+    ANALYSIS_JOB_NOT_FOUND = ("ANALYSIS_JOB_NOT_FOUND", "분석 작업을 찾을 수 없습니다.", 404)
+    ANALYSIS_SOURCE_CHANGED = ("ANALYSIS_SOURCE_CHANGED", "분석 중 원문이 변경되었습니다. 다시 분석해 주세요.", 409)
+    ANALYSIS_QUEUE_ERROR = ("ANALYSIS_QUEUE_ERROR", "분석 작업을 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503)
+    ANALYSIS_IN_PROGRESS = ("ANALYSIS_IN_PROGRESS", "다른 분석 항목으로 실행 중인 작업이 있습니다. 완료 후 다시 시도해 주세요.", 409)
     AI_ANALYZER_FAILED = ("AI_ANALYZER_FAILED", "일부 분석에 실패했습니다.", 502)
 
     # ── 검색 (SRH-003 키워드 검색) ──

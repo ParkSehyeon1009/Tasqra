@@ -11,6 +11,7 @@
 #   추가할 때는 반드시 이 클래스에도 짝이 되는 필드를 추가해야 한다.
 # =============================================================================
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,10 +46,16 @@ class Settings(BaseSettings):
     AI_BASE_URL: str = "http://localhost:11434/v1"
     AI_MODEL: str
     AI_TIMEOUT_SECONDS: int
-    # 프롬프트에 실어 보낼 문서 텍스트의 최대 길이. 로컬 소형 모델은 컨텍스트
-    # 창이 좁아(Ollama 기본 num_ctx=2048) 긴 문서를 조용히 잘라먹으므로,
-    # 어디까지 반영됐는지 예측 가능하도록 보내기 전에 명시적으로 자른다.
-    AI_MAX_INPUT_CHARS: int = 6000
+    # 원문 한 구간의 문자 상한. 실제 요청은 메시지·출력 여유를 포함한
+    # 보수적인 UTF-8 byte 예산도 함께 검사한다. 요약은 원문 전체를 분할 처리한다.
+    AI_MAX_INPUT_CHARS: int = Field(default=6000, ge=256)
+    # 로컬 서버의 실제 컨텍스트 설정과 맞춰야 한다. 서버 설정을 바꾸는 값은 아니다.
+    AI_CONTEXT_TOKENS: int = Field(default=8192, ge=2048)
+    AI_MAX_OUTPUT_TOKENS: int = Field(default=1536, ge=256)
+    AI_CHUNK_OVERLAP_CHARS: int = Field(default=160, ge=0)
+    AI_MAX_CHUNKS: int = Field(default=256, ge=1)
+    AI_CHUNK_RETRIES: int = Field(default=1, ge=0, le=2)
+    AI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=1800, ge=60)
 
     # --- 임베딩 (RAG-001-1 청킹 · RAG-001-2 임베딩) --------------------------------
     # USE_FAKE_EMBEDDING 기본값은 반드시 True로 둔다 — USE_FAKE_AI와 같은 이유의

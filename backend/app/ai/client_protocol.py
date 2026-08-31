@@ -15,6 +15,18 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+@dataclass(frozen=True)
+class AIRequest:
+    system: str
+    user: str
+    prompt_version: str
+    max_output_tokens: int = 1536
+
+    def messages(self) -> list[dict[str, str]]:
+        return [{"role": "system", "content": self.system},
+                {"role": "user", "content": self.user}]
+
+
 # AIResult: generate_with_meta()의 반환 타입. 본프로젝트에서 자체 파인튜닝 모델과
 # 상용 API의 비용/성능을 비교해야 하므로, 응답 텍스트뿐 아니라 토큰 사용량·지연 시간·
 # 모델명까지 함께 들고 다닌다 (analyses 테이블에 그대로 저장됨).
@@ -34,11 +46,11 @@ class AIClientProtocol(Protocol):
     # 판별하지 않아도 되도록 클라이언트 자신이 들고 있는다.
     provider: str
 
-    # 기존 유지 (하위 호환). 구현체는 보통 generate_with_meta()를 호출해
+    # 편의 메서드. 구현체는 generate_with_meta()를 호출해
     # .text만 반환하는 방식으로 만들어 로직 중복을 피한다.
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: AIRequest) -> str:
         ...
 
     # 신규: 토큰 사용량/지연 시간 등 메타 정보를 포함해 반환한다.
-    async def generate_with_meta(self, prompt: str) -> AIResult:
+    async def generate_with_meta(self, prompt: AIRequest) -> AIResult:
         ...
