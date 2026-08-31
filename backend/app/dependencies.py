@@ -425,3 +425,13 @@ def get_deliverable_service(
     # 레지스트리와 같은 get_ai_client() 를 공유하므로 USE_FAKE_AI·AI_PROVIDER
     # 설정이 산출물 개요에도 그대로 적용된다.
     return DeliverableService(deliverable_repository, db, get_ai_client())
+
+
+def get_analysis_job_service(
+    db: Session = Depends(get_db),
+    documents: DocumentRepository = Depends(get_document_repository),
+    analysis: AnalysisService = Depends(get_analysis_service),
+):
+    from app.repositories.analysis_job_repository import AnalysisJobRepository
+    from app.services.analysis_job_service import AnalysisJobService
+    return AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)

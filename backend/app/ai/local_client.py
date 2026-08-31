@@ -5,16 +5,15 @@
 #   base_url을 지정한다는 점뿐이다 — 로컬 서버가 /v1/chat/completions 스펙을
 #   그대로 따르므로 SDK와 호출 코드를 재사용할 수 있다.
 #   dependencies.get_ai_client()가 settings.AI_PROVIDER == "local"일 때 주입한다.
-# 주의: Ollama의 기본 컨텍스트 창(num_ctx)은 2048 토큰으로 좁다. 긴 문서를 그대로
-#   보내면 에러 없이 앞부분만 읽고 나머지를 버리므로, 분석기에서
-#   settings.AI_MAX_INPUT_CHARS로 미리 잘라서 보낸다 (analyzers/prompts.py).
+# AI_CONTEXT_TOKENS를 서버의 실제 컨텍스트 설정과 맞춰야 한다.
+# 분석기는 메시지와 출력 여유를 포함해 입력 예산을 검사한다.
 # =============================================================================
 
 import time
 
 from openai import AsyncOpenAI
 
-from app.ai.client_protocol import AIClientProtocol, AIResult
+from app.ai.client_protocol import AIClientProtocol, AIRequest, AIResult
 from app.core.config import Settings
 
 
@@ -25,25 +24,29 @@ class LocalAIClient(AIClientProtocol):
         self._model = settings.AI_MODEL
         self._client = AsyncOpenAI(
             base_url=settings.AI_BASE_URL,
+            max_retries=0,
             # 로컬 서버는 인증을 하지 않지만 OpenAI SDK는 api_key가 비어 있으면
             # 클라이언트를 만들지 못하므로 자리표시자 값을 넣는다.
             api_key=settings.API_KEY or "local",
         )
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: AIRequest) -> str:
         result = await self.generate_with_meta(prompt)
         return result.text
 
-    async def generate_with_meta(self, prompt: str) -> AIResult:
+    async def generate_with_meta(self, prompt: AIRequest) -> AIResult:
         start = time.perf_counter()
         response = await self._client.chat.completions.create(
             model=self._model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=prompt.messages(),
             # prompts.py가 JSON 응답을 지시하므로 형식 이탈을 막는다.
             response_format={"type": "json_object"},
+            max_tokens=prompt.max_output_tokens,
             # 분류/요약은 매번 같은 답이 나오는 편이 검증에 유리하다.
             temperature=0,
         )
+        if response.choices[0].finish_reason != "stop":
+            raise ValueError("AI response did not complete")
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
         return AIResult(
@@ -53,3 +56,6 @@ class LocalAIClient(AIClientProtocol):
             tokens_out=response.usage.completion_tokens if response.usage else None,
             latency_ms=elapsed_ms,
         )
+
+    async def aclose(self) -> None:
+        await self._client.close()

@@ -36,7 +36,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -48,8 +47,10 @@ from sqlalchemy.orm import Session
 from app.ai.client_protocol import AIClientProtocol
 from app.analyzers.prompts import (
     build_deliverable_overview_prompt,
-    truncate_for_prompt,
 )
+from app.analyzers.output_schemas import OverviewOutput
+from app.analyzers.prompt_input import PromptBudget
+from pydantic import ValidationError
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
@@ -531,7 +532,7 @@ class DeliverableService:
 
         호출 방식은 **기존 어댑터 패턴**(analyzers/summary_analyzer.py)을 그대로
         따른다: `generate_with_meta` 를 `asyncio.wait_for` 로 감싸 시간 초과를 막고,
-        JSON 응답이 깨져도 서버가 죽지 않게 방어적으로 파싱한다.
+        JSON 응답의 타입과 길이를 검증하고 실패하면 개요를 비운다.
 
         ⚠️ **실패해도 산출물 생성을 막지 않는다.** analyzer 는 AI 오류를
         BusinessError 로 올리지만(그쪽은 AI 가 결과의 전부다), 산출물은 표가 실제
@@ -545,11 +546,16 @@ class DeliverableService:
             return None
 
         digest = self._overview_digest(title, since, until, materials)
-        prompt = build_deliverable_overview_prompt(
-            truncate_for_prompt(digest, settings.AI_MAX_INPUT_CHARS)
-        )
-
         try:
+            budget = PromptBudget(settings)
+            prompt = build_deliverable_overview_prompt(digest, representative_names_omitted=False)
+            omitted = not budget.fits(prompt)
+            if omitted:
+                # 숫자나 행 중간을 잘라 새 의미를 만들지 않는다. 전체 집계는 유지하고
+                # 대표 이름만 생략한다. 이것도 안 맞으면 개요를 만들지 않는다.
+                digest = self._overview_digest(title, since, until, materials, include_names=False)
+                prompt = build_deliverable_overview_prompt(digest, representative_names_omitted=True)
+            prompt = budget.prepare(prompt)
             result = await asyncio.wait_for(
                 self._ai_client.generate_with_meta(prompt),
                 timeout=settings.AI_TIMEOUT_SECONDS,
@@ -568,18 +574,16 @@ class DeliverableService:
         # 않고 로그로 남긴다 — generate 가 생성 결과를 logger.info 로 남기는 것과 같다.
         logger.info(
             "개요 생성 kind=%s provider=%s model=%s tokens_in=%s tokens_out=%s "
-            "latency_ms=%s",
+            "latency_ms=%s version=%s names_omitted=%s",
             kind, self._ai_client.provider, result.model_name,
-            result.tokens_in, result.tokens_out, result.latency_ms,
+            result.tokens_in, result.tokens_out, result.latency_ms, prompt.prompt_version, omitted,
         )
 
-        # summary_analyzer 와 같은 방어적 파싱. JSON 이 깨져 오면 본문 전체를 쓴다.
         try:
-            summary = json.loads(result.text)["summary"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            summary = result.text
-        summary = (summary or "").strip()
-        return summary or None
+            return OverviewOutput.model_validate_json(result.text).summary
+        except (ValidationError, TypeError):
+            logger.warning("개요 응답 검증 실패 kind=%s version=%s", kind, prompt.prompt_version)
+            return None
 
     @staticmethod
     def _overview_digest(
@@ -587,6 +591,7 @@ class DeliverableService:
         since: date | None,
         until: date | None,
         materials: DeliverableMaterials,
+        *, include_names: bool = True,
     ) -> str:
         """LLM 에 넘길 자료 요약(digest).
 
@@ -599,11 +604,11 @@ class DeliverableService:
             if since and until
             else "기간 전체"
         )
-        lines = [f"제목: {title}", f"대상 기간: {period}", ""]
+        lines = [f"제목: {title[:160]}", f"대상 기간: {period}", "각 건수는 산출물에 포함된 행 기준이며 항목별 최대 200건입니다. 이름은 대표 항목으로 생략될 수 있습니다."]
 
         def _names(items: list, attr: str) -> str:
             picked = [
-                str(getattr(item, attr, "") or "").strip()
+                str(getattr(item, attr, "") or "").strip()[:80]
                 for item in items[:OVERVIEW_SAMPLE_ROWS]
             ]
             picked = [name for name in picked if name]
@@ -620,15 +625,15 @@ class DeliverableService:
         for label, items, attr in groups:
             if not items:
                 continue
-            names = _names(items, attr)
-            lines.append(f"{label} {len(items)}건" + (f": {names}" if names else ""))
+            names = _names(items, attr) if include_names else ""
+            lines.append(f"산출물에 포함된 {label} {len(items)}건" + (f": {names}" if names else ""))
 
         # 금액은 합계가 흐름을 잡는 데 크다. 셀 수 있으면 한 줄 더한다.
         total = sum(
             int(getattr(item, "amount", 0) or 0) for item in materials.amount_items
         )
         if total:
-            lines.append(f"금액 합계: {total:,}원")
+            lines.append(f"포함된 금액 항목의 단순 합계(계약 총액·실제 지출로 단정 금지): {total:,}원")
 
         # 표에 담긴 자료가 하나도 없으면(개요 유형인데 경계 상황) 그 사실만 적는다.
         if len(lines) == 3:

@@ -28,5 +28,5 @@ class AnalyzeResult:
 
 
 class Analyzer(Protocol):
-    async def analyze(self, text: str) -> AnalyzeResult:
+    async def analyze(self, text: str, *, progress=None) -> AnalyzeResult:
         ...

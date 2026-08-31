@@ -10,9 +10,10 @@
 # =============================================================================
 
 import asyncio
+import json
 import time
 
-from app.ai.client_protocol import AIClientProtocol, AIResult
+from app.ai.client_protocol import AIClientProtocol, AIRequest, AIResult
 
 FAKE_MODEL_NAME = "fake-model"
 FAKE_DELAY_SECONDS = 0.1
@@ -21,19 +22,32 @@ FAKE_DELAY_SECONDS = 0.1
 class FakeAIClient(AIClientProtocol):
     provider = "fake"
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: AIRequest) -> str:
         result = await self.generate_with_meta(prompt)
         return result.text
 
-    async def generate_with_meta(self, prompt: str) -> AIResult:
+    async def generate_with_meta(self, prompt: AIRequest) -> AIResult:
         start = time.perf_counter()
         await asyncio.sleep(FAKE_DELAY_SECONDS)
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
+        # 실제 분석으로 오인하지 않도록 fake임을 문장에도 표시한다.
+        data = json.loads(prompt.user)
+        if 'selected_ids' in prompt.system:
+            payload = {"selected_ids": [data["records"][0]["id"]]}
+        elif 'facts' in prompt.system:
+            quote = data.get("document", "").strip()[:120]
+            payload = {"facts": [{"quote": quote, "status": "불명"}] if quote else []}
+        elif prompt.prompt_version.startswith("category"):
+            payload = {"category": "ETC", "reason": "테스트용 가짜 분류 결과입니다."}
+        elif 'evidence_ids' in prompt.system:
+            payload = {"summary": "테스트용 가짜 요약입니다.", "evidence_ids": [data["records"][0]["id"]]}
+        else:
+            payload = {"summary": "테스트용 가짜 요약입니다."}
         return AIResult(
-            text=f"fake_response_for : {prompt}",
+            text=json.dumps(payload, ensure_ascii=False),
             model_name=FAKE_MODEL_NAME,
-            tokens_in=len(prompt.split()),
+            tokens_in=len((prompt.system + prompt.user).split()),
             tokens_out=10,
             latency_ms=elapsed_ms,
         )

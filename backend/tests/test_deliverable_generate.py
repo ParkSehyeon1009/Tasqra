@@ -329,12 +329,44 @@ def test_overview_falls_back_to_placeholder_when_llm_fails():
     assert body.startswith("# 주간 보고서")
 
 
-def test_overview_uses_raw_text_when_json_broken():
-    """JSON 이 깨져 와도 서버가 죽지 않고 본문 텍스트를 그대로 개요로 쓴다."""
+def test_overview_uses_placeholder_when_json_broken():
+    """JSON 검증 실패 시 원문 응답을 노출하지 않고 표 생성을 계속한다."""
     ai = _FakeAI(text="그냥 평문 개요입니다")
     service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
     body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
-    assert "그냥 평문 개요입니다" in body
+    assert "그냥 평문 개요입니다" not in body
+    assert "아직" in body
+
+
+@pytest.mark.parametrize("text", ['{"summary":null}', '{"summary":[]}', '{"summary":42}', '{"summary":" "}', '{"summary":"' + '가' * 251 + '"}'])
+def test_overview_invalid_values_do_not_break_artifact(text):
+    ai = _FakeAI(text=text)
+    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+    assert "아직" in body
+    assert "계약서.pdf" in body
+
+
+def test_overview_compacts_names_without_cutting_counts(monkeypatch):
+    import json
+    from app.core.config import settings
+    from app.analyzers.prompt_input import byte_size
+    from app.analyzers.prompts import build_deliverable_overview_prompt
+
+    materials = DeliverableMaterials(documents=[_document("매우긴파일명" * 30) for _ in range(5)],
+        amount_items=[_amount()])
+    digest = DeliverableService._overview_digest("제목", None, None, materials, include_names=False)
+    compact = build_deliverable_overview_prompt(digest, representative_names_omitted=True)
+    monkeypatch.setattr(settings, "AI_CONTEXT_TOKENS", byte_size(compact.system) + byte_size(compact.user) + settings.AI_MAX_OUTPUT_TOKENS + 256 + 10)
+    ai = _FakeAI()
+    service, _ = _service(ai_client=ai)
+    result = asyncio.run(service._overview("PROJECT_STATUS", "제목", None, None, materials))
+    assert result == "이번 주 핵심 개요입니다."
+    assert ai.calls == 1
+    data = json.loads(ai.prompts[0].user)
+    assert data["representative_names_omitted"] is True
+    assert "문서 5건" in data["materials"]
+    assert "6,000,000원" in data["materials"]
 
 
 def test_empty_section_says_so_instead_of_empty_table():

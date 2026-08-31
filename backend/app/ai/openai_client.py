@@ -15,7 +15,7 @@ import time
 
 from openai import AsyncOpenAI
 
-from app.ai.client_protocol import AIClientProtocol, AIResult
+from app.ai.client_protocol import AIClientProtocol, AIRequest, AIResult
 from app.core.config import Settings
 
 
@@ -24,27 +24,34 @@ class OpenAIClient(AIClientProtocol):
 
     def __init__(self, settings: Settings) -> None:
         self._model = settings.AI_MODEL
-        self._client = AsyncOpenAI(api_key=settings.API_KEY)
+        self._client = AsyncOpenAI(api_key=settings.API_KEY, max_retries=0)
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: AIRequest) -> str:
         result = await self.generate_with_meta(prompt)
         return result.text
 
-    async def generate_with_meta(self, prompt: str) -> AIResult:
+    async def generate_with_meta(self, prompt: AIRequest) -> AIResult:
         start = time.perf_counter()
         # prompts.py가 "JSON으로 응답" 하도록 지시하므로, JSON 모드로 형식 이탈을 방지한다.
         response = await self._client.chat.completions.create(
             model=self._model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=prompt.messages(),
             response_format={"type": "json_object"},
+            temperature=0,
+            max_completion_tokens=prompt.max_output_tokens,
         )
+        if response.choices[0].finish_reason != "stop":
+            raise ValueError("AI response did not complete")
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
         return AIResult(
-            text=response.choices[0].message.content,
+            text=response.choices[0].message.content or "",
             model_name=response.model,
             tokens_in=response.usage.prompt_tokens if response.usage else None,
             tokens_out=response.usage.completion_tokens if response.usage else None,
             latency_ms=elapsed_ms,
         )
 
+
+    async def aclose(self) -> None:
+        await self._client.close()

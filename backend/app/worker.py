@@ -151,3 +151,44 @@ def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str, requ
             document_id,
         )
         return False
+
+
+@celery_app.task(name="documents.analyze", time_limit=settings.AI_ANALYSIS_TIMEOUT_SECONDS + 30)
+def analyze_document_task(project_id: int, document_id: int, job_id: str, request_id: str = "-"):
+    import asyncio
+    from app.analyzers.summary_analyzer import SummaryAnalyzer
+    from app.analyzers.category_analyzer import CategoryAnalyzer
+    from app.repositories.analysis_job_repository import AnalysisJobRepository
+    from app.repositories.analysis_repository import AnalysisRepository
+    from app.repositories.document_repository import DocumentRepository
+    from app.services.analysis_service import AnalysisService
+    from app.services.analysis_job_service import AnalysisJobService
+    from app.core.transaction import transactional
+
+    bind_request_id(request_id)
+
+    def progress(stage, done, total):
+        # 짧은 별도 트랜잭션. 모델 응답 대기 중 DB 연결을 잡지 않는다.
+        with SessionLocal() as db:
+            with transactional(db):
+                AnalysisJobRepository(db).progress(job_id, stage, done, total)
+
+    async def run():
+        # asyncio.run마다 루프가 달라지므로 캐시된 AsyncOpenAI 클라이언트를 재사용하지 않는다.
+        from app.ai.fake_client import FakeAIClient
+        from app.ai.local_client import LocalAIClient
+        from app.ai.openai_client import OpenAIClient
+        client = FakeAIClient() if settings.USE_FAKE_AI else (
+            LocalAIClient(settings) if settings.AI_PROVIDER.lower() == "local" else OpenAIClient(settings))
+        try:
+            with SessionLocal() as db:
+                documents = DocumentRepository(db)
+                analysis = AnalysisService(db, documents, AnalysisRepository(db),
+                    {"summary": SummaryAnalyzer(client), "category": CategoryAnalyzer(client)})
+                service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
+                await service.run(project_id, document_id, job_id, progress)
+        finally:
+            if hasattr(client, "aclose"):
+                await client.aclose()
+    asyncio.run(run())
+    return job_id
