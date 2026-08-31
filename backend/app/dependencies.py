@@ -83,7 +83,16 @@ class ProjectAccess:
 
 
 @lru_cache
-def get_ai_client() -> AIClientProtocol:
+def get_ai_client(model: str | None = None) -> AIClientProtocol:
+    """AI 클라이언트를 만든다.
+
+    model 을 주면 그 모델을 부르는 클라이언트가 나온다. 요약과 분류가 서로
+    다른 어댑터로 학습되어 별개 모델로 배포되기 때문이다(config.py 주석 참고).
+    안 주면 settings.AI_MODEL 을 쓴다.
+
+    ⚠️ lru_cache 가 인자별로 따로 캐싱하므로, 모델 이름마다 클라이언트가 하나씩
+      만들어지고 재사용된다.
+    """
     # USE_FAKE_AI 기본값은 True — 개발 중 실수로 실제 API가 호출되어 비용이
     # 발생하는 것을 막기 위한 안전장치다. 실제 호출은 .env에서 명시적으로
     # USE_FAKE_AI=false로 바꿔야만 일어난다.
@@ -93,8 +102,8 @@ def get_ai_client() -> AIClientProtocol:
     # 끈 뒤 AI_PROVIDER=local로 두고 쓴다. 상용 API 호출은 AI_PROVIDER=openai일
     # 때만 일어난다.
     if settings.AI_PROVIDER.lower() == "local":
-        return LocalAIClient(settings)
-    return OpenAIClient(settings)
+        return LocalAIClient(settings, model)
+    return OpenAIClient(settings, model)
 
 
 @lru_cache
@@ -171,10 +180,12 @@ def get_extractor_registry() -> ExtractorRegistry:
 
 @lru_cache
 def get_analyzer_registry() -> dict[str, Analyzer]:
-    ai_client = get_ai_client()
+    # ⚠️ 분석기마다 다른 모델을 쓴다. 요약과 분류를 서로 다른 LoRA 어댑터로
+    #   학습했고, 어댑터 둘을 한 모델로 합칠 수 없기 때문이다.
+    #   설정이 비어 있으면 AI_MODEL 로 떨어진다(config.py 주석 참고).
     registry: dict[str, Analyzer] = {
-        "summary": SummaryAnalyzer(ai_client),
-        "category": CategoryAnalyzer(ai_client),
+        "summary": SummaryAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
+        "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
     }
     return registry
 

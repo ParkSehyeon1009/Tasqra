@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     #   (컨테이너의 localhost는 컨테이너 자신이라 호스트에 닿지 않는다)
     AI_BASE_URL: str = "http://localhost:11434/v1"
     AI_MODEL: str
+    # ⚠️ 2026-08-28: 요약과 분류를 **다른 모델**로 부른다.
+    #   LoRA 어댑터를 태스크별로 따로 학습했고, 어댑터 둘을 GGUF 하나로 합칠
+    #   수 없다 — 각각 베이스에 병합되어 별개 모델이 된다.
+    #
+    #     AI_MODEL_SUMMARY   Tasqra-summation       요약 (2~3문장 200자)
+    #     AI_MODEL_CATEGORY  Tasqra-classification  분류 (8종 코드)
+    #
+    #   비워 두면 AI_MODEL 을 쓴다. 개발 중 하나만 올려놓고 돌릴 때를 위해서다.
+    #   ⚠️ 다만 그 경우 한쪽 태스크는 다른 태스크용으로 학습된 어댑터가 처리하게
+    #     되어 성능이 떨어진다. 운영에서는 둘 다 지정할 것.
+    AI_MODEL_SUMMARY: str = ""
+    AI_MODEL_CATEGORY: str = ""
     AI_TIMEOUT_SECONDS: int
     # 원문 한 구간의 문자 상한. 실제 요청은 메시지·출력 여유를 포함한
     # 보수적인 UTF-8 byte 예산도 함께 검사한다. 요약은 원문 전체를 분할 처리한다.

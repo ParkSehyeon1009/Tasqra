@@ -7,7 +7,17 @@ x-ai-environment: &ai-environment
   RERANK_ENABLED: "false"
   AI_PROVIDER: "local"
   AI_BASE_URL: "http://host.docker.internal:11434/v1"
+  # 아래 두 개가 비어 있을 때만 쓰이는 기본값입니다.
   AI_MODEL: "docflow"
+  # 요약과 분류는 서로 다른 LoRA 어댑터로 학습되어 **별개 모델**로 배포됩니다.
+  # 어댑터 둘을 GGUF 하나로 합칠 수 없어서 모델이 둘입니다.
+  # 파인튜닝 모델을 쓸 때 이 둘을 채우고 USE_FAKE_AI 를 "false" 로 바꾸세요.
+  #   AI_MODEL_SUMMARY: "Tasqra-summation"
+  #   AI_MODEL_CATEGORY: "Tasqra-classification"
+  # 등록 방법은 docs/llm-model-setup.md 참고. 비우면 AI_MODEL 하나로 둘 다
+  # 처리하는데, 한쪽은 다른 태스크용 어댑터가 맡게 되어 성능이 떨어집니다.
+  AI_MODEL_SUMMARY: ""
+  AI_MODEL_CATEGORY: ""
   AI_TIMEOUT_SECONDS: "180"
   AI_CONTEXT_TOKENS: "8192"
   AI_MAX_OUTPUT_TOKENS: "1536"
