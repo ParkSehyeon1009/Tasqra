@@ -50,6 +50,7 @@ from app.repositories.analysis_repository import AnalysisRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.deliverable_repository import DeliverableRepository
+from app.repositories.decision_schedule_repository import DecisionScheduleRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
@@ -67,6 +68,7 @@ from app.services.analysis_service import AnalysisService
 from app.services.chunking_service import ChunkingService
 from app.services.dashboard_service import DashboardService
 from app.services.deliverable_service import DeliverableService
+from app.services.decision_schedule_review_service import DecisionScheduleReviewService
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
@@ -231,6 +233,24 @@ def get_search_service(
 
 def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
     return AmountRepository(db)
+
+
+def get_decision_schedule_repository(
+    db: Session = Depends(get_db),
+) -> DecisionScheduleRepository:
+    return DecisionScheduleRepository(db)
+
+
+def get_decision_schedule_review_service(
+    db: Session = Depends(get_db),
+    repository: DecisionScheduleRepository = Depends(get_decision_schedule_repository),
+) -> DecisionScheduleReviewService:
+    """결정사항·일정 제안 검토 서비스.
+
+    Spring의 @Bean 조립처럼 같은 요청 Session을 Repository와 Service에 주입해
+    transactional(db)이 조회한 ORM 행을 그대로 commit하도록 한다.
+    """
+    return DecisionScheduleReviewService(db, repository)
 
 
 # get_search_service 와 같은 이유로 get_project_repository · get_amount_repository

@@ -16,6 +16,7 @@ import BoardView from '../features/board/BoardView'
 import AmountSummaryView from '../features/amount/AmountSummaryView'
 import DashboardView from '../features/dashboard/DashboardView'
 import DeliverablesView from '../features/deliverables/DeliverablesView'
+import DecisionScheduleReviewView from '../features/decision-schedule/DecisionScheduleReviewView'
 import DocumentsView from '../features/documents/DocumentsView'
 import DocumentUploadModal from '../features/documents/DocumentUploadModal'
 import MembersView from '../features/members/MembersView'
@@ -38,7 +39,7 @@ import '../styles/workspace.css'
 // PROJECT_MENUS 다. 거기가 사이드바에서 눌러 들어가는 목록이고, 이 배열은
 // 주소로 들어왔을 때 허용하는 목록이다(없으면 대시보드로 되돌린다).
 // 셋 중 하나를 빠뜨리면 에러 없이 어긋난다.
-const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['board','보드'],['amounts','금액'],['deliverables','산출물'],['settings','설정']]
+const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['board','보드'],['amounts','금액'],['decisions','결정·일정'],['deliverables','산출물'],['settings','설정']]
 const DOCUMENT_STATES = new Set(['PROCESSING', 'REVIEW_REQUIRED', 'COMPLETED', 'FAILED'])
 
 export default function WorkspacePage({ user, onLogout, notify }) {
@@ -183,6 +184,9 @@ function TabContent({ tab, project, data, documentType, documentState, onDocumen
   // 문서가 21건 이상이면 조용히 틀린다(대시보드에서 겪은 것과 같은 함정).
   // notify 는 만들기가 아직 준비 중임을 알리는 데 쓴다.
   if (tab === 'deliverables') return <DeliverablesView projectId={project.id} notify={notify}/>
+  // 결정·일정 검토도 자체 API 목록을 쓴다. 승인·수정 결과는 산출물 조회가
+  // APPROVED·EDITED만 다시 세므로 화면에서 별도로 count를 계산하지 않는다.
+  if (tab === 'decisions') return <DecisionScheduleReviewView projectId={project.id} canEdit={canEdit} notify={notify}/>
   // 금액도 워크스페이스 데이터를 쓰지 않는다. 합계는 서버가 내므로(AMT-002-2)
   // 화면에 넘어온 문서 목록으로 다시 세거나 더하지 않는다.
   if (tab === 'amounts') return <AmountSummaryView projectId={project.id} notify={notify}/>

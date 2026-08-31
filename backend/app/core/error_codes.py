@@ -83,6 +83,7 @@ class ErrorCode(Enum):
     # ── 결정사항 · 일정 (decisions · schedule_items) ──
     DECISION_NOT_FOUND = ("DECISION_NOT_FOUND", "결정사항을 찾을 수 없습니다.", 404)
     SCHEDULE_ITEM_NOT_FOUND = ("SCHEDULE_ITEM_NOT_FOUND", "일정을 찾을 수 없습니다.", 404)
+    INVALID_SCHEDULE_DATES = ("INVALID_SCHEDULE_DATES", "일정 시작일은 종료일보다 늦을 수 없습니다.", 422)
 
     # ── 액션 태스크 ──
     TASK_NOT_FOUND = ("TASK_NOT_FOUND", "태스크를 찾을 수 없습니다.", 404)
