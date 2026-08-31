@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 //   · TABS = 주소로 들어왔을 때 허용되는 곳 (없으면 대시보드로 되돌린다)
 // 한쪽만 고치면 **에러 없이** 어긋난다 — 여기만 넣으면 눌러도 대시보드로
 // 튕기고, TABS 에만 넣으면 주소를 직접 쳐야 들어갈 수 있다.
-const PROJECT_MENUS = [['dashboard','dashboard','대시보드'],['documents','document','문서'],['search','search','검색'],['board','board','보드'],['amounts','amount','금액'],['decisions','decision','결정·일정'],['deliverables','deliverable','산출물'],['settings','settings','설정']]
+const PROJECT_MENUS = [['dashboard','dashboard','대시보드'],['documents','document','문서'],['search','search','검색'],['board','board','보드'],['amounts','amount','금액'],['deliverables','deliverable','산출물'],['settings','settings','설정']]
 
 export default function ProjectSidebar({ projects, activeProjectId, activeTab, onSelect, onNavigateTab, onCreate }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('tasqra-rail-collapsed') === '1')
@@ -34,7 +34,6 @@ function Icon({ name }) {
   if(name==='deliverable') return <svg {...common}><path d="M3 16V9m4.7 7V4.5M12.3 16v-5M17 16V7"/></svg>
   // 금액은 원화 기호(₩)로 둔다 — 동전·지폐 그림은 16px 에서 뭉개진다.
   if(name==='amount') return <svg {...common}><path d="M5.6 5l2.4 5 2-3.4 2 3.4 2.4-5"/><path d="M3.6 11.4h12.8M3.6 14h12.8"/></svg>
-  if(name==='decision') return <svg {...common}><path d="M4 3.5h12v13H4z"/><path d="m6.5 9 2 2 5-5M6.5 14h7"/></svg>
   if(name==='board') return <svg {...common}><rect x="2.5" y="3" width="4.5" height="14" rx="1.2"/><rect x="8.7" y="3" width="4.5" height="9" rx="1.2"/><rect x="14.9" y="3" width="2.6" height="12" rx="1.2"/></svg>
   if(name==='settings') return <svg {...common}><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M2.6 10h2M15.4 10h2M4.8 4.8l1.4 1.4M13.8 13.8l1.4 1.4M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4"/></svg>
   return <svg {...common}><path d="M12 5l-5 5 5 5"/></svg>

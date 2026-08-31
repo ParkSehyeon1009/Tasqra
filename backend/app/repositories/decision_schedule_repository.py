@@ -81,12 +81,18 @@ class DecisionScheduleRepository:
         return (row[0], row[1], row[2]) if row else None
 
     def list_decisions(
-        self, project_id: int, decisions: tuple[str, ...], limit: int
+        self,
+        project_id: int,
+        decisions: tuple[str, ...],
+        limit: int,
+        document_id: int | None = None,
     ) -> tuple[list[tuple[Decision, str | None, int | None]], int]:
-        filters = (
+        filters = [
             Decision.project_id == project_id,
             Decision.decision.in_(decisions),
-        )
+        ]
+        if document_id is not None:
+            filters.append(Decision.document_id == document_id)
         total = int(
             self._db.scalar(select(func.count(Decision.id)).where(*filters)) or 0
         )
@@ -109,12 +115,18 @@ class DecisionScheduleRepository:
         )
 
     def list_schedule_items(
-        self, project_id: int, decisions: tuple[str, ...], limit: int
+        self,
+        project_id: int,
+        decisions: tuple[str, ...],
+        limit: int,
+        document_id: int | None = None,
     ) -> tuple[list[tuple[ScheduleItem, str | None, int | None]], int]:
-        filters = (
+        filters = [
             ScheduleItem.project_id == project_id,
             ScheduleItem.decision.in_(decisions),
-        )
+        ]
+        if document_id is not None:
+            filters.append(ScheduleItem.document_id == document_id)
         total = int(
             self._db.scalar(select(func.count(ScheduleItem.id)).where(*filters)) or 0
         )

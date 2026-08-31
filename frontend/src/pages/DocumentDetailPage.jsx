@@ -19,6 +19,7 @@ import DocumentContentTab from '../features/document-detail/DocumentContentTab'
 import DocumentHeader from '../features/document-detail/DocumentHeader'
 import DocumentHistoryTab from '../features/document-detail/DocumentHistoryTab'
 import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
+import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionScheduleReviewView'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import '../styles/document-detail-page.css'
@@ -77,14 +78,17 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
-      <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}{key === 'analysis' && document.analyses.length > 0 && <b>{document.analyses.length}</b>}</button>)}</nav>
+      <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}</button>)}</nav>
       <main className="document-tab-body">
         {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
         {job?.status === 'FAILED' && <section className="detail-card" role="alert"><strong>AI 분석 실패: {job.stage}</strong><p>{job.error_message}</p></section>}
         {jobQuery.error && <p role="alert">분석 상태 조회 실패: {jobQuery.error.message}</p>}
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
-        {activeTab === 'analysis' && <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>}
+        {activeTab === 'analysis' && <div className="document-analysis-layout">
+          <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
+          <DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/>
+        </div>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>
     </div></div>

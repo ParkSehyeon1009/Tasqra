@@ -29,6 +29,33 @@
   cursor: pointer;
 }
 
+.analysis-copy.is-collapsed,
+.analysis-reason.is-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.analysis-copy.is-collapsed {
+  -webkit-line-clamp: 8;
+}
+
+.analysis-reason.is-collapsed {
+  -webkit-line-clamp: 6;
+}
+
+.analysis-expand {
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-accent, #554bd8);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .analysis-footer-actions {
   display: flex;
   justify-content: flex-end;
@@ -133,3 +160,35 @@
 @media (max-width: 760px) { .document-header-statuses { width: 100%; } .document-page-actions { align-items: stretch; } }
 .document-processing-error { color: #b32f40 !important; font-weight: 650; }
 .document-page-actions .retry-processing { border-color: #8ba2dc; background: #edf2ff; color: #3654a5; font-weight: 750; }
+
+
+/* 분석 결과는 목업처럼 기존 요약·분류와 추출 액션 아이템을 나란히 배치한다. */
+.document-analysis-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(360px, 1fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.document-analysis-layout > * {
+  min-width: 0;
+}
+
+.document-analysis-layout > .decision-schedule-panel {
+  margin-top: 0;
+}
+
+.document-analysis-layout .analysis-results,
+.document-analysis-layout .review-card-main {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1160px) {
+  .document-analysis-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .document-analysis-layout > .decision-schedule-panel {
+    margin-top: 24px;
+  }
+}

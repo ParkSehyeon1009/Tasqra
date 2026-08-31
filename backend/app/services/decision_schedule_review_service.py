@@ -32,9 +32,15 @@ class DecisionScheduleReviewService:
         self._repository = repository
 
     def list_decisions(
-        self, project_id: int, decisions: tuple[str, ...], limit: int
+        self,
+        project_id: int,
+        decisions: tuple[str, ...],
+        limit: int,
+        document_id: int | None = None,
     ) -> DecisionListResponse:
-        rows, total = self._repository.list_decisions(project_id, decisions, limit)
+        rows, total = self._repository.list_decisions(
+            project_id, decisions, limit, document_id
+        )
         items = [self._decision_row(*row) for row in rows]
         return DecisionListResponse(
             items=items,
@@ -46,9 +52,15 @@ class DecisionScheduleReviewService:
         )
 
     def list_schedule_items(
-        self, project_id: int, decisions: tuple[str, ...], limit: int
+        self,
+        project_id: int,
+        decisions: tuple[str, ...],
+        limit: int,
+        document_id: int | None = None,
     ) -> ScheduleItemListResponse:
-        rows, total = self._repository.list_schedule_items(project_id, decisions, limit)
+        rows, total = self._repository.list_schedule_items(
+            project_id, decisions, limit, document_id
+        )
         items = [self._schedule_row(*row) for row in rows]
         return ScheduleItemListResponse(
             items=items,
@@ -102,6 +114,10 @@ class DecisionScheduleReviewService:
     def cancel_decision(self, project_id: int, item_id: int) -> DecisionRow:
         item, filename, current_revision = self._get_decision(project_id, item_id)
         with transactional(self._db):
+            if item.decision == "REJECTED":
+                filename, current_revision = self._lock_current_source(
+                    project_id, item, filename, current_revision
+                )
             self._cancel(item)
         return self._decision_row(item, filename, current_revision)
 
@@ -118,6 +134,10 @@ class DecisionScheduleReviewService:
     def cancel_schedule_item(self, project_id: int, item_id: int) -> ScheduleItemRow:
         item, filename, current_revision = self._get_schedule_item(project_id, item_id)
         with transactional(self._db):
+            if item.decision == "REJECTED":
+                filename, current_revision = self._lock_current_source(
+                    project_id, item, filename, current_revision
+                )
             self._cancel(item)
         return self._schedule_row(item, filename, current_revision)
 

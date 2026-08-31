@@ -33,29 +33,38 @@ router = APIRouter(prefix="/api/projects/{project_id}", tags=["decision-schedule
 @router.get("/decisions", response_model=DecisionListResponse)
 def list_decisions(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 결정사항만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> DecisionListResponse:
     """승인 또는 수정 승인된 결정사항만 돌려준다."""
-    return service.list_decisions(access.project.id, APPROVED_DECISIONS, limit)
+    return service.list_decisions(
+        access.project.id, APPROVED_DECISIONS, limit, document_id
+    )
 
 
 @router.get("/decisions/pending", response_model=DecisionListResponse)
 def list_pending_decisions(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 항목만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> DecisionListResponse:
-    return service.list_decisions(access.project.id, ("PENDING",), limit)
+    return service.list_decisions(
+        access.project.id, ("PENDING",), limit, document_id
+    )
 
 
 @router.get("/decisions/rejected", response_model=DecisionListResponse)
 def list_rejected_decisions(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 항목만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> DecisionListResponse:
-    return service.list_decisions(access.project.id, ("REJECTED",), limit)
+    return service.list_decisions(
+        access.project.id, ("REJECTED",), limit, document_id
+    )
 
 
 @router.patch("/decisions/{item_id}", response_model=DecisionRow)
@@ -103,29 +112,38 @@ def cancel_decision(
 @router.get("/schedule-items", response_model=ScheduleItemListResponse)
 def list_schedule_items(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 항목만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> ScheduleItemListResponse:
     """승인 또는 수정 승인된 일정·기한만 돌려준다."""
-    return service.list_schedule_items(access.project.id, APPROVED_DECISIONS, limit)
+    return service.list_schedule_items(
+        access.project.id, APPROVED_DECISIONS, limit, document_id
+    )
 
 
 @router.get("/schedule-items/pending", response_model=ScheduleItemListResponse)
 def list_pending_schedule_items(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 항목만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> ScheduleItemListResponse:
-    return service.list_schedule_items(access.project.id, ("PENDING",), limit)
+    return service.list_schedule_items(
+        access.project.id, ("PENDING",), limit, document_id
+    )
 
 
 @router.get("/schedule-items/rejected", response_model=ScheduleItemListResponse)
 def list_rejected_schedule_items(
     limit: int = Query(200, ge=1, le=500),
+    document_id: int | None = Query(None, ge=1, description="특정 문서의 항목만 조회"),
     access: ProjectAccess = Depends(get_project_access),
     service: DecisionScheduleReviewService = Depends(get_decision_schedule_review_service),
 ) -> ScheduleItemListResponse:
-    return service.list_schedule_items(access.project.id, ("REJECTED",), limit)
+    return service.list_schedule_items(
+        access.project.id, ("REJECTED",), limit, document_id
+    )
 
 
 @router.patch("/schedule-items/{item_id}", response_model=ScheduleItemRow)
