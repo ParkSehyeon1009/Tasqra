@@ -1,28 +1,3 @@
-# 팀 공통 개발 설정. backend/.env보다 우선하며 API와 worker에 함께 적용됩니다.
-# 실제 모델이 준비되면 이 블록에서 USE_FAKE_AI, 주소, 모델명, 컨텍스트를 변경하세요.
-# 임베딩·리랭커는 별개 모델이므로 준비된 경우에만 각각 활성화합니다.
-x-ai-environment: &ai-environment
-  USE_FAKE_AI: "true"
-  USE_FAKE_EMBEDDING: "true"
-  RERANK_ENABLED: "false"
-  AI_PROVIDER: "local"
-  AI_BASE_URL: "http://host.docker.internal:11434/v1"
-  # 아래 두 개가 비어 있을 때만 쓰이는 기본값입니다.
-  AI_MODEL: "docflow"
-  # 요약과 분류는 서로 다른 LoRA 어댑터로 학습되어 **별개 모델**로 배포됩니다.
-  # 어댑터 둘을 GGUF 하나로 합칠 수 없어서 모델이 둘입니다.
-  # 파인튜닝 모델을 쓸 때 이 둘을 채우고 USE_FAKE_AI 를 "false" 로 바꾸세요.
-  #   AI_MODEL_SUMMARY: "Tasqra-summation"
-  #   AI_MODEL_CATEGORY: "Tasqra-classification"
-  # 등록 방법은 docs/llm-model-setup.md 참고. 비우면 AI_MODEL 하나로 둘 다
-  # 처리하는데, 한쪽은 다른 태스크용 어댑터가 맡게 되어 성능이 떨어집니다.
-  AI_MODEL_SUMMARY: ""
-  AI_MODEL_CATEGORY: ""
-  AI_TIMEOUT_SECONDS: "180"
-  AI_CONTEXT_TOKENS: "8192"
-  AI_MAX_OUTPUT_TOKENS: "1536"
-  AI_ANALYSIS_TIMEOUT_SECONDS: "1800"
-
 services:
   redis:
     image: redis:7-alpine
@@ -39,7 +14,7 @@ services:
   db:
     # pgvector 확장이 미리 설치된 이미지. 리비전 0011(document_chunks)의
     # CREATE EXTENSION vector 가 postgres:16-alpine 에서는 실패한다.
-    # 기존 DB가 있다면 백업과 호환성을 확인하세요. down -v는 DB 데이터를 삭제합니다.
+    # alpine -> debian 계열이라 기존 볼륨은 붙지 않는다. docker compose down -v 필요.
     image: pgvector/pgvector:pg16
     container_name: tasqra-db
     restart: unless-stopped
@@ -64,7 +39,7 @@ services:
       dockerfile: Dockerfile
     container_name: tasqra-api
     env_file:
-      - ./backend/.env.example
+      - ./backend/.env
       # ⚠️ .env.example 만 읽으면 각자의 로컬 설정이 컨테이너에 반영되지 않는다.
       #   실제 .env 를 뒤에 두어 덮어쓰게 한다(뒤가 이긴다). gitignore 대상이라
       #   없는 사람도 있으므로 required: false 다.
@@ -73,9 +48,17 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      <<: *ai-environment
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
       TZ: Asia/Seoul
+      # env_file(.env.example)의 AI 설정을 컨테이너 환경에 맞게 덮어쓴다.
+      # 기본값은 안전장치를 유지해 fake로 두고, 로컬 LLM을 쓸 때만
+      # 셸이나 루트 .env에서 USE_FAKE_AI=false AI_PROVIDER=local로 넘긴다.
+      USE_FAKE_AI: ${USE_FAKE_AI:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      # 컨테이너의 localhost는 컨테이너 자신이라 호스트의 Ollama에 닿지 않는다.
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434/v1}
+      AI_MODEL: ${AI_MODEL:-docflow}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     # Docker Desktop(Windows/Mac)은 host.docker.internal을 기본 제공하지만,
@@ -128,13 +111,10 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      <<: *ai-environment
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       TZ: Asia/Seoul
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
