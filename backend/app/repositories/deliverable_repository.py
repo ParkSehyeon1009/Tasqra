@@ -37,8 +37,10 @@ from app.models.deliverable import Deliverable
 from app.models.document import Document
 from app.models.schedule import ScheduleItem
 from app.models.task import Task
-# 산출물에 넣을 금액은 「승인된 것만」이라, 금액 현황(amount-summary)과 같은 기준을
-# 쓴다. 한곳에서 정의한 것을 가져와 두 화면이 어긋나지 않게 한다.
+
+# 산출물에 넣는 AI 제안은 종류와 관계없이 「승인된 것만」 사용한다.
+# 금액 현황(amount-summary)이 이미 쓰는 기준을 재사용해 count와 list가 갈리지
+# 않게 한다.
 from app.repositories.amount_repository import APPROVED_DECISIONS
 
 __all__ = ["DeliverableRepository"]
@@ -78,16 +80,20 @@ class DeliverableRepository:
         until: date | None = None,
         status: str | None = None,
     ) -> int:
-        """결정사항 수. `status` 를 주면 그 상태만 센다.
+        """승인된 결정사항 수. `status` 를 주면 그 상태만 센다.
+
+        승인 상태는 목록과 똑같이 `APPROVED`·`EDITED`만 포함한다.
+        `PENDING`·`REJECTED`는 산출물 재료에서 제외한다.
 
         기간은 `decided_on` 으로 본다. 그 값이 NULL 인 행(문서에 날짜가 없었던
         경우)은 기간을 주면 빠진다 — **일부러 그렇게 둔다.** 날짜를 모르는 결정을
         "이번 주 결정" 으로 넣으면 보고서가 틀린다.
 
-        기간을 주지 않으면(결정사항 대장·회의 안건) 전부 센다.
+        기간을 주지 않으면(결정사항 대장·회의 안건) 승인된 항목을 모두 센다.
         """
         stmt = select(func.count()).select_from(Decision).where(
-            Decision.project_id == project_id
+            Decision.project_id == project_id,
+            Decision.decision.in_(APPROVED_DECISIONS),
         )
         if status is not None:
             stmt = stmt.where(Decision.status == status)
@@ -102,7 +108,10 @@ class DeliverableRepository:
     def count_schedule_items(
         self, project_id: int, *, since: date | None = None, until: date | None = None
     ) -> int:
-        """기간에 걸리는 일정·기한 수.
+        """기간에 걸리는 승인된 일정·기한 수.
+
+        승인 상태는 목록과 똑같이 `APPROVED`·`EDITED`만 포함한다.
+        `PENDING`·`REJECTED`는 산출물 재료에서 제외한다.
 
         `kind` 마다 기한 컬럼이 다르다(models/schedule.py 의 due_on 참고).
         SQL 에서 프로퍼티를 쓸 수 없으므로 **두 컬럼 중 하나라도 걸리면** 센다.
@@ -113,7 +122,8 @@ class DeliverableRepository:
         "이 주에 진행 중인 기간" 이 보고서에 들어가야 한다.
         """
         stmt = select(func.count()).select_from(ScheduleItem).where(
-            ScheduleItem.project_id == project_id
+            ScheduleItem.project_id == project_id,
+            ScheduleItem.decision.in_(APPROVED_DECISIONS),
         )
         if since is not None or until is not None:
             starts_ok = ScheduleItem.starts_on.is_not(None)
@@ -268,7 +278,10 @@ class DeliverableRepository:
         status: str | None = None,
         limit: int = 200,
     ) -> list[Decision]:
-        stmt = select(Decision).where(Decision.project_id == project_id)
+        stmt = select(Decision).where(
+            Decision.project_id == project_id,
+            Decision.decision.in_(APPROVED_DECISIONS),
+        )
         if status is not None:
             stmt = stmt.where(Decision.status == status)
         if since is not None:
@@ -288,7 +301,10 @@ class DeliverableRepository:
         until: date | None = None,
         limit: int = 200,
     ) -> list[ScheduleItem]:
-        stmt = select(ScheduleItem).where(ScheduleItem.project_id == project_id)
+        stmt = select(ScheduleItem).where(
+            ScheduleItem.project_id == project_id,
+            ScheduleItem.decision.in_(APPROVED_DECISIONS),
+        )
         if since is not None or until is not None:
             starts_ok = ScheduleItem.starts_on.is_not(None)
             ends_ok = ScheduleItem.ends_on.is_not(None)
