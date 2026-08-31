@@ -22,8 +22,10 @@ from app.core.config import Settings
 class OpenAIClient(AIClientProtocol):
     provider = "openai"
 
-    def __init__(self, settings: Settings) -> None:
-        self._model = settings.AI_MODEL
+    # local_client.py 와 같은 이유로 model 을 받는다(config.py 주석 참고).
+    # 안 주면 settings.AI_MODEL 로 떨어진다.
+    def __init__(self, settings: Settings, model: str | None = None) -> None:
+        self._model = model or settings.AI_MODEL
         self._client = AsyncOpenAI(api_key=settings.API_KEY, max_retries=0)
 
     async def generate(self, prompt: AIRequest) -> str:
