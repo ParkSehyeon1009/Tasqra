@@ -1,10 +1,8 @@
 # =============================================================================
-# 이 파일의 책임: 대시보드(DSH-001)가 쓸 집계 조회를 담는다. 세기만 하고 판단은
-#   하지 않는다 — 상태 여러 개를 "처리 중" 으로 묶는 것은
-#   services/dashboard_service.py 가 한다.
-# 다른 파일과의 관계: models/document.py 의 Document 와 models/amount.py 의
-#   AmountItem 을 읽는다. dependencies.py 가 세션을 넣어 만들고
-#   services/dashboard_service.py 가 쓴다.
+# 이 파일의 책임: 대시보드 집계와 프로젝트 캘린더 조회를 담는다. 집계는 세기만
+#   하고 판단은 services/dashboard_service.py에 두며, 캘린더는 날짜 범위만 거른다.
+# 다른 파일과의 관계: Document·AmountItem·Task·ScheduleItem을 읽는다.
+#   dependencies.py가 세션을 넣어 만들고 dashboard_service.py가 쓴다.
 # Spring 비교: @Repository 다. group by 로 상태별 건수를 한 번에 받아오는 것은
 #   JPQL 의 프로젝션 집계 쿼리에 해당한다.
 #
@@ -27,11 +25,14 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Select, func, select
+from datetime import date
+
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.amount import AmountItem
 from app.models.document import Document
+from app.models.schedule import ScheduleItem
 from app.models.task import Task
 
 # 승인 대기로 셀 상태. amount_items.decision 의 값이다.
@@ -126,3 +127,50 @@ class DashboardRepository:
             .where(Task.project_id == project_id, Task.status != "DONE")
         )
         return int(self._db.execute(stmt).scalar_one())
+
+    def list_calendar_tasks(
+        self, *, project_id: int, starts_on: date, ends_on: date
+    ) -> list[Task]:
+        """조회 구간에 마감일이 있는 태스크. 수기·AI 출처와 상태를 가리지 않는다."""
+        stmt: Select = (
+            select(Task)
+            .where(
+                Task.project_id == project_id,
+                Task.due_on >= starts_on,
+                Task.due_on <= ends_on,
+            )
+            .order_by(Task.due_on, Task.id)
+        )
+        return list(self._db.execute(stmt).scalars())
+
+    def list_calendar_schedule_items(
+        self, *, project_id: int, starts_on: date, ends_on: date
+    ) -> list[ScheduleItem]:
+        """조회 구간과 겹치는, 사람이 승인 또는 수정 승인한 일정만 반환한다."""
+        in_range = or_(
+            and_(
+                ScheduleItem.kind == "PERIOD",
+                ScheduleItem.starts_on <= ends_on,
+                ScheduleItem.ends_on >= starts_on,
+            ),
+            and_(
+                ScheduleItem.kind.in_(("MILESTONE", "MEETING")),
+                ScheduleItem.starts_on >= starts_on,
+                ScheduleItem.starts_on <= ends_on,
+            ),
+            and_(
+                ScheduleItem.kind == "DEADLINE",
+                ScheduleItem.ends_on >= starts_on,
+                ScheduleItem.ends_on <= ends_on,
+            ),
+        )
+        stmt: Select = (
+            select(ScheduleItem)
+            .where(
+                ScheduleItem.project_id == project_id,
+                ScheduleItem.decision.in_(("APPROVED", "EDITED")),
+                in_range,
+            )
+            .order_by(ScheduleItem.starts_on, ScheduleItem.ends_on, ScheduleItem.id)
+        )
+        return list(self._db.execute(stmt).scalars())

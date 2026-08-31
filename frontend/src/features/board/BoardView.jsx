@@ -1,5 +1,13 @@
-import { useState } from 'react'
+// =============================================================================
+// 이 파일의 책임: 프로젝트 태스크를 상태별 보드와 기존 상세 편집 흐름으로 보여준다.
+// 다른 파일과의 관계: api/task.js로 CRUD하고, 대시보드 캘린더의 task_id를 받아
+//   해당 태스크 카드로 스크롤한 뒤 잠시 강조한다.
+// Spring 비교: 태스크 목록 Controller와 편집 View를 합친 화면 컴포넌트다.
+// =============================================================================
+
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { createTask, deleteTask, listTaskActivity, listTasks, updateTask } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
 import { splitAutoNote } from '../../utils/taskNote'
@@ -10,6 +18,9 @@ const TYPE_LABELS = { DEVELOPMENT: '개발', DESIGN: '디자인', INFRA: '인프
 
 export default function BoardView({ projectId, members, canEdit, notify }) {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const taskCardRefs = useRef(new Map())
+  const [highlightedTaskId, setHighlightedTaskId] = useState(null)
   const tasksKey = ['projects', projectId, 'tasks']
   const activityKey = ['projects', projectId, 'task-activity']
   const tasksQuery = useQuery({ queryKey: tasksKey, queryFn: () => listTasks(projectId) })
@@ -24,7 +35,7 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
       queryClient.setQueryData(tasksKey, current => editingTask?.id ? current?.map(task => task.id === saved.id ? saved : task) : [saved, ...(current ?? [])])
       notify('success', editingTask?.id ? '태스크 수정 완료' : '태스크 생성 완료', `${saved.title} 태스크를 저장했습니다.`)
       queryClient.invalidateQueries({ queryKey: activityKey })
-      setEditingTask(null)
+      closeEditingTask()
     },
     onError: error => notify('error', '태스크 저장 실패', error.message),
   })
@@ -57,6 +68,41 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     onSettled: () => { setDraggingTaskId(null); setDragOverStatus(null) },
   })
   const tasks = tasksQuery.data ?? []
+  const requestedTaskIdParam = searchParams.get('task_id')
+  const requestedTaskId = Number(requestedTaskIdParam)
+
+  useEffect(() => {
+    if (!requestedTaskIdParam || !tasksQuery.isSuccess || !Number.isInteger(requestedTaskId)) return
+    const requestedTask = tasks.find(task => task.id === requestedTaskId)
+    if (!requestedTask) return
+
+    setHighlightedTaskId(requestedTaskId)
+    const frame = window.requestAnimationFrame(() => {
+      const card = taskCardRefs.current.get(requestedTaskId)
+      card?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      card?.focus({ preventScroll: true })
+    })
+    const timer = window.setTimeout(() => {
+      setHighlightedTaskId(current => current === requestedTaskId ? null : current)
+      setSearchParams(current => {
+        const next = new URLSearchParams(current)
+        next.delete('task_id')
+        return next
+      }, { replace: true })
+    }, 2_400)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [requestedTaskId, requestedTaskIdParam, setSearchParams, tasks, tasksQuery.isSuccess])
+
+  function closeEditingTask() {
+    setEditingTask(null)
+    if (!searchParams.has('task_id')) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('task_id')
+    setSearchParams(next, { replace: true })
+  }
 
   function startDragging(event, task) {
     if (!canEdit || statusMutation.isPending) { event.preventDefault(); return }
@@ -80,16 +126,17 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
     {tasksQuery.isSuccess && <div className='board task-board'>{COLUMNS.map(([status, label]) => {
       const columnTasks = tasks.filter(task => task.status === status)
       const activeDrop = canEdit && draggingTaskId && dragOverStatus === status
-      return <section key={status} className={`task-column task-column-${status.toLowerCase()}${activeDrop ? ' is-drag-over' : ''}`} onDragOver={event => { if (canEdit) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverStatus(status) } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOverStatus(null) }} onDrop={event => dropTask(event, status)}><header><div><h2>{label}</h2><span>{columnTasks.length}</span></div></header>{columnTasks.length ? <div className='task-card-list'>{columnTasks.map(task => <TaskCard key={task.id} task={task} canEdit={canEdit} dragging={draggingTaskId === task.id} onDragStart={event => startDragging(event, task)} onDragEnd={() => { setDraggingTaskId(null); setDragOverStatus(null) }} onEdit={() => setEditingTask(task)} onDelete={() => setDeletingTask(task)}/>)}</div> : <p className='task-column-empty'>{activeDrop ? '여기에 놓아 상태를 변경합니다.' : '등록된 태스크가 없습니다.'}</p>}</section>
+      return <section key={status} className={`task-column task-column-${status.toLowerCase()}${activeDrop ? ' is-drag-over' : ''}`} onDragOver={event => { if (canEdit) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverStatus(status) } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOverStatus(null) }} onDrop={event => dropTask(event, status)}><header><div><h2>{label}</h2><span>{columnTasks.length}</span></div></header>{columnTasks.length ? <div className='task-card-list'>{columnTasks.map(task => <TaskCard key={task.id} task={task} canEdit={canEdit} dragging={draggingTaskId === task.id} highlighted={highlightedTaskId === task.id} cardRef={element => { if (element) taskCardRefs.current.set(task.id, element); else taskCardRefs.current.delete(task.id) }} onDragStart={event => startDragging(event, task)} onDragEnd={() => { setDraggingTaskId(null); setDragOverStatus(null) }} onEdit={() => setEditingTask(task)} onDelete={() => setDeletingTask(task)}/>)}</div> : <p className='task-column-empty'>{activeDrop ? '여기에 놓아 상태를 변경합니다.' : '등록된 태스크가 없습니다.'}</p>}</section>
     })}</div>}
-    {editingTask && <TaskDialog task={editingTask} members={members} pending={saveMutation.isPending} onClose={() => setEditingTask(null)} onSubmit={values => saveMutation.mutate(values)}/>}
+    {editingTask && <TaskDialog task={editingTask} members={members} readOnly={!canEdit} pending={saveMutation.isPending} onClose={closeEditingTask} onSubmit={values => saveMutation.mutate(values)}/>}
     {deletingTask && <DeleteDialog task={deletingTask} pending={deleteMutation.isPending} onClose={() => setDeletingTask(null)} onDelete={() => deleteMutation.mutate(deletingTask)}/>}
     {activityOpen && <ActivityDialog projectId={projectId} onClose={() => setActivityOpen(false)}/>}
   </>
 }
 
-function TaskCard({ task, canEdit, dragging, onDragStart, onDragEnd, onEdit, onDelete }) {
-  return <article className={`task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}`} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3><TaskDescription text={task.description}/><footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
+function TaskCard({ task, canEdit, dragging, highlighted, cardRef, onDragStart, onDragEnd, onEdit, onDelete }) {
+  const className = `task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}${highlighted ? ' is-calendar-target' : ''}`
+  return <article ref={cardRef} tabIndex={-1} className={className} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3><TaskDescription text={task.description}/><footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
 }
 
 // 설명을 그린다. 끝에 붙은 **자동 기록 블록**은 사람이 쓴 것과 구분해 색으로 낸다.
@@ -109,7 +156,7 @@ function TaskDescription({ text }) {
   </>
 }
 
-function TaskDialog({ task, members, pending, onClose, onSubmit }) {
+function TaskDialog({ task, members, readOnly, pending, onClose, onSubmit }) {
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const [title, setTitle] = useState(task.title ?? '')
@@ -121,10 +168,20 @@ function TaskDialog({ task, members, pending, onClose, onSubmit }) {
   const [titleError, setTitleError] = useState('')
   function submit(event) {
     event.preventDefault()
+    if (readOnly) return
     if (!title.trim()) { setTitleError('태스크 제목을 입력해 주세요.'); return }
     onSubmit({ title: title.trim(), description: description.trim() || null, type, status, assignee_id: assigneeId ? Number(assigneeId) : null, due_on: dueOn || null })
   }
-  return <div className='dialog-backdrop' onMouseDown={event => event.target === event.currentTarget && !pending && onClose()}><form className='project-dialog task-dialog' onSubmit={submit} role='dialog' aria-modal='true' aria-labelledby='task-dialog-title'><header><div><p className='eyebrow'>ACTION TASK</p><h2 id='task-dialog-title'>{task.id ? '태스크 수정' : '새 태스크 만들기'}</h2></div><button type='button' className='dialog-close' onClick={onClose} disabled={pending}>×</button></header><label>제목<input autoFocus value={title} maxLength='300' aria-invalid={Boolean(titleError)} onChange={event => { setTitle(event.target.value); setTitleError('') }}/>{titleError && <small className='field-error'>{titleError}</small>}</label><label>설명<textarea rows='4' value={description} onChange={event => setDescription(event.target.value)}/></label><div className='task-dialog-grid'><label>유형<select value={type} onChange={event => setType(event.target.value)}>{Object.entries(TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>상태<select value={status} onChange={event => setStatus(event.target.value)}>{COLUMNS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div><div className='task-dialog-grid'><label>담당자<select value={assigneeId} onChange={event => setAssigneeId(event.target.value)}><option value=''>담당자 미정</option>{members.map(member => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}</select></label><label>마감일<input type='date' min={today} value={dueOn} onChange={event => setDueOn(event.target.value)}/></label></div><footer><button type='button' onClick={onClose} disabled={pending}>취소</button><button className='primary' disabled={pending}>{pending ? '저장 중...' : '저장'}</button></footer></form></div>
+  return <div className='dialog-backdrop' onMouseDown={event => event.target === event.currentTarget && !pending && onClose()}>
+    <form className='project-dialog task-dialog' onSubmit={submit} role='dialog' aria-modal='true' aria-labelledby='task-dialog-title'>
+      <header><div><p className='eyebrow'>ACTION TASK</p><h2 id='task-dialog-title'>{readOnly ? '태스크 상세' : task.id ? '태스크 수정' : '새 태스크 만들기'}</h2></div><button type='button' className='dialog-close' onClick={onClose} disabled={pending}>×</button></header>
+      <label>제목<input autoFocus={!readOnly} disabled={readOnly} value={title} maxLength='300' aria-invalid={Boolean(titleError)} onChange={event => { setTitle(event.target.value); setTitleError('') }}/>{titleError && <small className='field-error'>{titleError}</small>}</label>
+      <label>설명<textarea disabled={readOnly} rows='4' value={description} onChange={event => setDescription(event.target.value)}/></label>
+      <div className='task-dialog-grid'><label>유형<select disabled={readOnly} value={type} onChange={event => setType(event.target.value)}>{Object.entries(TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>상태<select disabled={readOnly} value={status} onChange={event => setStatus(event.target.value)}>{COLUMNS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+      <div className='task-dialog-grid'><label>담당자<select disabled={readOnly} value={assigneeId} onChange={event => setAssigneeId(event.target.value)}><option value=''>담당자 미정</option>{members.map(member => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}</select></label><label>마감일<input disabled={readOnly} type='date' min={today} value={dueOn} onChange={event => setDueOn(event.target.value)}/></label></div>
+      <footer><button type='button' onClick={onClose} disabled={pending}>{readOnly ? '닫기' : '취소'}</button>{!readOnly && <button className='primary' disabled={pending}>{pending ? '저장 중...' : '저장'}</button>}</footer>
+    </form>
+  </div>
 }
 
 function DeleteDialog({ task, pending, onClose, onDelete }) {

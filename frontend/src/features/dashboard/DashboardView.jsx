@@ -1,7 +1,6 @@
 // =============================================================================
-// 이 파일의 책임: 프로젝트 핵심 현황 화면이다(DSH-001). 지표 카드 · 문서 유형
-//   분포 · OCR 검수 필요 목록 · 최근 문서를 보여주고, 각 항목에서 관련 화면으로
-//   이동시킨다.
+// 이 파일의 책임: 프로젝트 핵심 현황 화면이다(DSH-001). 지표 카드 · 프로젝트
+//   캘린더 · 문서 유형 분포 · OCR 검수 필요 목록 · 최근 문서를 보여준다.
 // 다른 파일과의 관계: api/dashboard.js 로 집계를 받는다. OCR 검수 목록 항목만
 //   상위(WorkspacePage → useWorkspaceData)가 넘겨준 documents 를 쓴다.
 //   표기는 utils/documentStatus.js · utils/documentType.js 를 쓴다.
@@ -22,6 +21,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { getDashboard } from '../../api/dashboard'
+import ProjectCalendar from './ProjectCalendar'
 import { listTasks } from '../../api/task'
 import PageHeading from '../../components/common/PageHeading'
 import { getDocumentStatus, getReviewStatus } from '../../utils/documentStatus'
@@ -89,6 +89,8 @@ export default function DashboardView({ projectId, documents }) {
       </section>
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
+
+    <ProjectCalendar projectId={projectId} tasks={tasksQuery.data ?? []}/>
 
     <div className='dashboard-distribution-grid'><DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)} onOpenType={goDocumentsByType}/><ProcessingStatusPanel counts={counts} loaded={Boolean(data)} onOpen={goDocuments}/></div>
 

@@ -1,7 +1,6 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001)을 만든다. 리포지토리가 세어 준
-#   상태 분포를 화면이 쓰는 묶음(처리 중 · 완료 · 실패)으로 접고, 문서 유형
-#   분포를 보여줄 순서로 정렬하고, 응답 스키마로 바꾼다.
+# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001)과 프로젝트 캘린더 조회 결과를
+#   만든다. 집계 상태를 화면 묶음으로 접고, 태스크와 일정을 공통 DTO로 합친다.
 # 다른 파일과의 관계: repositories/dashboard_repository.py 로 조회하고 응답 계약은
 #   schemas/dashboard.py 다. api/routes/dashboard_router.py 가 부른다.
 # Spring 비교: @Service 다. 상태 묶기 규칙이 이 계층에 있는 것은
@@ -26,10 +25,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from app.models.enums import DocumentStatus, ReviewStatus
 from app.repositories.dashboard_repository import DashboardRepository
 from app.schemas.dashboard import (
+    DashboardCalendarEvent,
+    DashboardCalendarResponse,
     DashboardDocumentCounts,
     DashboardDocumentTypeCount,
     DashboardRecentDocument,
@@ -105,6 +107,50 @@ class DashboardService:
                 DashboardRecentDocument.model_validate(document) for document in recent
             ],
         )
+
+    def get_calendar(
+        self, *, project_id: int, starts_on: date, ends_on: date
+    ) -> DashboardCalendarResponse:
+        """태스크 마감과 승인된 일정을 월간 달력용 공통 계약으로 합친다."""
+        tasks = self._dashboard.list_calendar_tasks(
+            project_id=project_id, starts_on=starts_on, ends_on=ends_on
+        )
+        schedules = self._dashboard.list_calendar_schedule_items(
+            project_id=project_id, starts_on=starts_on, ends_on=ends_on
+        )
+        items = [
+            DashboardCalendarEvent(
+                id=f"task:{task.id}",
+                item_type="TASK",
+                source_id=task.id,
+                title=task.title,
+                kind="TASK_DUE",
+                starts_on=task.due_on,
+                ends_on=task.due_on,
+                status=task.status,
+            )
+            for task in tasks
+        ]
+        items.extend(
+            DashboardCalendarEvent(
+                id=f"schedule:{schedule.id}",
+                item_type="SCHEDULE",
+                source_id=schedule.id,
+                title=schedule.title,
+                kind=schedule.kind,
+                starts_on=schedule.starts_on,
+                ends_on=schedule.ends_on,
+            )
+            for schedule in schedules
+        )
+        items.sort(
+            key=lambda item: (
+                item.starts_on or item.ends_on or date.max,
+                item.item_type,
+                item.source_id,
+            )
+        )
+        return DashboardCalendarResponse(items=items)
 
 
 # --- 집계 (순수 함수) --------------------------------------------------------

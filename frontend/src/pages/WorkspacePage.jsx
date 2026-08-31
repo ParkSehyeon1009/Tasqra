@@ -38,7 +38,7 @@ import '../styles/workspace.css'
 // PROJECT_MENUS 다. 거기가 사이드바에서 눌러 들어가는 목록이고, 이 배열은
 // 주소로 들어왔을 때 허용하는 목록이다(없으면 대시보드로 되돌린다).
 // 셋 중 하나를 빠뜨리면 에러 없이 어긋난다.
-const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['amounts','금액'],['deliverables','산출물'],['board','보드'],['settings','설정']]
+const TABS = [['dashboard','대시보드'],['documents','문서'],['search','검색'],['board','보드'],['amounts','금액'],['deliverables','산출물'],['settings','설정']]
 const DOCUMENT_STATES = new Set(['PROCESSING', 'REVIEW_REQUIRED', 'COMPLETED', 'FAILED'])
 
 export default function WorkspacePage({ user, onLogout, notify }) {

@@ -1,6 +1,6 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001) 응답 계약이다. 대시보드가 보여줄
-#   지표와 최근 문서 목록의 모양을 정한다.
+# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001)과 프로젝트 캘린더 응답 계약이다.
+#   대시보드 지표, 최근 문서, 태스크 마감·승인 일정 항목의 모양을 정한다.
 # 다른 파일과의 관계: services/dashboard_service.py 가 이 모델을 채워 돌려주고
 #   api/routes/dashboard_router.py 가 response_model 로 쓴다. 최근 문서 항목은
 #   models/document.py 의 Document 에서 그대로 만든다(from_attributes).
@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,6 +77,23 @@ class DashboardRecentDocument(BaseModel):
     status: str
     review_status: str
     created_at: datetime
+
+
+class DashboardCalendarEvent(BaseModel):
+    """달력 한 칸에 표시할 태스크 마감 또는 승인된 일정."""
+
+    id: str
+    item_type: str
+    source_id: int
+    title: str
+    kind: str
+    starts_on: date | None
+    ends_on: date | None
+    status: str | None = None
+
+
+class DashboardCalendarResponse(BaseModel):
+    items: list[DashboardCalendarEvent] = Field(default_factory=list)
 
 
 class DashboardResponse(BaseModel):

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 //   · TABS = 주소로 들어왔을 때 허용되는 곳 (없으면 대시보드로 되돌린다)
 // 한쪽만 고치면 **에러 없이** 어긋난다 — 여기만 넣으면 눌러도 대시보드로
 // 튕기고, TABS 에만 넣으면 주소를 직접 쳐야 들어갈 수 있다.
-const PROJECT_MENUS = [['dashboard','dashboard','대시보드'],['documents','document','문서'],['search','search','검색'],['amounts','amount','금액'],['deliverables','deliverable','산출물'],['board','board','보드'],['settings','settings','설정']]
+const PROJECT_MENUS = [['dashboard','dashboard','대시보드'],['documents','document','문서'],['search','search','검색'],['board','board','보드'],['amounts','amount','금액'],['deliverables','deliverable','산출물'],['settings','settings','설정']]
 
 export default function ProjectSidebar({ projects, activeProjectId, activeTab, onSelect, onNavigateTab, onCreate }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('tasqra-rail-collapsed') === '1')
