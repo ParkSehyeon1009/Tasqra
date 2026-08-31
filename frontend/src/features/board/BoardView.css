@@ -13,3 +13,22 @@
    고른 색에서 만들어 주므로 어느 테마에서도 어울린다. 빨강은 쓰지 않는다:
    여기는 오류가 아니라 상태 알림이고, 빨강은 삭제·위험에 이미 쓰고 있다. */
 .task-board-note { margin: 9px 0 0 !important; padding: 8px 10px; border-left: 3px solid var(--c-accent-strong); border-radius: 0 8px 8px 0; background: var(--c-accent-bg); color: var(--c-accent-strong) !important; font-size: 12px !important; font-weight: 700; line-height: 1.5; white-space: pre-wrap; }
+
+
+
+/* 캘린더에서 들어온 태스크를 찾을 수 있게 스크롤 후 연하게 강조한다. */
+.task-board-card.is-calendar-target {
+  animation: task-calendar-target 2.4s ease-in-out;
+  outline: 2px solid #5148c829;
+  outline-offset: 2px;
+  background: linear-gradient(120deg, #fff 8%, #faf9ff 48%, #f0f4ff 100%);
+  background-size: 220% 100%;
+}
+@keyframes task-calendar-target {
+  0%, 100% { background-position: 0 50%; box-shadow: 0 4px 12px #26344c0d; transform: translateY(0); }
+  24%, 58% { background-position: 100% 50%; box-shadow: 0 0 0 5px #5148c814, 0 9px 20px #26344c16; transform: translateY(-1px); }
+  40%, 76% { background-position: 48% 50%; box-shadow: 0 0 0 2px #5148c80d, 0 5px 14px #26344c10; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-board-card.is-calendar-target { animation: none; box-shadow: 0 0 0 4px #5148c814; }
+}

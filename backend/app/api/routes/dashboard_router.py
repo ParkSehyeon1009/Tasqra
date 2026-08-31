@@ -1,6 +1,5 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황 조회 엔드포인트다(DSH-001).
-#   GET /api/projects/{project_id}/dashboard 하나뿐이다.
+# 이 파일의 책임: 프로젝트 핵심 현황과 프로젝트 캘린더 조회 엔드포인트다.
 # 다른 파일과의 관계: services/dashboard_service.py 를 부르고
 #   schemas/dashboard.py 를 돌려준다.
 # Spring 비교: @RestController + @GetMapping 이다. ProjectAccess 는 인터셉터가
@@ -24,10 +23,12 @@
 #   되는 값이라 엔드포인트 전체를 잠그면 과하다.
 # =============================================================================
 
-from fastapi import APIRouter, Depends, Query
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import ProjectAccess, get_dashboard_service, get_project_access
-from app.schemas.dashboard import DashboardResponse
+from app.schemas.dashboard import DashboardCalendarResponse, DashboardResponse
 from app.services.dashboard_service import DashboardService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["dashboard"])
@@ -44,4 +45,20 @@ def get_dashboard(
     return service.get_overview(
         project_id=access.project.id,
         recent_limit=recent_limit,
+    )
+
+
+@router.get("/dashboard/calendar", response_model=DashboardCalendarResponse)
+def get_dashboard_calendar(
+    from_: date = Query(alias="from", description="달력 조회 시작일"),
+    to: date = Query(description="달력 조회 종료일"),
+    access: ProjectAccess = Depends(get_project_access),
+    service: DashboardService = Depends(get_dashboard_service),
+) -> DashboardCalendarResponse:
+    if from_ > to:
+        raise HTTPException(status_code=422, detail="조회 시작일은 종료일보다 늦을 수 없습니다.")
+    return service.get_calendar(
+        project_id=access.project.id,
+        starts_on=from_,
+        ends_on=to,
     )

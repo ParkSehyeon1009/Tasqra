@@ -178,3 +178,82 @@
   }
   .workspace-content { margin-left: 280px; }
 }
+
+/* 프로젝트 캘린더: 태스크 마감과 승인된 일정의 읽기 전용 월간 조회 */
+.project-calendar { margin-top: 18px; }
+.project-calendar__head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.project-calendar__head h2 { margin: 0; color: #202b3e; font-size: 20px; }
+.project-calendar__head p { margin: 6px 0 0; color: #758197; font-size: 13px; }
+.project-calendar__controls { display: flex; align-items: center; gap: 8px; }
+.project-calendar__controls button { min-width: 36px; min-height: 36px; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #3f4b60; font: inherit; font-weight: 750; cursor: pointer; }
+.project-calendar__controls strong { min-width: 108px; color: #202b3e; text-align: center; }
+.project-calendar__controls .project-calendar__today { padding: 0 12px; color: #4a43ae; }
+.project-calendar__controls button:hover, .project-calendar__controls button:focus-visible { border-color: #756de8; background: #f5f4ff; }
+.project-calendar__notice { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; padding: 13px 15px; border: 1px solid #e8c9c9; border-radius: 10px; background: #fdf6f6; }
+.project-calendar__notice span, .project-calendar__notice small { display: block; }
+.project-calendar__notice small { margin-top: 4px; color: #7d6a6a; }
+.project-calendar__notice button { padding: 8px 11px; border: 1px solid #d9bcbc; border-radius: 8px; background: #fff; color: #8a3d3d; font-weight: 750; cursor: pointer; }
+.project-calendar__layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.project-calendar__month { position: relative; min-width: 0; overflow-x: auto; }
+.project-calendar__weekdays, .project-calendar__grid { min-width: 720px; }
+.project-calendar__weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid #dce3ee; border-bottom: 0; border-radius: 10px 10px 0 0; background: #f7f8fc; }
+.project-calendar__weekdays span { padding: 9px; color: #65748a; font-size: 12px; font-weight: 800; text-align: center; }
+.project-calendar__weekdays span.is-sunday { color: #b75b63; }
+.project-calendar__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #dce3ee; border-left: 1px solid #dce3ee; }
+.project-calendar__day { height: 112px; padding: 7px; overflow: hidden; border-right: 1px solid #dce3ee; border-bottom: 1px solid #dce3ee; background: #fff; }
+.project-calendar__day.is-outside { background: #f8f9fc; }
+.project-calendar__day.is-selected { box-shadow: inset 0 0 0 2px #5d55c7; }
+.project-calendar__date { display: flex; width: 100%; min-height: 28px; padding: 0 2px; align-items: center; justify-content: space-between; border: 0; background: transparent; color: #36435a; font: inherit; font-weight: 750; cursor: pointer; }
+.project-calendar__date small { color: #5148c8; font-size: 10px; }
+.project-calendar__day.is-outside .project-calendar__date { color: #9ba5b4; }
+.project-calendar__day.is-sunday .project-calendar__date { color: #b75b63; }
+.project-calendar__day.is-outside.is-sunday .project-calendar__date { color: #c99a9e; }
+.project-calendar__events { display: grid; gap: 4px; margin-top: 4px; }
+.project-calendar__event, .project-calendar__more { width: 100%; min-width: 0; padding: 5px 6px; overflow: hidden; border: 1px solid #d9dfeb; border-radius: 6px; background: #f7f8fc; color: #445168; text-align: left; cursor: pointer; }
+.project-calendar__event span { display: block; color: #65748a; font-size: 9px; font-weight: 850; }
+.project-calendar__event b { display: block; margin-top: 2px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.project-calendar__event { border-left: 3px solid var(--calendar-accent, #65748a); background: var(--calendar-bg, #f5f7fa); }
+.project-calendar__event.task-type-development, .project-calendar__detail .task-type-development { --calendar-accent: #3d72d3; --calendar-bg: #eef4ff; }
+.project-calendar__event.task-type-design, .project-calendar__detail .task-type-design { --calendar-accent: #8750cc; --calendar-bg: #f5efff; }
+.project-calendar__event.task-type-infra, .project-calendar__detail .task-type-infra { --calendar-accent: #c27622; --calendar-bg: #fff4e8; }
+.project-calendar__event.task-type-document, .project-calendar__detail .task-type-document { --calendar-accent: #288a5a; --calendar-bg: #eaf8f0; }
+.project-calendar__event.task-type-other, .project-calendar__detail .task-type-other { --calendar-accent: #7b8798; --calendar-bg: #f1f3f6; }
+.project-calendar__event.kind-meeting, .project-calendar__detail .kind-meeting { --calendar-accent: #8750cc; --calendar-bg: #f5efff; }
+.project-calendar__event.kind-milestone, .project-calendar__detail .kind-milestone { --calendar-accent: #288a5a; --calendar-bg: #eaf8f0; }
+.project-calendar__event.kind-deadline, .project-calendar__detail .kind-deadline { --calendar-accent: #c15f2b; --calendar-bg: #fff2ea; }
+.project-calendar__event.kind-period, .project-calendar__detail .kind-period { --calendar-accent: #397a82; --calendar-bg: #eaf5f5; }
+.project-calendar__event.is-period { position: relative; z-index: 1; width: calc(100% + 14px); margin-right: -7px; margin-left: -7px; border-right: 0; border-left: 0; border-radius: 0; }
+.project-calendar__event.is-period-start { width: calc(100% + 7px); margin-left: 0; border-left: 3px solid var(--calendar-accent); border-radius: 6px 0 0 6px; }
+.project-calendar__event.is-period-end { width: calc(100% + 7px); margin-right: 0; border-right: 1px solid var(--calendar-accent); border-radius: 0 6px 6px 0; }
+.project-calendar__event.is-period-start.is-period-end { width: 100%; margin: 0; border-right: 1px solid var(--calendar-accent); border-radius: 6px; }
+.project-calendar__more { border: 0; background: transparent; color: #5d55c7; font-size: 10px; font-weight: 750; text-align: center; }
+.project-calendar__loading, .project-calendar__month-empty { margin: 12px 0 0; padding: 12px; border: 1px dashed #cbd4e2; border-radius: 9px; color: #69778b; font-size: 13px; text-align: center; }
+.project-calendar__detail { min-height: 360px; padding: 16px; border: 1px solid #dce3ee; border-radius: 12px; background: #fafbfe; }
+.project-calendar__detail > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid #e2e7ef; }
+.project-calendar__detail > header span { color: #202b3e; font-weight: 800; }
+.project-calendar__detail > header strong { color: #65748a; font-size: 12px; }
+.project-calendar__detail ul { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.project-calendar__detail li button { width: 100%; padding: 11px; border: 1px solid #dce3ee; border-left: 4px solid var(--calendar-accent, #65748a); border-radius: 9px; background: var(--calendar-bg, #fff); text-align: left; cursor: pointer; }
+.project-calendar__detail li button:hover, .project-calendar__detail li button:focus-visible, .project-calendar__detail li button.is-active { border-color: #756de8; background: #f5f4ff; }
+.project-calendar__detail li span, .project-calendar__detail li strong, .project-calendar__detail li small { display: block; }
+.project-calendar__detail li span { color: #65748a; font-size: 10px; font-weight: 800; }
+.project-calendar__detail li strong { margin-top: 5px; color: #273247; }
+.project-calendar__detail li small { margin-top: 6px; color: #758197; }
+.project-calendar__empty { display: grid; min-height: 250px; place-items: center; align-content: center; text-align: center; }
+.project-calendar__empty strong { color: #36435a; }
+.project-calendar__empty p { margin: 8px 0 0; color: #758197; font-size: 12px; line-height: 1.6; }
+.project-calendar__schedule-detail { margin-top: 14px; padding: 14px; border-top: 3px solid var(--calendar-accent, #65748a); border-radius: 9px; background: var(--calendar-bg, #fff); }
+.project-calendar__schedule-detail > span { color: #65748a; font-size: 11px; font-weight: 800; }
+.project-calendar__schedule-detail h3 { margin: 7px 0 12px; color: #202b3e; font-size: 16px; }
+.project-calendar__schedule-detail dl, .project-calendar__schedule-detail dl div { margin: 0; }
+.project-calendar__schedule-detail dl { display: grid; gap: 7px; }
+.project-calendar__schedule-detail dl div { display: grid; grid-template-columns: 54px 1fr; gap: 8px; font-size: 12px; }
+.project-calendar__schedule-detail dt { color: #758197; }
+.project-calendar__schedule-detail dd { margin: 0; color: #36435a; font-weight: 700; }
+@media (max-width: 1100px) { .project-calendar__layout { grid-template-columns: 1fr; } .project-calendar__detail { min-height: 240px; } }
+@media (max-width: 680px) { .project-calendar__head { align-items: flex-start; flex-direction: column; } .project-calendar__controls { width: 100%; flex-wrap: wrap; } .project-calendar__controls strong { flex: 1; } .project-calendar__controls .project-calendar__today { width: 100%; } .project-calendar__notice { align-items: flex-start; flex-direction: column; } .project-calendar__notice button { width: 100%; } }
+
+
+/* 캘린더 우측 일정 상세 패널 */
+.project-calendar__detail.is-open { border-color: #bfc7d5; background: #fff; box-shadow: 0 12px 32px rgba(30, 43, 66, .12); }
+.project-calendar__detail-close { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 1px solid #d2d9e7; border-radius: 8px; background: #fff; color: #4b5870; font-size: 20px; cursor: pointer; }
