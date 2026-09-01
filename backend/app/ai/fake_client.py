@@ -21,6 +21,7 @@ FAKE_DELAY_SECONDS = 0.1
 
 class FakeAIClient(AIClientProtocol):
     provider = "fake"
+    model_name = FAKE_MODEL_NAME
 
     async def generate(self, prompt: AIRequest) -> str:
         result = await self.generate_with_meta(prompt)
