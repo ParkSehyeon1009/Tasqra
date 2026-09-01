@@ -22,7 +22,7 @@ const KIND_LABELS = {
 const TASK_STATUS_LABELS = { TODO: '할 일', IN_PROGRESS: '진행 중', DONE: '완료' }
 const TASK_TYPE_LABELS = { DEVELOPMENT: '개발', DESIGN: '디자인', INFRA: '인프라', DOCUMENT: '문서', OTHER: '기타' }
 
-export default function ProjectCalendar({ projectId, tasks }) {
+export default function ProjectCalendar({ projectId }) {
   const navigate = useNavigate()
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()))
@@ -90,7 +90,7 @@ export default function ProjectCalendar({ projectId, tasks }) {
             return <div className={`project-calendar__day${outside ? ' is-outside' : ''}${selected ? ' is-selected' : ''}${today ? ' is-today' : ''}${sunday ? ' is-sunday' : ''}`} key={dateKey}>
               <button type='button' className='project-calendar__date' aria-pressed={selected} onClick={() => selectDate(dateKey)}><span>{day.getDate()}</span>{today && <small>오늘</small>}</button>
               <div className='project-calendar__events'>
-                {preview && <button type='button' className={calendarEventClass(preview, dateKey, day, tasks)} aria-label={`${calendarItemLabel(preview, tasks)} ${preview.title}, ${formatDate(dateKey)} 항목 보기`} onClick={() => selectDate(dateKey)}><span>{calendarItemLabel(preview, tasks)}</span><b>{showEventTitle(preview, dateKey, day) ? preview.title : '\u00a0'}</b></button>}
+                {preview && <button type='button' className={calendarEventClass(preview, dateKey, day)} aria-label={`${calendarItemLabel(preview)} ${preview.title}, ${formatDate(dateKey)} 항목 보기`} onClick={() => selectDate(dateKey)}><span>{calendarItemLabel(preview)}</span><b>{showEventTitle(preview, dateKey, day) ? preview.title : '\u00a0'}</b></button>}
                 {dayItems.length > 1 && <button type='button' className='project-calendar__more' onClick={() => selectDate(dateKey)}>+{dayItems.length - 1}개 더 보기</button>}
               </div>
             </div>
@@ -109,7 +109,7 @@ export default function ProjectCalendar({ projectId, tasks }) {
           : <>
               <header><span>{formatDate(selectedDate)}</span><strong>{selectedItems.length}개 항목</strong></header>
               {selectedItems.length > 0
-                ? <ul>{selectedItems.map(item => <li key={item.id}><button type='button' className={calendarItemToneClass(item, tasks)} onClick={() => openListItem(item)}><span>{item.item_type === 'TASK' ? `태스크 · ${calendarItemLabel(item, tasks)}` : `일정 · ${KIND_LABELS[item.kind] ?? item.kind}`}</span><strong>{item.title}</strong><small>{item.item_type === 'TASK' ? `${TASK_STATUS_LABELS[item.status] ?? item.status} · 보드에서 상세 보기 →` : formatEventDate(item)}</small></button></li>)}</ul>
+                ? <ul>{selectedItems.map(item => <li key={item.id}><button type='button' className={calendarItemToneClass(item)} onClick={() => openListItem(item)}><span>{item.item_type === 'TASK' ? `태스크 · ${calendarItemLabel(item)}` : `일정 · ${KIND_LABELS[item.kind] ?? item.kind}`}</span><strong>{item.title}</strong><small>{item.item_type === 'TASK' ? `${TASK_STATUS_LABELS[item.status] ?? item.status} · 보드에서 상세 보기 →` : formatEventDate(item)}</small></button></li>)}</ul>
                 : <div className='project-calendar__empty'><strong>이 날짜에는 항목이 없습니다.</strong><p>마감일이 있는 태스크나 승인된 일정이 생기면 자동으로 표시됩니다.</p></div>}
             </>}
       </aside>
@@ -160,20 +160,20 @@ function calendarItemOrder(left, right) {
   return left.id.localeCompare(right.id)
 }
 
-function calendarItemToneClass(item, tasks) {
+function calendarItemToneClass(item) {
   if (item.item_type !== 'TASK') return `kind-${item.kind.toLowerCase()}`
-  const type = tasks.find(task => task.id === item.source_id)?.type ?? 'OTHER'
+  const type = item.task_type ?? 'OTHER'
   return `task-type-${type.toLowerCase()}`
 }
 
-function calendarItemLabel(item, tasks) {
+function calendarItemLabel(item) {
   if (item.item_type !== 'TASK') return KIND_LABELS[item.kind] ?? item.kind
-  const type = tasks.find(task => task.id === item.source_id)?.type ?? 'OTHER'
+  const type = item.task_type ?? 'OTHER'
   return `${TASK_TYPE_LABELS[type] ?? TASK_TYPE_LABELS.OTHER} · 마감`
 }
 
-function calendarEventClass(item, dateKey, day, tasks) {
-  const classes = ['project-calendar__event', calendarItemToneClass(item, tasks)]
+function calendarEventClass(item, dateKey, day) {
+  const classes = ['project-calendar__event', calendarItemToneClass(item)]
   if (item.kind !== 'PERIOD') return classes.join(' ')
   classes.push('is-period')
   if (item.starts_on === dateKey || day.getDay() === 0) classes.push('is-period-start')

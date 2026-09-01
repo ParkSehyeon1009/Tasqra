@@ -90,7 +90,7 @@ export default function DashboardView({ projectId, documents }) {
       <ActionTaskPanel tasks={tasksQuery.data ?? []} loading={tasksQuery.isPending} onOpenBoard={() => navigate(`/projects/${projectId}/board`)}/>
     </div>
 
-    <ProjectCalendar projectId={projectId} tasks={tasksQuery.data ?? []}/>
+    <ProjectCalendar projectId={projectId}/>
 
     <div className='dashboard-distribution-grid'><DocumentTypePanel types={data?.document_types} total={counts?.total} loaded={Boolean(data)} onOpenType={goDocumentsByType}/><ProcessingStatusPanel counts={counts} loaded={Boolean(data)} onOpen={goDocuments}/></div>
 
