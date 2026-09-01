@@ -91,6 +91,7 @@ class DocumentListItem(BaseModel):
     filename: str
     file_type: str
     document_type: str | None
+    document_type_source: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str

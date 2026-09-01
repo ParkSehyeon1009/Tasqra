@@ -92,9 +92,9 @@ function DocumentList({ documents, canEdit, onOpen, onPrimaryAction, onRetry, re
         <StatusBadge label={documentStatus.label} description={documentStatus.description} tone={documentStatus.tone}/>
         <StatusBadge label={reviewStatus.label} description={reviewStatus.description} tone={reviewStatus.tone}/>
       </div>
-      <div className='document-secondary-meta'><span className='type-pill'>{getDocumentTypeFilterLabel(document.document_type)}</span><time dateTime={document.created_at}>{new Date(document.created_at).toLocaleDateString()}</time></div>
+      <div className='document-secondary-meta'><div className='document-type-meta'><span className='type-pill'>{getDocumentTypeFilterLabel(document.document_type)}</span>{document.document_type_source === 'AI' && <small className='document-type-source'>AI 분류</small>}</div><time dateTime={document.created_at}>{new Date(document.created_at).toLocaleDateString()}</time></div>
       <div className='document-actions'>
-        {document.status === 'FAILED' && canEdit ? <button className='document-open' disabled={retryingDocumentId === document.id} onClick={() => onRetry(document)}>{retryingDocumentId === document.id ? '재처리 요청 중' : '다시 처리'}</button> : document.review_status === 'COMPLETED' ? <><button className='document-open' onClick={() => onPrimaryAction(document)}>재검수하기</button><button className='document-open' onClick={() => onOpen(document.id)}>상세보기</button></> : <button className='document-open' onClick={() => onPrimaryAction(document)}>{getDocumentPrimaryAction(document)}</button>}
+        {document.status === 'FAILED' && canEdit ? <button className='document-open' disabled={retryingDocumentId === document.id} onClick={() => onRetry(document)}>{retryingDocumentId === document.id ? '재처리 요청 중' : '다시 처리'}</button> : document.review_status === 'COMPLETED' ? <><button className='document-open document-review-action' onClick={() => onPrimaryAction(document)}>재검수</button><button className='document-open' onClick={() => onOpen(document.id)}>상세보기</button></> : <button className='document-open' onClick={() => onPrimaryAction(document)}>{getDocumentPrimaryAction(document)}</button>}
       </div>
       {(processing || document.status === 'FAILED') && <p className='document-state-note' role='status'>{document.processing_error || documentStatus.description}</p>}
     </li>
