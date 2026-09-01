@@ -41,8 +41,11 @@ class LocalAIClient(AIClientProtocol):
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=prompt.messages(),
-            # prompts.py가 JSON 응답을 지시하므로 형식 이탈을 막는다.
-            response_format={"type": "json_object"},
+            # 스키마가 실려 오면 그것으로 디코딩을 제약하고(json_schema),
+            # 없으면 JSON 이기만 하면 되는 기존 모드로 떨어진다(json_object).
+            # ⚠️ Ollama 0.5 이상이 필요하다. 그 아래 서버는 json_schema 를
+            #   400 으로 거절한다 — docs/llm-model-setup.md 참고.
+            response_format=prompt.response_format(),
             max_tokens=prompt.max_output_tokens,
             # 분류/요약은 매번 같은 답이 나오는 편이 검증에 유리하다.
             temperature=0,

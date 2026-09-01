@@ -1,4 +1,7 @@
 """짧은 원문은 1회, 긴 원문은 근거 추출 → 근거 선택 → 최종 요약한다."""
+import logging
+import re
+
 from app.analyzers.output_schemas import FactsOutput, GroundedSummaryOutput, SelectionOutput, SummaryOutput
 from app.analyzers.prompt_input import PromptBudget, encoded_size, split_document
 from app.analyzers.prompts import (
@@ -10,6 +13,29 @@ from app.analyzers.runner import Runner
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
+
+logger = logging.getLogger(__name__)
+
+# 글자와 글자 사이에 있어도 «같은 인용» 으로 볼 것들: 공백류와 보이지 않는 제어문자.
+# 추출기는 `단,   평가참고자료` 처럼 공백을 여러 칸 뱉는데 모델은 한 칸으로 줄여
+# 쓴다. 사람 눈에는 같은 문장이지만 글자 단위 대조는 실패한다.
+_GAP = r"(?:\s|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f])*"
+
+
+def find_span(quote: str, text: str) -> tuple[int, int] | None:
+    """인용이 원문의 어디에 있는지 (시작, 끝) 을 준다. 없으면 None.
+
+    공백 개수 차이는 같은 것으로 본다. 대신 **호출한 쪽이 원문 글자를 잘라
+    쓰도록** 위치를 준다 — 모델이 쓴 문자열을 그대로 저장하면 «저장된 인용은
+    원문에 있다» 는 보장이 깨지기 때문이다. 느슨하게 통과시키는 것이 아니라
+    원문 쪽으로 끌어당기는 것이다.
+    """
+    letters = [c for c in quote if not re.fullmatch(_GAP, c)]
+    if not letters:
+        return None
+    # 공백류와 글자는 서로 겹치지 않으므로 되짚기(backtracking)가 일어나지 않는다.
+    found = re.search(_GAP.join(re.escape(c) for c in letters), text)
+    return (found.start(), found.end()) if found else None
 
 
 def facts_request(text, start, end):
@@ -51,25 +77,50 @@ class SummaryAnalyzer:
             records = []
             seen = set()
             empty_chunks = []
+            rejected = 0
             for i, chunk in enumerate(chunks):
                 stage = f"근거 추출 {i + 1}/{len(chunks)}"
                 runner.progress(stage, i, len(chunks))
-                def verify(parsed):
-                    if any(f.quote not in chunk.text for f in parsed.facts):
-                        raise ValueError("quote is not an exact source substring")
                 parsed = await runner.call(facts_request(chunk.text, chunk.start, chunk.end),
-                    FactsOutput, validate=verify, stage=stage)
-                if not parsed.facts:
-                    empty_chunks.append(i + 1)
+                    FactsOutput, stage=stage)
+                # 인용을 원문에서 찾아 **원문 글자로 바꿔 담는다.** 못 찾은 것만
+                # 버린다.
+                #
+                # 전에는 하나만 어긋나도 ValueError 로 구간을 통째로 버렸다. 근거
+                # 6개 중 5개가 멀쩡한데 5개까지 잃었고, 구간이 10개면 그중 하나만
+                # 걸려도 문서 분석 전체가 실패했다. 실제로 그렇게 실패했다.
+                #
+                # ⚠️ 재시도로는 못 고친다. local_client 가 temperature=0 으로
+                #   고정하므로 같은 프롬프트에 **같은 답이 그대로 다시 온다**
+                #   (3회 호출 실측: 서로 다른 답 1종). 그래서 runner 의 validate
+                #   콜백을 쓰지 않는다 — 재시도는 시간만 두 배로 쓴다.
+                dropped = 0
                 for fact in parsed.facts:
+                    span = find_span(fact.quote, chunk.text)
+                    if span is None:
+                        dropped += 1
+                        continue
+                    # ⚠️ fact.quote 가 아니라 원문에서 잘라낸 것을 담는다. 공백
+                    #   개수가 다를 수 있고, 그대로 담으면 «저장된 인용은 원문에
+                    #   있다» 는 보장이 깨진다(record 의 start~end 로 원문을
+                    #   잘랐을 때 quote 와 달라진다).
+                    quote = chunk.text[span[0]:span[1]]
                     # 다른 위치에 같은 문장이 있으면 같은 근거로 간주하지 않는다.
-                    start = chunk.start + chunk.text.index(fact.quote)
-                    key = (start, fact.quote, fact.status)
+                    start = chunk.start + span[0]
+                    key = (start, quote, fact.status)
                     if key in seen:
                         continue
                     seen.add(key)
-                    records.append({"id": f"e{len(records) + 1}", "quote": fact.quote,
-                        "status": fact.status, "start": start, "end": start + len(fact.quote)})
+                    records.append({"id": f"e{len(records) + 1}", "quote": quote,
+                        "status": fact.status, "start": start, "end": start + len(quote)})
+                if dropped:
+                    rejected += dropped
+                    # 조용히 버리지 않는다. 원문 인용을 못 하는 모델을 쓰고 있다는
+                    # 사실 자체가 신호다(파인튜닝 모델의 다국어 누출에서 나왔다).
+                    logger.warning("원문에서 찾지 못한 인용 %d/%d개를 버렸다 stage=%s",
+                        dropped, len(parsed.facts), stage)
+                if dropped == len(parsed.facts):
+                    empty_chunks.append(i + 1)
                 runner.progress(stage, i + 1, len(chunks))
             records.sort(key=lambda r: r["start"])
             extracted_count = len(records)
@@ -87,6 +138,9 @@ class SummaryAnalyzer:
             output = {**parsed.model_dump(), "strategy": "hierarchical", "input_scope": scope,
                 "chunk_count": len(chunks), "hard_split_count": sum(c.hard_split for c in chunks),
                 "empty_evidence_chunks": empty_chunks, "extracted_evidence_count": extracted_count,
+                # 원문에 없어서 버린 근거 수. 이 값이 크면 모델이 인용을 못 하고
+                # 있다는 뜻이므로, 요약이 나왔더라도 근거가 얇다는 신호로 읽어야 한다.
+                "rejected_evidence_count": rejected,
                 "reduction_levels": levels, "evidence": records}
         return AnalyzeResult(result={**output, "call_count": runner.calls},
             provider=self._ai_client.provider, prompt_version=SUMMARY_PROMPT_VERSION, **runner.metadata())

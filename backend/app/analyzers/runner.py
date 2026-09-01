@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import replace
 
 from pydantic import ValidationError
 
@@ -22,7 +23,11 @@ class Runner:
         self.started = time.monotonic()
 
     async def call(self, prompt, schema, *, validate=None, stage="분석"):
-        prompt = self.budget.prepare(prompt)
+        # 검증에 쓸 스키마를 호출에도 실어 보낸다. 지원하는 서버는 이것으로
+        # 디코딩을 제약하므로, 형식 위반이 «재시도로 걸러내는 것» 에서
+        # «애초에 나올 수 없는 것» 으로 바뀐다. 예산 계산에는 영향이 없다
+        # (문법 제약이지 프롬프트에 붙는 글자가 아니다).
+        prompt = self.budget.prepare(replace(prompt, response_schema=schema))
         for attempt in range(self.settings.AI_CHUNK_RETRIES + 1):
             self.calls += 1
             try:

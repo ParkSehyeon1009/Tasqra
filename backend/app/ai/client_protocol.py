@@ -14,6 +14,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from pydantic import BaseModel
+
 
 @dataclass(frozen=True)
 class AIRequest:
@@ -21,10 +23,36 @@ class AIRequest:
     user: str
     prompt_version: str
     max_output_tokens: int = 1536
+    # 이 호출이 어떤 모양의 JSON 을 기대하는지. analyzers/runner.py 가
+    # 검증에 쓸 스키마를 그대로 실어 보낸다. 값이 있으면 클라이언트가 서버에
+    # 넘겨 **디코딩 단계에서 문법으로 강제**할 수 있다(response_format 참고).
+    response_schema: type[BaseModel] | None = None
 
     def messages(self) -> list[dict[str, str]]:
         return [{"role": "system", "content": self.system},
                 {"role": "user", "content": self.user}]
+
+    def response_format(self) -> dict:
+        """서버에 보낼 response_format 을 만든다.
+
+        json_object 는 "JSON 이기만 하면" 통과시킨다. 그래서 파인튜닝 모델이
+        Literal 필드에 한자를 섞어 뱉으면(`확定`) 서버는 그대로 돌려주고,
+        Pydantic 검증에서야 걸려 재시도만 반복한다.
+
+        json_schema 는 서버가 스키마대로 **디코딩을 제약**하므로 애초에 그 값이
+        나올 수 없다. 실측으로 확인했다 — 같은 프롬프트·같은 모델에서
+        json_object 는 ValidationError, json_schema 는 status 6개 전부 정상.
+        """
+        if self.response_schema is None:
+            return {"type": "json_object"}
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": self.response_schema.__name__,
+                "schema": self.response_schema.model_json_schema(),
+                "strict": True,
+            },
+        }
 
 
 # AIResult: generate_with_meta()의 반환 타입. 본프로젝트에서 자체 파인튜닝 모델과
