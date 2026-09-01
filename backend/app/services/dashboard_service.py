@@ -127,6 +127,7 @@ class DashboardService:
                 kind="TASK_DUE",
                 starts_on=task.due_on,
                 ends_on=task.due_on,
+                task_type=task.type,
                 status=task.status,
             )
             for task in tasks

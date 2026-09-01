@@ -89,6 +89,7 @@ class DashboardCalendarEvent(BaseModel):
     kind: str
     starts_on: date | None
     ends_on: date | None
+    task_type: str | None = None
     status: str | None = None
 
 
