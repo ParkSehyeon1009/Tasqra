@@ -1,7 +1,12 @@
+# 이 파일의 책임: AI 분석 결과를 이력으로 저장하고 자동 분류 문서의 유형을 갱신한다.
+# 다른 파일과의 관계: AnalysisJobService가 잠근 Document와 분석 결과를 넘기면 같은 트랜잭션에 반영한다.
+# Spring 비교: 분석 결과 저장과 자동 분류 정책을 묶는 @Service 계층이다.
+
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis
+from app.models.enums import DocumentTypeSource
 
 DEFAULT_ANALYZER_TYPES = ["summary", "category"]
 
@@ -28,9 +33,26 @@ class AnalysisService:
             results.append((name, result))
         return results
 
-    def save_results(self, document_id, revision, results):
+    @staticmethod
+    def _apply_ai_document_type(document, results):
+        category_result = next((result for name, result in results if name == "category"), None)
+        if category_result is None:
+            return
+        source = document.document_type_source
+        should_fill = document.document_type is None and source is None
+        should_refresh = source == DocumentTypeSource.AI.value
+        if not (should_fill or should_refresh):
+            return
+        category = category_result.result.get("category")
+        if category is None:
+            return
+        document.document_type = category
+        document.document_type_source = DocumentTypeSource.AI.value
+
+    def save_results(self, document, revision, results):
+        self._apply_ai_document_type(document, results)
         return [self._analysis_repository.create(Analysis(
-            document_id=document_id, analyzer_type=name, result_json=result.result,
+            document_id=document.id, analyzer_type=name, result_json=result.result,
             provider=result.provider, model_name=result.model_name,
             prompt_version=result.prompt_version, tokens_in=result.tokens_in,
             tokens_out=result.tokens_out, latency_ms=result.latency_ms,
@@ -54,4 +76,4 @@ class AnalysisService:
             if (document is None or document.extracted_text is None
                 or document.extracted_text.text_version != revision or document.extracted_text.content != content):
                 raise BusinessError(ErrorCode.ANALYSIS_SOURCE_CHANGED)
-            return self.save_results(document_id, revision, results)
+            return self.save_results(document, revision, results)
