@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.enums import DocumentType, DocumentTypeSource
+from app.models.enums import DocumentTypeSource, SelectableDocumentType
 
 
 class DocumentUploadResponse(BaseModel):
@@ -108,14 +108,14 @@ class DocumentListItem(BaseModel):
 
 
 class DocumentTypeUpdateRequest(BaseModel):
-    document_type: DocumentType
+    document_type: SelectableDocumentType
 
 
 class DocumentTypeUpdateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    document_type: DocumentType
+    document_type: SelectableDocumentType
     document_type_source: DocumentTypeSource
 
 

@@ -47,6 +47,7 @@ app.include_router(decision_schedule_router.router)
 # 프로젝트 핵심 현황(DSH-001). 열린 태스크는 tasks 테이블에서 완료되지 않은
 # TODO · IN_PROGRESS 항목을 집계한다.
 app.include_router(dashboard_router.router)
+app.include_router(dashboard_router.portfolio_router)
 # 산출물 생성 대상 미리보기(DLV-001-2). 담당 보현. 만들기(POST)는 아직 없다 —
 # 완료 판정이 "LLM 호출 전에 건수가 보인다" 이므로 미리보기를 먼저 낸다.
 app.include_router(deliverable_router.router)

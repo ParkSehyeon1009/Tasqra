@@ -28,12 +28,12 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import Select, and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.amount import AmountItem
 from app.models.document import Document
 from app.models.schedule import ScheduleItem
-from app.models.task import Task
+from app.models.task import Task, TaskActivityLog
 
 # 승인 대기로 셀 상태. amount_items.decision 의 값이다.
 # APPROVED · EDITED 는 사람이 이미 판단한 것이고 REJECTED 는 거절한 것이라
@@ -127,6 +127,112 @@ class DashboardRepository:
             .where(Task.project_id == project_id, Task.status != "DONE")
         )
         return int(self._db.execute(stmt).scalar_one())
+
+    def count_document_states_by_projects(
+        self, project_ids: list[int]
+    ) -> tuple[dict[int, dict[str, int]], dict[int, dict[str, int]]]:
+        """프로젝트별 문서 상태와 검수 상태를 한 번의 묶음 조회로 센다."""
+        stmt: Select = (
+            select(
+                Document.project_id,
+                Document.status,
+                Document.review_status,
+                func.count(),
+            )
+            .where(Document.project_id.in_(project_ids))
+            .group_by(Document.project_id, Document.status, Document.review_status)
+        )
+        by_status: dict[int, dict[str, int]] = {}
+        by_review: dict[int, dict[str, int]] = {}
+        for project_id, status, review_status, count in self._db.execute(stmt).all():
+            status_counts = by_status.setdefault(int(project_id), {})
+            status_counts[status] = status_counts.get(status, 0) + int(count)
+            review_counts = by_review.setdefault(int(project_id), {})
+            review_counts[review_status] = review_counts.get(review_status, 0) + int(count)
+        return by_status, by_review
+
+    def count_document_types_by_projects(
+        self, project_ids: list[int]
+    ) -> dict[int, list[tuple[str | None, int]]]:
+        stmt: Select = (
+            select(Document.project_id, Document.document_type, func.count())
+            .where(Document.project_id.in_(project_ids))
+            .group_by(Document.project_id, Document.document_type)
+        )
+        result: dict[int, list[tuple[str | None, int]]] = {}
+        for project_id, document_type, count in self._db.execute(stmt).all():
+            result.setdefault(int(project_id), []).append((document_type, int(count)))
+        return result
+
+    def count_pending_amount_items_by_projects(
+        self, project_ids: list[int]
+    ) -> dict[int, int]:
+        stmt: Select = (
+            select(Document.project_id, func.count())
+            .select_from(AmountItem)
+            .join(Document, Document.id == AmountItem.document_id)
+            .where(
+                Document.project_id.in_(project_ids),
+                AmountItem.decision == PENDING_DECISION,
+            )
+            .group_by(Document.project_id)
+        )
+        return {
+            int(project_id): int(count)
+            for project_id, count in self._db.execute(stmt).all()
+        }
+
+    def count_open_tasks_by_projects(self, project_ids: list[int]) -> dict[int, int]:
+        stmt: Select = (
+            select(Task.project_id, func.count())
+            .where(Task.project_id.in_(project_ids), Task.status != "DONE")
+            .group_by(Task.project_id)
+        )
+        return {
+            int(project_id): int(count)
+            for project_id, count in self._db.execute(stmt).all()
+        }
+
+    def list_recent_documents_by_projects(
+        self, *, project_ids: list[int], limit_per_project: int
+    ) -> dict[int, list[Document]]:
+        """각 프로젝트의 최근 문서를 window 순위로 한 번에 가져온다."""
+        ranked = (
+            select(
+                Document.id.label("document_id"),
+                func.row_number()
+                .over(
+                    partition_by=Document.project_id,
+                    order_by=(Document.created_at.desc(), Document.id.desc()),
+                )
+                .label("document_rank"),
+            )
+            .where(Document.project_id.in_(project_ids))
+            .subquery()
+        )
+        stmt: Select = (
+            select(Document)
+            .join(ranked, ranked.c.document_id == Document.id)
+            .where(ranked.c.document_rank <= limit_per_project)
+            .order_by(Document.project_id, Document.created_at.desc(), Document.id.desc())
+        )
+        result: dict[int, list[Document]] = {}
+        for document in self._db.execute(stmt).scalars():
+            result.setdefault(int(document.project_id), []).append(document)
+        return result
+
+    def list_recent_task_activity_by_projects(
+        self, *, project_ids: list[int], limit: int
+    ) -> list[TaskActivityLog]:
+        """접근 가능한 프로젝트 전체에서 가장 최근 활동만 제한해 가져온다."""
+        stmt: Select = (
+            select(TaskActivityLog)
+            .options(joinedload(TaskActivityLog.actor))
+            .where(TaskActivityLog.project_id.in_(project_ids))
+            .order_by(TaskActivityLog.created_at.desc(), TaskActivityLog.id.desc())
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars())
 
     def list_calendar_tasks(
         self, *, project_id: int, starts_on: date, ends_on: date

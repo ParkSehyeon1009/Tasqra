@@ -27,7 +27,6 @@ body { background: var(--c-bg-canvas); }
 .app-frame { background: var(--c-bg-canvas); }
 .app-frame > .app-header { position: fixed; inset: 0 0 auto var(--tasqra-rail-w); height: var(--tasqra-header-h); padding: 0 28px; border-bottom: 1px solid var(--c-border); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }
 .app-frame > .app-header .app-header__brand,
-.app-frame > .app-header .app-header__divider,
 .app-frame > .app-header .app-header__project { display: none; }
 .app-header__context { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:8px; color:var(--c-text-muted); font-size:12px; }
 .app-header__context span { max-width:min(52vw,620px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -53,6 +52,7 @@ body { background: var(--c-bg-canvas); }
 .project-sidebar__list { gap: 4px; }
 .project-sidebar__project { border-radius:9px; }
 .project-sidebar__list .project-sidebar__project-button { min-height:38px; padding:8px 9px; border:1px solid transparent; color:var(--tasqra-rail-text); font-size:13px; font-weight:700; }
+.project-sidebar__list .project-sidebar__project-button > span.project-sidebar__text { font-size:15px; }
 .project-sidebar__list .project-sidebar__project-button:hover { background:var(--tasqra-rail-active); color:var(--tasqra-rail-text); }
 .project-sidebar__project-button b { margin-left:auto; color:var(--tasqra-rail-muted); font-size:11px; }
 .project-sidebar__menus { margin:0 0 7px 14px; padding-left:9px; border-left:1px solid rgba(255,255,255,.09); }

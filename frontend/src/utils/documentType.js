@@ -1,24 +1,14 @@
 // =============================================================================
-// 이 파일의 책임: 문서 유형(documents.document_type) 값을 화면 문구로 바꾼다.
-//   업로드 모달과 대시보드 유형 분포가 같은 표기를 쓰게 하는 것이 목적이다.
-// 다른 파일과의 관계: features/documents/DocumentUploadModal.jsx 의 선택 목록과
-//   features/dashboard/DashboardView.jsx 의 유형 분포가 이 목록을 쓴다.
-//   utils/documentStatus.js 와 같은 자리다 — 상태값 표기를 한 곳에 모아 화면마다
-//   다르게 보이는 일을 막는 파일.
-// Spring 비교: 코드값 → 표시명 매핑을 담은 공용 CodeTable 이나 MessageSource 에
-//   해당한다. 상태를 갖지 않는 순수 함수만 둔다.
-//
-// 이 파일을 따로 만든 이유
-//   전에는 이 목록이 DocumentUploadModal.jsx 안에만 있었다. 대시보드가 유형
-//   분포를 보여주려고 목록을 복사하면, 나중에 한쪽 문구만 고쳐서 업로드 화면과
-//   대시보드가 같은 유형을 다르게 부르게 된다. 에러가 나지 않아 알아채기 어렵다.
-//   백엔드 값 목록은 models/enums.py 의 DocumentType 9종이다.
+// 이 파일의 책임: 문서 유형의 8종 선택 목록과 레거시 BILLING 표시 호환을 관리한다.
+// 다른 파일과의 관계: 업로드·상세 수정·목록 필터·대시보드 배지가 같은 canonical
+//   값과 라벨을 사용하도록 한곳에서 변환한다.
+// Spring 비교: 레거시 코드 alias까지 처리하는 공용 CodeTable/Converter에 해당한다.
 // =============================================================================
 
-// [값, 표시명]. 순서는 업로드 모달의 선택 순서이기도 하다 — 문서가 만들어지는
-// 흐름(제안요청서 → 제안서 → 산출내역서 → 계약서 → ...)에 맞춰 둔 것이다.
 export const UNCLASSIFIED_DOCUMENT_TYPE = '__UNCLASSIFIED__'
+export const LEGACY_BILLING_DOCUMENT_TYPE = 'BILLING'
 
+// 사용자가 새로 선택하고 저장할 수 있는 유형은 8종이다.
 export const DOCUMENT_TYPES = [
   ['RFP', '제안요청서·입찰공고'],
   ['PROPOSAL', '제안서·기술제안서'],
@@ -27,38 +17,53 @@ export const DOCUMENT_TYPES = [
   ['CONTRACT_CHANGE', '변경계약서·과업변경합의서'],
   ['REPORT', '보고서·검사조서'],
   ['MEETING_NOTES', '회의록'],
-  ['BILLING', '대가지급청구서·세금계산서'],
-  ['ETC', '기타'],
+  ['ETC', '기타 (세금계산서·대가지급청구서 포함)'],
 ]
 
 const LABELS = Object.fromEntries(DOCUMENT_TYPES)
 const FILTER_VALUES = new Set([...DOCUMENT_TYPES.map(([value]) => value), UNCLASSIFIED_DOCUMENT_TYPE])
 
+const TYPE_TONES = {
+  RFP: 'rfp',
+  PROPOSAL: 'proposal',
+  COST_SHEET: 'cost-sheet',
+  CONTRACT: 'contract',
+  CONTRACT_CHANGE: 'contract-change',
+  REPORT: 'report',
+  MEETING_NOTES: 'meeting-notes',
+  ETC: 'etc',
+}
+
+/** 배지 CSS에는 검증된 제한값만 넘긴다. */
+export function getDocumentTypeTone(documentType) {
+  const normalized = normalizeDocumentTypeValue(documentType)
+  if (!normalized || normalized === UNCLASSIFIED_DOCUMENT_TYPE) return 'unclassified'
+  return TYPE_TONES[normalized] ?? 'unclassified'
+}
+
+/** 과거 BILLING 저장값을 현재 8종 계약의 ETC로 읽는다. */
+export function normalizeDocumentTypeValue(documentType) {
+  return documentType === LEGACY_BILLING_DOCUMENT_TYPE ? 'ETC' : documentType
+}
+
 export function isSupportedDocumentTypeFilter(documentType) {
-  return FILTER_VALUES.has(documentType)
+  return FILTER_VALUES.has(normalizeDocumentTypeValue(documentType))
 }
 
-/** URL query의 문서 유형 필터를 저장 가능한 9종 또는 미분류 값으로 제한한다. */
+/** 과거 BILLING URL도 ETC 필터로 복원해 신규·레거시 값을 함께 조회한다. */
 export function normalizeDocumentTypeFilter(documentType) {
-  return isSupportedDocumentTypeFilter(documentType) ? documentType : ''
+  const normalized = normalizeDocumentTypeValue(documentType)
+  return FILTER_VALUES.has(normalized) ? normalized : ''
 }
 
-/** 필터 값을 화면 문구로. URL 전용 미분류 값은 실제 저장값 null과 같은 뜻이다. */
 export function getDocumentTypeFilterLabel(documentType) {
   if (documentType === UNCLASSIFIED_DOCUMENT_TYPE) return '미분류'
   return getDocumentTypeLabel(documentType)
 }
 
-/** 문서 유형 값을 표시명으로. null·빈 값은 "미분류" 다.
- *
- * document_type 은 nullable 이다. 업로드할 때 유형을 고르지 않으면 비어 있고
- * AI 분류가 채우기 전까지 그대로다. "미분류" 는 유형 이름이 아니라 유형이 없는
- * 상태를 가리킨다 — ETC(기타)와 다르다. 기타는 사람이 고른 값이다.
- *
- * 목록에 없는 값이 오면 값 자체를 그대로 보여준다. 임의로 "기타" 로 바꾸면
- * 백엔드에 유형이 추가됐을 때 화면에서 그 사실이 감춰진다.
- */
+/** null은 미분류, 레거시 BILLING은 ETC 표시명으로 보여준다. */
 export function getDocumentTypeLabel(documentType) {
   if (!documentType) return '미분류'
-  return LABELS[documentType] ?? documentType
+  const normalized = normalizeDocumentTypeValue(documentType)
+  return LABELS[normalized] ?? documentType
 }

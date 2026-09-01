@@ -26,7 +26,7 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.layout import LayoutElement
 from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation, OcrStructureEvent
-from app.models.enums import AnalyzerType, DocumentType, DocumentTypeSource, ReviewStatus
+from app.models.enums import AnalyzerType, DocumentTypeSource, ReviewStatus, SelectableDocumentType
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.reading_order import build_reading_groups
 from app.repositories.analysis_repository import AnalysisRepository
@@ -148,7 +148,7 @@ class DocumentService:
         self,
         project_id: int,
         document_id: int,
-        document_type: DocumentType,
+        document_type: SelectableDocumentType,
     ) -> Document:
         """사용자가 현재 문서 유형을 고치고 AI 자동 갱신 대상에서 제외한다."""
         with transactional(self._db):
