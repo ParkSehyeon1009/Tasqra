@@ -127,11 +127,80 @@ def test_invalid_summary_is_not_saved_as_raw_text(config, answer):
 
 
 def test_invented_quote_fails_whole_summary(config):
+    """근거가 **전부** 지어낸 것이면 요약을 만들지 않는다. 이 경계는 그대로다."""
     client = ScriptedAI(lambda *_: {"facts": [{"quote": "원문에 없는 금액 999억", "status": "확정"}]})
     with pytest.raises(BusinessError) as exc:
         asyncio.run(SummaryAnalyzer(client, config).analyze("원문입니다." * 300))
     assert exc.value.error_code is ErrorCode.AI_INVALID_RESPONSE
     assert all("records" not in json.loads(p.user) for p in client.requests)
+
+
+def test_공백_개수만_다른_인용은_원문_글자로_바꿔_담는다(config):
+    """추출기는 `단,   평가참고자료` 처럼 공백을 여러 칸 뱉고 모델은 한 칸으로 줄인다.
+
+    사람 눈에는 같은 문장이다. 느슨하게 통과시키는 대신 **원문 쪽으로 끌어당겨**
+    보장을 유지한다 — 저장되는 것은 언제나 원문에서 잘라낸 글자다.
+    """
+    source = "계약 조건입니다.\n단,   평가참고자료는   제출대상입니다.\n" * 60
+
+    def answer(prompt, n):
+        data = json.loads(prompt.user)
+        if "document" in data:
+            # 모델은 공백을 한 칸으로 줄여 쓴다.
+            return {"facts": [{"quote": "단, 평가참고자료는 제출대상입니다.", "status": "확정"}]}
+        return evidence_answer(prompt, n)
+
+    result = asyncio.run(SummaryAnalyzer(ScriptedAI(answer), config).analyze(source))
+    output = result.result
+    assert output["rejected_evidence_count"] == 0
+    assert output["evidence"]
+    for record in output["evidence"]:
+        # 모델이 쓴 한 칸짜리가 아니라 원문의 세 칸짜리가 담겨야 한다.
+        assert record["quote"] == "단,   평가참고자료는   제출대상입니다."
+        assert source[record["start"]:record["end"]] == record["quote"]
+
+
+def test_어긋난_근거만_버리고_멀쩡한_근거는_살린다(config):
+    """전에는 하나만 어긋나도 구간을 통째로 버려 문서 분석이 실패했다.
+
+    파인튜닝 모델이 `반드시` 를 `반ially` 로 뱉는 다국어 누출에서 나온 문제다.
+    근거 6개 중 1개가 어긋났다고 나머지 5개까지 잃을 이유가 없다.
+    """
+    def answer(prompt, n):
+        data = json.loads(prompt.user)
+        if "document" in data:
+            머리 = data["document"][:40].strip()
+            return {"facts": [
+                {"quote": 머리, "status": "확정"},                    # 원문에 있다
+                {"quote": "입찰자는반ially입찰서제출시", "status": "확정"},  # 없다
+            ]}
+        return evidence_answer(prompt, n)
+
+    client = ScriptedAI(answer)
+    result = asyncio.run(SummaryAnalyzer(client, config).analyze("계약 조건입니다.\n" * 250))
+    output = result.result
+
+    assert output["rejected_evidence_count"] > 0
+    assert output["evidence"], "멀쩡한 근거가 살아남아야 한다"
+    # 살아남은 근거는 전부 원문의 그 자리에서 글자 그대로 잘라낼 수 있어야 한다.
+    source = "계약 조건입니다.\n" * 250
+    for record in output["evidence"]:
+        assert source[record["start"]:record["end"]] == record["quote"]
+
+
+def test_인용_불일치로는_재시도하지_않는다(config):
+    """temperature=0 이라 같은 답이 그대로 다시 온다 — 재시도는 시간만 쓴다."""
+    def answer(prompt, n):
+        data = json.loads(prompt.user)
+        if "document" in data:
+            return {"facts": [{"quote": data["document"][:40].strip(), "status": "확정"},
+                              {"quote": "원문에 없는 인용", "status": "확정"}]}
+        return evidence_answer(prompt, n)
+
+    client = ScriptedAI(answer)
+    asyncio.run(SummaryAnalyzer(client, config).analyze("계약 조건입니다.\n" * 250))
+    근거요청 = [p for p in client.requests if "document" in json.loads(p.user)]
+    assert len(근거요청) == len(set(p.user for p in 근거요청)), "같은 구간을 다시 부르지 않는다"
 
 
 @pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
@@ -234,3 +303,78 @@ def test_real_adapters_pass_roles_budget_and_reject_incomplete_output(module_nam
     response.choices[0].finish_reason = "length"
     with pytest.raises(ValueError):
         asyncio.run(client.generate_with_meta(prompt))
+
+
+# =============================================================================
+# 구조화 출력 — 형식 위반을 «재시도로 걸러내는 것» 에서 «나올 수 없는 것» 으로
+#
+# 파인튜닝한 로컬 모델이 Literal 필드에 한자를 섞어 뱉었다(`확定`). json_object
+# 는 JSON 이기만 하면 통과시키므로 Pydantic 검증에서야 걸려 재시도만 반복했다.
+# =============================================================================
+
+def test_스키마가_없으면_기존_json_object_로_떨어진다():
+    assert build_summary_prompt("원문").response_format() == {"type": "json_object"}
+
+
+def test_스키마가_있으면_json_schema_로_강제한다():
+    from dataclasses import replace
+
+    from app.analyzers.output_schemas import FactsOutput
+
+    prompt = replace(build_summary_prompt("원문"), response_schema=FactsOutput)
+    fmt = prompt.response_format()
+    assert fmt["type"] == "json_schema"
+    assert fmt["json_schema"]["name"] == "FactsOutput"
+    assert fmt["json_schema"]["strict"] is True
+    # status 의 허용값이 스키마에 실려야 서버가 그것으로 디코딩을 제약할 수 있다.
+    assert "확정" in json.dumps(fmt["json_schema"]["schema"], ensure_ascii=False)
+
+
+def test_runner_가_검증_스키마를_호출에도_실어_보낸다(config):
+    """이것이 빠지면 클라이언트는 스키마를 모른 채 json_object 로 나간다."""
+    client = ScriptedAI(lambda *_: {"summary": "계약금액은 1억 원이며 부가세는 별도입니다."})
+    asyncio.run(SummaryAnalyzer(client, config).analyze("계약금액 1억 원, 부가세 별도"))
+
+    from app.analyzers.output_schemas import SummaryOutput
+    sent = client.requests[0]
+    assert sent.response_schema is SummaryOutput
+    assert sent.response_format()["json_schema"]["name"] == "SummaryOutput"
+
+
+def test_local_client_는_스키마를_서버로_넘긴다():
+    from dataclasses import replace
+
+    from app.ai.local_client import LocalAIClient
+    from app.analyzers.output_schemas import FactsOutput
+
+    client = LocalAIClient.__new__(LocalAIClient)
+    client._model = "test"
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"facts":[]}'))],
+        model="test", usage=None)
+    create = AsyncMock(return_value=response)
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    prompt = replace(build_summary_prompt("원문"), response_schema=FactsOutput)
+    asyncio.run(client.generate_with_meta(prompt))
+    assert create.call_args.kwargs["response_format"] == prompt.response_format()
+
+
+def test_openai_client_는_일부러_json_object_를_유지한다():
+    """상용 strict 스키마는 maxLength 를 거절한다. 그냥 붙이면 경로가 죽는다."""
+    from dataclasses import replace
+
+    from app.ai.openai_client import OpenAIClient
+    from app.analyzers.output_schemas import FactsOutput
+
+    client = OpenAIClient.__new__(OpenAIClient)
+    client._model = "test"
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"facts":[]}'))],
+        model="test", usage=None)
+    create = AsyncMock(return_value=response)
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    prompt = replace(build_summary_prompt("원문"), response_schema=FactsOutput)
+    asyncio.run(client.generate_with_meta(prompt))
+    assert create.call_args.kwargs["response_format"] == {"type": "json_object"}

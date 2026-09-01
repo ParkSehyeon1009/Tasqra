@@ -179,13 +179,14 @@ class ExtractionService:
         except Exception as exc:
             raise BusinessError(ErrorCode.EXTRACTION_FAILED) from exc
 
-        # PostgreSQL 의 text 는 NUL(0x00) 을 담지 못한다. PDF·OCR 추출이 흘릴 수
-        # 있고, 하나만 섞여도 저장이 통째로 실패한다. 추출기가 여럿이므로 각각이
-        # 아니라 **이 경계 한 곳에서** 걷어낸다. 자세한 내용은 extractors/sanitize.py
+        # PDF·OCR 추출은 보이지 않는 제어문자를 흘린다. NUL 은 저장 자체를 통째로
+        # 실패시키고, 나머지(\x01 등)는 저장은 되지만 근거 인용의 원문 대조를
+        # 조용히 깨뜨린다. 추출기가 여럿이므로 각각이 아니라 **이 경계 한 곳에서**
+        # 걷어낸다. 자세한 내용은 extractors/sanitize.py
         result, scrubbed = scrub_result(result)
         if scrubbed:
             logger.warning(
-                "문서 %s 에서 저장할 수 없는 문자(NUL) %d개를 공백으로 바꿨다 (%s)",
+                "문서 %s 에서 제어문자 %d개를 공백으로 바꿨다 (%s)",
                 document.id, scrubbed, document.filename,
             )
         return result

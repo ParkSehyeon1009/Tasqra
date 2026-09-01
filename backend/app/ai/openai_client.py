@@ -35,6 +35,14 @@ class OpenAIClient(AIClientProtocol):
     async def generate_with_meta(self, prompt: AIRequest) -> AIResult:
         start = time.perf_counter()
         # prompts.py가 "JSON으로 응답" 하도록 지시하므로, JSON 모드로 형식 이탈을 방지한다.
+        #
+        # ⚠️ local_client 와 달리 여기서는 prompt.response_format() 을 쓰지 않는다.
+        #   OpenAI 의 strict 스키마는 지원하지 않는 키워드가 있으면 400 으로
+        #   거절하는데, output_schemas.py 의 Field(max_length=...) 가 그대로
+        #   maxLength 로 나간다. 즉 그냥 바꾸면 상용 경로가 통째로 죽는다.
+        #   여기에 붙이려면 스키마에서 길이 제약을 걷어낸 변형을 따로 만들어야 한다.
+        #   상용 모델은 Literal 을 어기는 일이 드물어 급하지 않다(이 문제는
+        #   파인튜닝한 로컬 모델의 한자 섞임에서 나왔다).
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=prompt.messages(),

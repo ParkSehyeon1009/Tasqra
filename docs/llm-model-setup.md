@@ -42,6 +42,12 @@ LoRA 어댑터를 태스크별로 따로 학습해 각각 베이스에 병합했
 **반드시 그 폴더 안에서** 해야 한다 — `Modelfile` 이
 `FROM qwen2.5-3b-instruct.Q4_K_M.gguf` 로 **상대경로**를 쓰기 때문이다.
 
+> ⚠️ **Ollama 0.5 이상**이 필요하다 (`ollama --version` 으로 확인).
+> 백엔드가 구조화 출력(`response_format: json_schema`)으로 응답 형식을
+> 강제하는데, 그 아래 버전은 이것을 400 으로 거절한다. 파인튜닝 모델이
+> `확정` 자리에 `확定` 같은 한자를 섞는 것을 막는 장치라 끄고 쓰기 어렵다.
+> 자세한 내용은 `backend/app/ai/client_protocol.py` 의 `response_format()`.
+
 ```
 cd Tasqra-summation
 ollama create Tasqra-summation -f Modelfile
