@@ -165,7 +165,8 @@ def test_save_uses_snapshot_version_not_current_ocr_revision():
     service = AnalysisService(MagicMock(), MagicMock(), repository, {})
     result = SimpleNamespace(result={"category": "ETC"}, provider="fake", model_name="fake",
         prompt_version="category-v2", tokens_in=None, tokens_out=None, latency_ms=None)
-    rows = service.save_results(2, 7, [("category", result)])
+    document = SimpleNamespace(id=2, document_type=None, document_type_source=None)
+    rows = service.save_results(document, 7, [("category", result)])
     assert rows[0].source_text_revision == 7
     assert rows[0].result_json["category"] == "ETC"
 
