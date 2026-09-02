@@ -1,3 +1,7 @@
+# 이 파일의 책임: 비동기 AI 분석 작업의 접수·진행·완료·실패 상태와 원자적 저장을 관리한다.
+# 다른 파일과의 관계: worker가 호출하며, AnalysisService에 잠긴 Document와 검증된 결과를 전달한다.
+# Spring 비교: 큐 작업 수명주기와 트랜잭션 경계를 담당하는 @Service다.
+
 import asyncio
 import hashlib
 import logging
@@ -117,7 +121,7 @@ class AnalysisJobService:
                 if not self._same_source(document, job):
                     self._fail(job, ErrorCode.ANALYSIS_SOURCE_CHANGED)
                     return
-                rows = self.analysis.save_results(document_id, revision, results)
+                rows = self.analysis.save_results(document, revision, results)
                 self.db.flush()
                 job.analysis_ids = [row.id for row in rows]
                 job.status, job.stage = "COMPLETED", "완료"

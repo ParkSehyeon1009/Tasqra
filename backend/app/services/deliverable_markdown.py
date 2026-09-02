@@ -71,6 +71,19 @@ SUMMARY_PLACEHOLDER = (
     " 자리입니다(LLM 연결 예정). 아래 표는 모두 실제 자료입니다."
 )
 
+# AI 분류와 사용자 수정이 저장하는 코드의 화면용 한국어 이름. 산출물은 서버에서
+# HTML·Markdown·XLSX·PDF를 모두 만들므로 이 공통 구조에서 바꿔야 네 형식이 같다.
+DOCUMENT_TYPE_LABELS = {
+    "RFP": "제안요청서·입찰공고",
+    "PROPOSAL": "제안서·기술제안서",
+    "COST_SHEET": "산출내역서·견적서",
+    "CONTRACT": "계약서·과업지시서",
+    "CONTRACT_CHANGE": "변경계약서·과업변경합의서",
+    "REPORT": "보고서·검사조서",
+    "MEETING_NOTES": "회의록",
+    "ETC": "기타 (세금계산서·대가지급청구서 포함)",
+}
+
 
 @dataclass
 class DeliverableMaterials:
@@ -122,6 +135,19 @@ def clean(value: Any) -> str:
     if value is None or value == "":
         return EMPTY
     return str(value).replace("\r", " ").replace("\n", " ").strip()
+
+
+def document_type_label(value: Any) -> str:
+    """저장된 문서 유형 코드를 산출물용 한국어 이름으로 바꾼다.
+
+    과거 BILLING은 현재 8종 계약의 ETC로 읽고, 새 코드가 생기면 숨기지 않고
+    원값을 보여준다. 값이 없으면 대시 대신 의미가 분명한 '미분류'를 쓴다.
+    """
+    if value is None or value == "":
+        return "미분류"
+    code = getattr(value, "value", value)
+    code = "ETC" if code == "BILLING" else str(code)
+    return DOCUMENT_TYPE_LABELS.get(code, code)
 
 
 def money(value: Decimal | int | None) -> str:
@@ -189,7 +215,7 @@ def build_document(
                 title="문서",
                 header=["파일명", "유형", "등록일"],
                 rows=[
-                    [clean(item.filename), clean(item.document_type),
+                    [clean(item.filename), document_type_label(item.document_type),
                      day(_as_date(item.created_at))]
                     for item in materials.documents
                 ],

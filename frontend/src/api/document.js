@@ -20,6 +20,13 @@ export async function getDocument(projectId, documentId) {
   return data
 }
 
+export async function updateDocumentType(projectId, documentId, documentType) {
+  return (await http.patch(
+    `/api/projects/${projectId}/documents/${documentId}/document-type`,
+    { document_type: documentType },
+  )).data
+}
+
 export async function getDocumentHistory(projectId, documentId) {
   return (await http.get(`/api/projects/${projectId}/documents/${documentId}/history`)).data
 }

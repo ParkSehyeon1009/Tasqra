@@ -1,19 +1,27 @@
+// =============================================================================
+// 이 파일의 책임: 로그인 직후 전역 메인 대시보드와 공통 프로젝트 사이드바를 조립한다.
+// 다른 파일과의 관계: PortfolioDashboard에 실제 프로젝트 데이터를 전달하고 생성 후
+//   기존 프로젝트 작업공간으로 이동한다.
+// Spring 비교: 전역 대시보드 View와 프로젝트 생성 흐름을 조립하는 MVC Controller다.
+// =============================================================================
+
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import AppHeader from '../components/common/AppHeader'
 import LoadingState from '../components/common/LoadingState'
+import PortfolioDashboard from '../features/projects/PortfolioDashboard'
 import ProjectCreateModal from '../features/projects/ProjectCreateModal'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useInvitationsQuery } from '../hooks/useInvitationsQuery'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
-import { getRecentProjectId, setRecentProjectId } from '../utils/recentProject'
+import { setRecentProjectId } from '../utils/recentProject'
 import '../styles/projects.css'
 
 export default function ProjectsPage({ user, onLogout, notify }) {
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
   const { projects, loading, error, createMutation } = useProjectsQuery(notify)
-  const { recentInvitees } = useInvitationsQuery(user?.id, notify)
+  const invitationData = useInvitationsQuery(user?.id, notify)
 
   async function submit(values) {
     try {
@@ -24,20 +32,27 @@ export default function ProjectsPage({ user, onLogout, notify }) {
     } catch { /* 공통 토스트에서 처리 */ }
   }
 
-  if (loading) return <div className="project-screen"><AppHeader user={user} onLogout={onLogout} notify={notify}/><LoadingState label="프로젝트를 불러오는 중..."/></div>
-  if (!error && projects.length) {
-    const recentId = getRecentProjectId(user?.id)
-    const target = projects.find(project => String(project.id) === recentId) ?? projects[0]
-    return <Navigate to={`/projects/${target.id}/dashboard`} replace/>
-  }
-
-  return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify}/>
+  return <div className="app-frame projects-home">
+    <AppHeader user={user} onLogout={onLogout} notify={notify} section="전체 프로젝트"/>
     <div className="workspace-shell">
-      <ProjectSidebar projects={[]} onCreate={() => setCreating(true)} onSelect={() => {}} onNavigateTab={() => {}}/>
-      <main className="project-empty-main">
-        {error ? <div className="error-state">{error.message}</div> : <section className="project-empty-state"><span aria-hidden="true">＋</span><h1>아직 참여 중인 프로젝트가 없습니다.</h1><p>새 프로젝트를 만들어 문서와 작업을 한곳에서 관리해 보세요.</p><button className="primary" onClick={() => setCreating(true)}>새 프로젝트 만들기</button></section>}
-      </main>
+      <ProjectSidebar
+        projects={projects}
+        activeProjectId={null}
+        activeTab={null}
+        portfolioActive
+        onOpenPortfolio={() => navigate('/projects')}
+        onSelect={project => navigate(`/projects/${project.id}/dashboard`)}
+        onNavigateTab={() => {}}
+        onCreate={() => setCreating(true)}
+      />
+      <section className="workspace-content">
+        {loading
+          ? <main className="workspace-main"><LoadingState label="프로젝트를 불러오는 중..."/></main>
+          : error
+            ? <main className="workspace-main projects-error"><div className="error-state">{error.message}</div></main>
+            : <PortfolioDashboard user={user} projects={projects} invitations={invitationData.invitations} onCreate={() => setCreating(true)}/>}
+      </section>
     </div>
-    <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={submit}/>
+    <ProjectCreateModal open={creating} recentInvitees={invitationData.recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={submit}/>
   </div>
 }

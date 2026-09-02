@@ -13,6 +13,7 @@ import './styles/app.css'
 import './styles/states.css'
 import './styles/responsive.css'
 import './styles/design-refresh.css'
+import './styles/unified-ui.css'
 import { applyThemeColor, getSavedThemeColor } from './utils/theme'
 
 applyThemeColor(getSavedThemeColor())

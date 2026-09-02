@@ -1,4 +1,11 @@
+// =============================================================================
+// 이 파일의 책임: 전역·프로젝트 화면의 공통 프로젝트 탐색 사이드바를 그린다.
+// 다른 파일과의 관계: ProjectsPage와 WorkspacePage가 같은 프로젝트 목록을 전달한다.
+// Spring 비교: 현재 경로에 따라 전역/프로젝트 메뉴를 표시하는 공통 Navigation View다.
+// =============================================================================
+
 import { useEffect, useState } from 'react'
+import { projectColorIndex } from '../../utils/projectColor'
 
 // 탭이 **두 곳**에 적혀 있다. 여기와 WorkspacePage 의 TABS 다.
 //   · 이 배열 = 사이드바에서 눌러 들어갈 수 있는 곳
@@ -7,7 +14,7 @@ import { useEffect, useState } from 'react'
 // 튕기고, TABS 에만 넣으면 주소를 직접 쳐야 들어갈 수 있다.
 const PROJECT_MENUS = [['dashboard','dashboard','대시보드'],['documents','document','문서'],['search','search','검색'],['board','board','보드'],['amounts','amount','금액'],['deliverables','deliverable','산출물'],['settings','settings','설정']]
 
-export default function ProjectSidebar({ projects, activeProjectId, activeTab, onSelect, onNavigateTab, onCreate }) {
+export default function ProjectSidebar({ projects, activeProjectId, activeTab, portfolioActive = false, onOpenPortfolio, onSelect, onNavigateTab, onCreate }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('tasqra-rail-collapsed') === '1')
   useEffect(() => {
     document.body.classList.toggle('tasqra-rail-mini', collapsed)
@@ -17,9 +24,12 @@ export default function ProjectSidebar({ projects, activeProjectId, activeTab, o
   return <aside className="project-sidebar" aria-label="프로젝트 메뉴">
     <div className="project-sidebar__top"><div className="project-sidebar__brand"><BrandMark/><div className="project-sidebar__text"><strong>Tasqra</strong><small>DOCUMENT · TO · ACTION</small></div></div><button className="project-sidebar__collapse" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}><Icon name="chevron"/></button></div>
     <div className="project-sidebar__heading"><span className="project-sidebar__text">프로젝트</span><button onClick={onCreate} aria-label="새 프로젝트 만들기">＋</button></div>
-    <nav className="project-sidebar__list" aria-label="참여 중인 프로젝트">{projects.length ? projects.map((project,index) => {
+    <nav className="project-sidebar__list" aria-label="참여 중인 프로젝트">
+      {onOpenPortfolio && <button className={`project-sidebar__portfolio${portfolioActive ? ' is-active' : ''}`} aria-current={portfolioActive ? 'page' : undefined} title="전체 프로젝트" onClick={onOpenPortfolio}><Icon name="dashboard"/><span className="project-sidebar__text">전체 프로젝트</span></button>}
+      {projects.length ? projects.map(project => {
       const active = String(project.id) === String(activeProjectId)
-      return <div className={`project-sidebar__project${active ? ' is-open' : ''}`} key={project.id}><button className="project-sidebar__project-button" aria-current={active ? 'page' : undefined} title={project.name} onClick={() => onSelect(project)}><i className={`project-sidebar__marker marker-${index % 5}`} aria-hidden="true"/><span className="project-sidebar__text">{project.name}</span>{project.status === 'ARCHIVED' ? <small className="project-sidebar__text">보관</small> : <b className="project-sidebar__text" aria-hidden="true"><Icon name="chevron"/></b>}</button>{active && <div className="project-sidebar__menus">{PROJECT_MENUS.map(([key,icon,label]) => <button className={activeTab === key ? 'is-active' : ''} aria-current={activeTab === key ? 'page' : undefined} title={label} onClick={() => onNavigateTab(key)} key={key}><Icon name={icon}/><span className="project-sidebar__text">{label}</span></button>)}</div>}</div>
+      const marker = projectColorIndex(project.id)
+      return <div className={`project-sidebar__project${active ? ' is-open' : ''}`} key={project.id}><button className="project-sidebar__project-button" aria-current={active ? 'page' : undefined} title={project.name} onClick={() => onSelect(project)}><i className={`project-sidebar__marker marker-${marker}`} aria-hidden="true"/><span className="project-sidebar__text">{project.name}</span>{project.status === 'ARCHIVED' ? <small className="project-sidebar__text">보관</small> : <b className="project-sidebar__text" aria-hidden="true"><Icon name="chevron"/></b>}</button>{active && <div className="project-sidebar__menus">{PROJECT_MENUS.map(([key,icon,label]) => <button className={activeTab === key ? 'is-active' : ''} aria-current={activeTab === key ? 'page' : undefined} title={label} onClick={() => onNavigateTab(key)} key={key}><Icon name={icon}/><span className="project-sidebar__text">{label}</span></button>)}</div>}</div>
     }) : <p className="project-sidebar__text">참여 중인 프로젝트가 없습니다.</p>}</nav>
   </aside>
 }

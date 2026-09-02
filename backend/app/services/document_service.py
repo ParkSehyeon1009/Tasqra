@@ -26,7 +26,7 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.layout import LayoutElement
 from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation, OcrStructureEvent
-from app.models.enums import AnalyzerType, ReviewStatus
+from app.models.enums import AnalyzerType, DocumentTypeSource, ReviewStatus, SelectableDocumentType
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.reading_order import build_reading_groups
 from app.repositories.analysis_repository import AnalysisRepository
@@ -56,6 +56,8 @@ class OcrElementBatchChange:
     version: int
     text: str | None = None
     is_excluded: bool | None = None
+    is_deleted: bool | None = None
+    is_reviewed: bool | None = None
     is_paragraph_start: bool | None = None
     element_type: str | None = None
     x: float | None = None
@@ -142,6 +144,24 @@ class DocumentService:
         document = self._document_repository.get_by_id(project_id, document_id)
         if document is None:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+        return document
+
+    def update_document_type(
+        self,
+        project_id: int,
+        document_id: int,
+        document_type: SelectableDocumentType,
+    ) -> Document:
+        """사용자가 현재 문서 유형을 고치고 AI 자동 갱신 대상에서 제외한다."""
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(
+                project_id, document_id
+            )
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            if document.document_type != document_type.value:
+                document.document_type = document_type.value
+                document.document_type_source = DocumentTypeSource.USER_CORRECTED.value
         return document
 
     def get_document_for_review(self, project_id: int, document_id: int) -> Document:
@@ -529,6 +549,23 @@ class DocumentService:
 
                 if change.is_excluded is not None and change.is_excluded != element.is_excluded:
                     element.is_excluded = change.is_excluded
+                    item_changed = True
+
+                if change.is_deleted is not None and change.is_deleted != element.is_deleted:
+                    if change.is_deleted:
+                        if element.is_in_content:
+                            content_changed = self._replace_ocr_content(document, element, "") or content_changed
+                            element.is_in_content = False
+                        element.is_deleted = True
+                    else:
+                        element.is_deleted = False
+                        if not element.is_excluded and not element.is_in_content:
+                            content_changed = self._replace_ocr_content(document, element, element.text) or content_changed
+                            element.is_in_content = True
+                    item_changed = True
+
+                if change.is_reviewed is not None and change.is_reviewed != element.is_reviewed:
+                    element.is_reviewed = change.is_reviewed
                     item_changed = True
 
                 if change.element_type is not None and change.element_type != element.element_type:

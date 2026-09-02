@@ -1,17 +1,16 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001)과 프로젝트 캘린더 조회 결과를
-#   만든다. 집계 상태를 화면 묶음으로 접고, 태스크와 일정을 공통 DTO로 합친다.
+# 이 파일의 책임: 프로젝트 단건·전역 포트폴리오 핵심 현황(DSH-001)과
+#   프로젝트 캘린더 조회 결과를 만든다. 집계 상태를 화면 묶음으로 접는다.
 # 다른 파일과의 관계: repositories/dashboard_repository.py 로 조회하고 응답 계약은
 #   schemas/dashboard.py 다. api/routes/dashboard_router.py 가 부른다.
 # Spring 비교: @Service 다. 상태 묶기 규칙이 이 계층에 있는 것은
 #   amount_calculator 의 집계가 서비스에 있는 것과 같은 이유다 — 판단은 SQL 이
 #   아니라 코드에 두고 테스트할 수 있게 한다.
 #
-# 권한을 여기서 다시 확인하지 않는다
-#   라우터의 get_project_access 가 "내가 멤버인 프로젝트인가" 를 이미 판정했고,
-#   그 결과인 project_id 만 받는다. AmountPrecedentService 는 멤버십으로 범위를
-#   계산해야 해서 ProjectRepository 를 받았지만, 대시보드는 범위가 현재 프로젝트
-#   하나로 이미 정해져 있다. 판단 지점을 늘리지 않는다.
+# 권한 범위를 정하는 위치
+#   프로젝트 단건 조회는 라우터의 get_project_access가 판정한 project_id만 받는다.
+#   전역 포트폴리오는 라우터에서 인증한 user_id를 받고 ProjectRepository로 참여
+#   프로젝트 범위를 한 번 계산한다. 이후 bulk 조회는 그 ID 목록 밖을 읽지 않는다.
 #
 # 왜 화면에서 세지 않고 서버에서 세나
 #   기존 대시보드는 문서 목록을 받아 화면에서 셌다. 그런데 그 목록은
@@ -27,8 +26,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from app.models.document import Document
 from app.models.enums import DocumentStatus, ReviewStatus
 from app.repositories.dashboard_repository import DashboardRepository
+from app.repositories.project_repository import ProjectRepository
 from app.schemas.dashboard import (
     DashboardCalendarEvent,
     DashboardCalendarResponse,
@@ -36,6 +37,9 @@ from app.schemas.dashboard import (
     DashboardDocumentTypeCount,
     DashboardRecentDocument,
     DashboardResponse,
+    PortfolioDashboardResponse,
+    PortfolioProjectDashboard,
+    PortfolioTaskActivity,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,8 +67,13 @@ REVIEW_PENDING_STATUSES = (
 
 
 class DashboardService:
-    def __init__(self, dashboard_repository: DashboardRepository) -> None:
+    def __init__(
+        self,
+        dashboard_repository: DashboardRepository,
+        project_repository: ProjectRepository,
+    ) -> None:
         self._dashboard = dashboard_repository
+        self._projects = project_repository
 
     def get_overview(
         self,
@@ -72,36 +81,97 @@ class DashboardService:
         project_id: int,
         recent_limit: int,
     ) -> DashboardResponse:
-        by_status = self._dashboard.count_documents_by_status(project_id)
-        by_review = self._dashboard.count_documents_by_review_status(project_id)
-        type_rows = self._dashboard.count_documents_by_type(project_id)
-        recent = self._dashboard.list_recent_documents(
-            project_id=project_id, limit=recent_limit
+        response = self._build_overview(
+            by_status=self._dashboard.count_documents_by_status(project_id),
+            by_review=self._dashboard.count_documents_by_review_status(project_id),
+            type_rows=self._dashboard.count_documents_by_type(project_id),
+            recent=self._dashboard.list_recent_documents(
+                project_id=project_id, limit=recent_limit
+            ),
+            pending_amounts=self._dashboard.count_pending_amount_items(project_id),
+            open_tasks=self._dashboard.count_open_tasks(project_id),
         )
-        pending_amounts = self._dashboard.count_pending_amount_items(project_id)
-        open_tasks = self._dashboard.count_open_tasks(project_id)
-
-        counts = DashboardDocumentCounts(**document_counts(by_status))
-
-        review_pending = review_pending_count(by_review)
-
         logger.info(
             "대시보드 현황 project_id=%s 문서=%d건 처리중=%d 검수대기=%d 금액승인대기=%d",
             project_id,
-            counts.total,
-            counts.processing,
-            review_pending,
-            pending_amounts,
+            response.documents.total,
+            response.documents.processing,
+            response.review_pending,
+            response.pending_amount_items,
+        )
+        return response
+
+    def get_portfolio(
+        self,
+        *,
+        user_id: int,
+        recent_document_limit: int,
+        activity_limit: int,
+    ) -> PortfolioDashboardResponse:
+        """사용자가 참여한 모든 프로젝트의 전역 현황을 고정된 수의 쿼리로 만든다."""
+        memberships = self._projects.list_for_user(user_id)
+        project_ids = [int(project.id) for project, _member in memberships]
+        if not project_ids:
+            return PortfolioDashboardResponse()
+
+        by_status, by_review = self._dashboard.count_document_states_by_projects(
+            project_ids
+        )
+        types = self._dashboard.count_document_types_by_projects(project_ids)
+        pending_amounts = self._dashboard.count_pending_amount_items_by_projects(
+            project_ids
+        )
+        open_tasks = self._dashboard.count_open_tasks_by_projects(project_ids)
+        recent_documents = self._dashboard.list_recent_documents_by_projects(
+            project_ids=project_ids,
+            limit_per_project=recent_document_limit,
+        )
+        activity = self._dashboard.list_recent_task_activity_by_projects(
+            project_ids=project_ids,
+            limit=activity_limit,
         )
 
+        return PortfolioDashboardResponse(
+            projects=[
+                PortfolioProjectDashboard(
+                    project_id=project_id,
+                    dashboard=self._build_overview(
+                        by_status=by_status.get(project_id, {}),
+                        by_review=by_review.get(project_id, {}),
+                        type_rows=types.get(project_id, []),
+                        recent=recent_documents.get(project_id, []),
+                        pending_amounts=pending_amounts.get(project_id, 0),
+                        open_tasks=open_tasks.get(project_id, 0),
+                    ),
+                )
+                for project_id in project_ids
+            ],
+            recent_task_activity=[
+                PortfolioTaskActivity.model_validate(item) for item in activity
+            ],
+        )
+
+    @staticmethod
+    def _build_overview(
+        *,
+        by_status: dict[str, int],
+        by_review: dict[str, int],
+        type_rows: list[tuple[str | None, int]],
+        recent: list[Document],
+        pending_amounts: int,
+        open_tasks: int,
+    ) -> DashboardResponse:
+        counts = DashboardDocumentCounts(**document_counts(by_status))
         return DashboardResponse(
             documents=counts,
-            review_pending=review_pending,
+            review_pending=review_pending_count(by_review),
             pending_amount_items=pending_amounts,
             open_tasks=open_tasks,
             document_types=[
                 DashboardDocumentTypeCount(document_type=document_type, count=count)
-                for document_type, count in sort_type_rows(type_rows)
+                for document_type, count in sort_type_rows(
+                    merge_legacy_document_types(type_rows)
+                )
             ],
             recent_documents=[
                 DashboardRecentDocument.model_validate(document) for document in recent
@@ -127,6 +197,7 @@ class DashboardService:
                 kind="TASK_DUE",
                 starts_on=task.due_on,
                 ends_on=task.due_on,
+                task_type=task.type,
                 status=task.status,
             )
             for task in tasks
@@ -190,6 +261,21 @@ def _sum_of(counts: dict[str, int], keys: tuple[str, ...]) -> int:
     리포지토리가 그 프로젝트에 있는 상태만 돌려주므로 키가 없는 경우가 정상이다.
     """
     return sum(counts.get(key, 0) for key in keys)
+
+
+def merge_legacy_document_types(
+    rows: list[tuple[str | None, int]],
+) -> list[tuple[str | None, int]]:
+    """레거시 BILLING 건수를 ETC에 합쳐 사용자에게 8종 분포로 보여준다.
+
+    DB 값은 마이그레이션 없이 보존한다. 읽기 모델에서만 합치므로 기존 문서도
+    사라지지 않고, ETC 필터의 Repository 호환 규칙과 같은 의미가 된다.
+    """
+    merged: dict[str | None, int] = {}
+    for document_type, count in rows:
+        canonical = "ETC" if document_type == "BILLING" else document_type
+        merged[canonical] = merged.get(canonical, 0) + count
+    return list(merged.items())
 
 
 def sort_type_rows(rows: list[tuple[str | None, int]]) -> list[tuple[str | None, int]]:

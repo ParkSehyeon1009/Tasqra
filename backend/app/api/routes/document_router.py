@@ -8,7 +8,7 @@ from app.core.exceptions import BusinessError
 from app.core.middleware import current_request_id, get_request_id
 from app.dependencies import ProjectAccess, get_document_service, get_extraction_service, get_project_access, get_project_editor_access
 from app.schemas.common import PageResponse
-from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeGroupsRequest, OcrElementMergeGroupsResponse, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrStructureEventResponse, OcrUndoableMergeResponse
+from app.schemas.document import AnalysisResponse, DocumentDetailResponse, DocumentListItem, DocumentProcessingResponse, DocumentTypeUpdateRequest, DocumentTypeUpdateResponse, OcrElementBatchUpdateRequest, OcrElementBatchUpdateResponse, OcrElementCreateRequest, OcrElementDeletionRequest, OcrElementExclusionRequest, OcrElementMergeGroupsRequest, OcrElementMergeGroupsResponse, OcrElementMergeRequest, OcrElementMergeResponse, OcrElementMergeUndoResponse, OcrElementResponse, OcrElementUpdateRequest, OcrPageResponse, OcrReprocessRequest, OcrReprocessResponse, OcrReviewResponse, OcrRevisionResponse, OcrStructureEventResponse, OcrUndoableMergeResponse
 from app.services.document_service import DocumentService, OcrElementBatchChange
 from app.services.extraction_service import ExtractionService
 from app.worker import enqueue_build_chunks, extract_document_task
@@ -18,14 +18,23 @@ router = APIRouter(prefix="/api/projects/{project_id}", tags=["documents"])
 @router.get("/documents", response_model=PageResponse[DocumentListItem])
 def list_documents(q: str | None = None, document_type: str | None = None, document_state: str | None = Query(None, pattern="^(PROCESSING|REVIEW_REQUIRED|COMPLETED|FAILED)$"), category: str | None = None, page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100), access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     rows, total, total_pages = service.search_documents(project_id=access.project.id, q=q, document_type=document_type, document_state=document_state, category=category, page=page, size=size)
-    items = [DocumentListItem(id=row.document.id, filename=row.document.filename, file_type=row.document.file_type, document_type=row.document.document_type, status=row.document.status, processing_error=row.document.processing_error, review_status=row.document.review_status, page_count=row.document.extracted_text.page_count if row.document.extracted_text else None, char_count=row.document.extracted_text.char_count if row.document.extracted_text else None, text_char_count=row.document.native_text_char_count, ocr_char_count=row.document.active_ocr_char_count, extract_method=row.document.extracted_text.extract_method if row.document.extracted_text else None, category=row.category, summary_preview=row.summary_preview, created_at=row.document.created_at) for row in rows]
+    items = [DocumentListItem(id=row.document.id, filename=row.document.filename, file_type=row.document.file_type, document_type=row.document.document_type, document_type_source=row.document.document_type_source, status=row.document.status, processing_error=row.document.processing_error, review_status=row.document.review_status, page_count=row.document.extracted_text.page_count if row.document.extracted_text else None, char_count=row.document.extracted_text.char_count if row.document.extracted_text else None, text_char_count=row.document.native_text_char_count, ocr_char_count=row.document.active_ocr_char_count, extract_method=row.document.extracted_text.extract_method if row.document.extracted_text else None, category=row.category, summary_preview=row.summary_preview, created_at=row.document.created_at) for row in rows]
     return PageResponse(items=items, page=page, size=size, total=total, total_pages=total_pages)
 
 @router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
 def get_document(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document(access.project.id, document_id)
     extracted = document.extracted_text
-    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, status=document.status, processing_error=document.processing_error, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+    return DocumentDetailResponse(id=document.id, project_id=document.project_id, filename=document.filename, file_type=document.file_type, document_type=document.document_type, document_type_source=document.document_type_source, status=document.status, processing_error=document.processing_error, review_status=document.review_status, extraction_strategy=document.extraction_strategy, uploaded_by_name=document.uploader.name if document.uploader else None, reviewed_by_name=document.reviewer.name if document.reviewer else None, reviewed_at=document.reviewed_at, created_at=document.created_at, extracted_text=extracted.content if extracted else None, page_count=extracted.page_count if extracted else None, char_count=extracted.char_count if extracted else None, extract_method=extracted.extract_method if extracted else None, text_version=extracted.text_version if extracted else None, is_confirmed=extracted.is_confirmed if extracted else False, analyses=[AnalysisResponse.model_validate(item) for item in document.analyses])
+
+@router.patch("/documents/{document_id}/document-type", response_model=DocumentTypeUpdateResponse)
+def update_document_type(document_id: int, payload: DocumentTypeUpdateRequest, access: ProjectAccess = Depends(get_project_editor_access), service: DocumentService = Depends(get_document_service)):
+    document = service.update_document_type(
+        access.project.id,
+        document_id,
+        payload.document_type,
+    )
+    return DocumentTypeUpdateResponse.model_validate(document)
 
 @router.post("/documents/{document_id}/retry", response_model=DocumentProcessingResponse)
 def retry_document_processing(document_id: int, request_id: str = Depends(get_request_id), access: ProjectAccess = Depends(get_project_editor_access), service: ExtractionService = Depends(get_extraction_service)):
@@ -49,7 +58,9 @@ def get_document_history(document_id: int, access: ProjectAccess = Depends(get_p
 @router.get("/documents/{document_id}/review", response_model=OcrReviewResponse)
 def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document_for_review(access.project.id, document_id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
+    # 삭제한 영역도 검토 화면에는 내려줘야 새로고침 후 복원할 수 있다.
+    # 원본 캔버스에서는 프런트가 삭제 영역을 숨기고 목록에서만 복원 동작을 제공한다.
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
     undoable_merges = service.list_undoable_merges(access.project.id, document_id)
     structure_history = service.list_ocr_structure_events(access.project.id, document_id)
@@ -121,7 +132,7 @@ def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_pr
     # 고치면 충돌 지점이 되기 때문이다. 값을 못 얻으면 "-" 이고 아무것도 깨지지 않는다.
     enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)", request_id=current_request_id())
     document = service.get_document_for_review(access.project.id, document.id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
     undoable_merges = service.list_undoable_merges(access.project.id, document_id)
     structure_history = service.list_ocr_structure_events(access.project.id, document_id)

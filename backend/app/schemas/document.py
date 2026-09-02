@@ -18,6 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.enums import DocumentTypeSource, SelectableDocumentType
+
 
 class DocumentUploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -91,6 +93,7 @@ class DocumentListItem(BaseModel):
     filename: str
     file_type: str
     document_type: str | None
+    document_type_source: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str
@@ -104,6 +107,18 @@ class DocumentListItem(BaseModel):
     created_at: datetime
 
 
+class DocumentTypeUpdateRequest(BaseModel):
+    document_type: SelectableDocumentType
+
+
+class DocumentTypeUpdateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_type: SelectableDocumentType
+    document_type_source: DocumentTypeSource
+
+
 class DocumentDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -112,6 +127,7 @@ class DocumentDetailResponse(BaseModel):
     filename: str
     file_type: str
     document_type: str | None
+    document_type_source: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str
@@ -160,6 +176,7 @@ class OcrElementResponse(BaseModel):
     version: int
     is_excluded: bool
     is_deleted: bool
+    is_reviewed: bool = False
     content_start: int | None
     content_end: int | None
     is_in_content: bool
@@ -305,6 +322,8 @@ class OcrElementBatchUpdateItem(BaseModel):
     version: int = Field(ge=1)
     text: str | None = Field(default=None, max_length=10000)
     is_excluded: bool | None = None
+    is_deleted: bool | None = None
+    is_reviewed: bool | None = None
     is_paragraph_start: bool | None = None
     element_type: str | None = Field(
         default=None,
@@ -319,7 +338,7 @@ class OcrElementBatchUpdateItem(BaseModel):
 
     @model_validator(mode="after")
     def require_change(self):
-        editable = (self.text, self.is_excluded, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height, self.re_ocr_applied)
+        editable = (self.text, self.is_excluded, self.is_deleted, self.is_reviewed, self.is_paragraph_start, self.element_type, self.x, self.y, self.width, self.height, self.re_ocr_applied)
         if all(value is None for value in editable):
             raise ValueError("at least one editable field is required")
         if self.x is not None and self.width is not None and self.x + self.width > 1:

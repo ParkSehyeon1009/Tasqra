@@ -34,11 +34,17 @@ function ActionTaskCard({ task }) {
   const typeKey = TYPE_LABELS[task.type] ? task.type.toLowerCase() : 'default'
   const assignee = task.assignee?.name ?? task.assignee_name ?? '담당자 미정'
   const dueDate = task.due_on ? new Date(`${task.due_on}T00:00:00`).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) : '마감 미정'
+  const overdue = task.status !== 'DONE' && Boolean(task.due_on) && task.due_on < localTodayKey()
 
   return <article className={`dashboard-task-card task-type-${typeKey}`}>
     <div className="dashboard-task-card__top"><span className="dashboard-task-type">{TYPE_LABELS[task.type] ?? '기타'}</span><span className="dashboard-task-status">{STATUS_LABELS[task.status] ?? task.status}</span></div>
     <h3>{task.title}</h3>
     {task.description && <p>{task.description}</p>}
-    <div className="dashboard-task-card__meta"><span>{assignee}</span><time dateTime={task.due_on ?? undefined}>{dueDate}</time></div>
+    <div className="dashboard-task-card__meta"><span>{assignee}</span><time className={overdue ? 'is-overdue' : undefined} dateTime={task.due_on ?? undefined} title={overdue ? '마감일이 지났습니다.' : undefined}>{dueDate}</time></div>
   </article>
+}
+
+function localTodayKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }

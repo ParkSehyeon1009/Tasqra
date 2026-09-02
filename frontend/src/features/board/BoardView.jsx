@@ -136,7 +136,8 @@ export default function BoardView({ projectId, members, canEdit, notify }) {
 
 function TaskCard({ task, canEdit, dragging, highlighted, cardRef, onDragStart, onDragEnd, onEdit, onDelete }) {
   const className = `task-board-card task-board-card-${task.type.toLowerCase()}${dragging ? ' is-dragging' : ''}${highlighted ? ' is-calendar-target' : ''}`
-  return <article ref={cardRef} tabIndex={-1} className={className} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3><TaskDescription text={task.description}/><footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time dateTime={task.due_on ?? undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
+  const overdue = task.status !== 'DONE' && Boolean(task.due_on) && task.due_on < localTodayKey()
+  return <article ref={cardRef} tabIndex={-1} className={className} draggable={canEdit} onDragStart={onDragStart} onDragEnd={onDragEnd}><div className='task-board-card-top'><span>{TYPE_LABELS[task.type] ?? '기타'}</span>{canEdit && <div><button onClick={onEdit}>수정</button><button className='danger-text' onClick={onDelete}>삭제</button></div>}</div><h3>{task.title}</h3><TaskDescription text={task.description}/><footer><span>{task.assignee?.name ?? '담당자 미정'}</span><time className={overdue ? 'is-overdue' : undefined} dateTime={task.due_on ?? undefined} title={overdue ? '마감일이 지났습니다.' : undefined}>{task.due_on ? `~ ${task.due_on}` : '마감 미정'}</time></footer></article>
 }
 
 // 설명을 그린다. 끝에 붙은 **자동 기록 블록**은 사람이 쓴 것과 구분해 색으로 낸다.
@@ -156,9 +157,13 @@ function TaskDescription({ text }) {
   </>
 }
 
-function TaskDialog({ task, members, readOnly, pending, onClose, onSubmit }) {
+function localTodayKey() {
   const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function TaskDialog({ task, members, readOnly, pending, onClose, onSubmit }) {
+  const today = localTodayKey()
   const [title, setTitle] = useState(task.title ?? '')
   const [description, setDescription] = useState(task.description ?? '')
   const [type, setType] = useState(task.type ?? 'OTHER')

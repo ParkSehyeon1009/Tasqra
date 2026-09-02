@@ -147,6 +147,7 @@ class OcrElement(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     content_start: Mapped[int | None] = mapped_column(Integer)
     content_end: Mapped[int | None] = mapped_column(Integer)
     is_in_content: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
