@@ -1,5 +1,6 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황과 프로젝트 캘린더 조회 엔드포인트다.
+# 이 파일의 책임: 프로젝트 단건·전역 포트폴리오 핵심 현황과 프로젝트
+#   캘린더 조회 엔드포인트를 제공한다.
 # 다른 파일과의 관계: services/dashboard_service.py 를 부르고
 #   schemas/dashboard.py 를 돌려준다.
 # Spring 비교: @RestController + @GetMapping 이다. ProjectAccess 는 인터셉터가
@@ -27,11 +28,40 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.dependencies import ProjectAccess, get_dashboard_service, get_project_access
-from app.schemas.dashboard import DashboardCalendarResponse, DashboardResponse
+from app.dependencies import (
+    ProjectAccess,
+    get_current_user,
+    get_dashboard_service,
+    get_project_access,
+)
+from app.models.user import User
+from app.schemas.dashboard import (
+    DashboardCalendarResponse,
+    DashboardResponse,
+    PortfolioDashboardResponse,
+)
 from app.services.dashboard_service import DashboardService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["dashboard"])
+portfolio_router = APIRouter(prefix="/api/portfolio", tags=["dashboard"])
+
+
+@portfolio_router.get("/dashboard", response_model=PortfolioDashboardResponse)
+def get_portfolio_dashboard(
+    recent_document_limit: int = Query(
+        5, ge=1, le=20, description="프로젝트마다 최근 문서를 몇 건까지 돌려줄지"
+    ),
+    activity_limit: int = Query(
+        20, ge=1, le=100, description="전체 프로젝트의 최근 태스크 활동 수"
+    ),
+    user: User = Depends(get_current_user),
+    service: DashboardService = Depends(get_dashboard_service),
+) -> PortfolioDashboardResponse:
+    return service.get_portfolio(
+        user_id=user.id,
+        recent_document_limit=recent_document_limit,
+        activity_limit=activity_limit,
+    )
 
 
 @router.get("/dashboard", response_model=DashboardResponse)

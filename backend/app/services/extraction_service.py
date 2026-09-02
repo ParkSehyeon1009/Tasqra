@@ -256,9 +256,12 @@ class ExtractionService:
         if value is None or not value.strip():
             return None
         try:
-            return DocumentType(value.strip().upper())
+            document_type = DocumentType(value.strip().upper())
         except ValueError as exc:
             raise BusinessError(ErrorCode.INVALID_DOCUMENT_TYPE) from exc
+        if document_type is DocumentType.BILLING:
+            raise BusinessError(ErrorCode.INVALID_DOCUMENT_TYPE)
+        return document_type
 
     @staticmethod
     def _sanitize_filename(filename: str) -> str:

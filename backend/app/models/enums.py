@@ -7,9 +7,9 @@
 # 다른 파일과의 관계: models/document.py, services/* 에서 이 Enum의 .value를
 #   문자열 컬럼에 그대로 저장한다. document_type은 처음에 "값이 계속 늘어날 수
 #   있다"는 이유로 Enum 없이 자유 문자열로 두었으나, 도메인을 공공 SI·용역
-#   사업으로 좁히면서 9종으로 확정했으므로 DocumentType Enum을 둔다. DB 컬럼은
-#   여전히 String이고 값 제한은 CHECK 제약으로 넣는다(리비전 0008 예정).
-#   CREATE TYPE AS ENUM을 쓰지 않으므로 값이 늘어도 ALTER TYPE이 필요 없다.
+#   사업으로 좁히면서 신규 선택은 8종으로 확정했다. DocumentType은 과거
+#   BILLING 저장값 조회까지 포함하고, 쓰기 경로는 SelectableDocumentType 8종을 쓴다.
+#   DB 컬럼은 String이라 레거시 값을 보존하면서 화면에서 ETC로 호환할 수 있다.
 
 # Spring 비교: Java enum + @Enumerated(EnumType.STRING)과 같은 목적.
 #   차이는 여기서는 SQLAlchemy 컬럼 타입을 Enum으로 강제하지 않고 일반
@@ -95,11 +95,9 @@ class ExtractionStrategy(str, Enum):
 # =============================================================================
 # 문서 유형 — 도메인: 공공 SI · 용역 사업
 #
-# 9종 전부가 금액과 관계가 있다. 도메인을 좁힌 효과다. 범용이었을 때는
-# MANUAL 처럼 금액이 없는 유형이 섞여 있었다.
-# 업로드 시 사용자가 지정하고(document_type_source=USER), 지정하지 않으면
-# 분류 분석기가 채운다(AI). 사람이 AI 판별을 고친 비율(USER_CORRECTED)이
-# 곧 분류 오류율이 되어 별도 정답셋 없이 정확도를 잴 수 있다.
+# 사용자가 새로 선택할 수 있는 유형은 8종이다. BILLING은 과거 저장값을 읽기 위한
+# 호환 코드이며 신규 입력에서는 ETC로 통합한다. DocumentType은 조회 호환 계약,
+# SelectableDocumentType은 업로드·수정 쓰기 계약으로 역할을 분리한다.
 # =============================================================================
 class DocumentType(str, Enum):
     RFP = "RFP"                          # 제안요청서 · 입찰공고
@@ -109,8 +107,20 @@ class DocumentType(str, Enum):
     CONTRACT_CHANGE = "CONTRACT_CHANGE"  # 변경계약서 · 과업변경합의서
     REPORT = "REPORT"                    # 착수 · 주간 · 월간 · 완료보고서 · 검사조서
     MEETING_NOTES = "MEETING_NOTES"      # 회의록
-    BILLING = "BILLING"                  # 대가지급청구서 · 세금계산서
+    BILLING = "BILLING"                  # 레거시 읽기 전용 — 화면·신규 입력은 ETC
     ETC = "ETC"
+
+
+class SelectableDocumentType(str, Enum):
+    RFP = "RFP"
+    PROPOSAL = "PROPOSAL"
+    COST_SHEET = "COST_SHEET"
+    CONTRACT = "CONTRACT"
+    CONTRACT_CHANGE = "CONTRACT_CHANGE"
+    REPORT = "REPORT"
+    MEETING_NOTES = "MEETING_NOTES"
+    ETC = "ETC"
+
 
 class DocumentTypeSource(str, Enum):
     USER = "USER"                        # 업로드 시 사람이 지정

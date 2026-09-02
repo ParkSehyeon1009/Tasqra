@@ -26,7 +26,7 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.extractors.layout import LayoutElement
 from app.models.document import Analysis, Document, OcrElement, OcrElementRevision, OcrMergeOperation, OcrStructureEvent
-from app.models.enums import AnalyzerType, ReviewStatus
+from app.models.enums import AnalyzerType, DocumentTypeSource, ReviewStatus, SelectableDocumentType
 from app.extractors.ocr_extractor import OcrExtractor
 from app.extractors.reading_order import build_reading_groups
 from app.repositories.analysis_repository import AnalysisRepository
@@ -142,6 +142,24 @@ class DocumentService:
         document = self._document_repository.get_by_id(project_id, document_id)
         if document is None:
             raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+        return document
+
+    def update_document_type(
+        self,
+        project_id: int,
+        document_id: int,
+        document_type: SelectableDocumentType,
+    ) -> Document:
+        """사용자가 현재 문서 유형을 고치고 AI 자동 갱신 대상에서 제외한다."""
+        with transactional(self._db):
+            document = self._document_repository.get_by_id_for_update(
+                project_id, document_id
+            )
+            if document is None:
+                raise BusinessError(ErrorCode.DOCUMENT_NOT_FOUND)
+            if document.document_type != document_type.value:
+                document.document_type = document_type.value
+                document.document_type_source = DocumentTypeSource.USER_CORRECTED.value
         return document
 
     def get_document_for_review(self, project_id: int, document_id: int) -> Document:

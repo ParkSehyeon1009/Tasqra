@@ -79,6 +79,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   const scheduledUploadIdsRef = useRef(new Set())
   const nextUploadIdRef = useRef(1)
   const canEdit = project.role !== 'VIEWER'
+  const waitsForWorkspaceData = !['search', 'deliverables', 'amounts'].includes(tab)
   const openUpload = () => fileInputRef.current?.click()
 
   useEffect(() => { setRecentProjectId(user?.id, project.id) }, [project.id, user?.id])
@@ -161,9 +162,9 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
 
   return <div className="app-frame"><AppHeader user={user} onLogout={onLogout} notify={notify} project={project} section={TABS.find(([key]) => key === tab)?.[1]}/><input ref={fileInputRef} hidden type="file" multiple accept=".pdf,.docx,.hwpx,.png,.jpg,.jpeg" onChange={upload}/>
     <div className="workspace-shell">
-      <ProjectSidebar projects={projects} activeProjectId={project.id} activeTab={tab} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${project.id}/${key}`)} onCreate={() => setCreating(true)}/>
+      <ProjectSidebar projects={projects} activeProjectId={project.id} activeTab={tab} onOpenPortfolio={() => navigate('/projects')} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${project.id}/${key}`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
-        <main className="workspace-main">{data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} documentType={documentType} documentState={documentState} onDocumentTypeChange={changeDocumentType} onDocumentStateChange={changeDocumentState} onClearDocumentFilters={clearDocumentFilters} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+        <main className="workspace-main">{waitsForWorkspaceData && data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} documentType={documentType} documentState={documentState} onDocumentTypeChange={changeDocumentType} onDocumentStateChange={changeDocumentState} onClearDocumentFilters={clearDocumentFilters} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>

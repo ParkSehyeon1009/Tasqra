@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { startDocumentAnalysis, getAnalysisJob, deleteDocument, downloadDocumentSource, downloadSummary, getDocument, retryDocumentProcessing } from '../api/document'
+import { startDocumentAnalysis, getAnalysisJob, deleteDocument, downloadDocumentSource, downloadSummary, getDocument, retryDocumentProcessing, updateDocumentType } from '../api/document'
 import { getProject } from '../api/project'
 import AppHeader from '../components/common/AppHeader'
 import ConfirmDialog from '../components/common/ConfirmDialog'
@@ -22,6 +22,7 @@ import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
 import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionScheduleReviewView'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
+import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
 import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
@@ -30,6 +31,20 @@ const TABS = [['content', '문서 내용'], ['review', 'OCR 검수'], ['analysis
 function getDocumentListUrl(projectId, candidate) {
   const fallback = `/projects/${projectId}/documents`
   return candidate === fallback || candidate?.startsWith(`${fallback}?`) ? candidate : fallback
+}
+
+function DocumentTypeCorrection({ document, pending, onSave }) {
+  const canonicalType = normalizeDocumentTypeValue(document.document_type) || 'ETC'
+  const [selectedType, setSelectedType] = useState(canonicalType)
+  const isLegacyBilling = document.document_type === LEGACY_BILLING_DOCUMENT_TYPE
+
+  useEffect(() => { setSelectedType(canonicalType) }, [canonicalType])
+
+  return <section className="detail-card document-type-correction" aria-labelledby="document-type-correction-title">
+    <h2 id="document-type-correction-title">문서 유형 수정</h2>
+    <p>{isLegacyBilling ? '기존 BILLING 유형은 현재 기타(ETC)에 포함됩니다. 저장하면 현재 8종 기준으로 정리됩니다.' : document.document_type_source === 'AI' ? 'AI 자동 분류 결과입니다.' : '사용자가 수정한 유형입니다.'} 변경한 값은 이후 AI 재분석에서도 유지됩니다.</p>
+    <div className="document-type-correction-controls"><label htmlFor="document-type-correction">문서 유형</label><select id="document-type-correction" value={selectedType} disabled={pending} onChange={event => setSelectedType(event.target.value)}>{DOCUMENT_TYPES.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><button type="button" className="primary" disabled={pending || (!isLegacyBilling && selectedType === canonicalType)} onClick={() => onSave(selectedType)}>{pending ? '저장 중...' : isLegacyBilling ? 'ETC로 정리' : '유형 저장'}</button></div>
+  </section>
 }
 
 export default function DocumentDetailPage({ user, onLogout, notify }) {
@@ -71,6 +86,18 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const downloadMutation = useMutation({ mutationFn: () => downloadDocumentSource(projectId, documentId, document.filename), onError: error => notify('error', '원본 다운로드 실패', error.message) })
   const summaryDownloadMutation = useMutation({ mutationFn: () => downloadSummary(projectId, documentId, `${document.filename.replace(/\.[^.]+$/, '')}_요약.txt`), onSuccess: () => notify('success', '분석 결과 다운로드 완료', '최신 요약과 분류 결과를 저장했습니다.'), onError: error => notify('error', '분석 결과 다운로드 실패', error.message) })
   const retryMutation = useMutation({ mutationFn: () => retryDocumentProcessing(projectId, documentId), onSuccess: () => { queryClient.setQueryData(documentKey, current => ({ ...current, status: 'PENDING', processing_error: null })); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', '문서 재처리 접수', `${document.filename} 처리를 다시 시작했습니다.`) }, onError: error => notify('error', '문서 재처리 실패', error.message) })
+  const documentTypeMutation = useMutation({
+    mutationFn: documentType => updateDocumentType(projectId, documentId, documentType),
+    onSuccess: data => {
+      queryClient.setQueryData(documentKey, current => current ? { ...current, ...data } : current)
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'deliverable-preview'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'deliverable-content'] })
+      notify('success', '문서 유형 수정 완료', '사용자 수정값으로 저장했습니다.')
+    },
+    onError: error => notify('error', '문서 유형 수정 실패', error.message),
+  })
 
   if (projectQuery.isPending || documentQuery.isPending) return <LoadingState label="문서 상세 화면을 불러오는 중..."/>
   if (projectQuery.isError) return <div className="detail-not-found"><h1>프로젝트에 접근할 수 없습니다.</h1><p>프로젝트가 없거나 접근 권한이 없습니다.</p><button onClick={() => navigate('/projects')}>내 프로젝트로 이동</button></div>
@@ -80,6 +107,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
+      {canEdit && (['AI', 'USER_CORRECTED'].includes(document.document_type_source) || document.document_type === LEGACY_BILLING_DOCUMENT_TYPE) && <DocumentTypeCorrection document={document} pending={documentTypeMutation.isPending} onSave={documentType => documentTypeMutation.mutate(documentType)}/>}
       <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}</button>)}</nav>
       <main className="document-tab-body">
         {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
