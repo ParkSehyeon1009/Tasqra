@@ -129,6 +129,7 @@ def test_complete_review_restores_previously_excluded_element_at_saved_range():
 def batch_element(element_id, text, start, end, *, version=1, element_type="TEXT_LINE"):
     return SimpleNamespace(
         id=element_id,
+        page_id=40,
         text=text,
         version=version,
         is_in_content=True,
@@ -137,6 +138,9 @@ def batch_element(element_id, text, start, end, *, version=1, element_type="TEXT
         is_paragraph_start=False,
         element_type=element_type,
         element_type_source="AUTO",
+        reading_order=element_id - 30,
+        table_id=None,
+        table_row=None,
         x=0.1,
         y=0.1,
         width=0.4,
@@ -161,7 +165,7 @@ def test_batch_update_rebuilds_content_and_increments_document_versions_once():
     first = batch_element(30, "first", 0, 5)
     second = batch_element(31, "second", 6, 12)
     third = batch_element(32, "third", 13, 18)
-    document.review_pages = [SimpleNamespace(elements=[first, second, third])]
+    document.review_pages = [SimpleNamespace(id=40, elements=[first, second, third])]
     service, db, repository = build_service(document=document)
     repository.get_ocr_elements_for_update.return_value = [first, second]
 
@@ -196,7 +200,7 @@ def test_batch_update_rolls_back_all_items_on_stale_version():
     document = editable_document()
     first = batch_element(30, "first", 0, 5, version=2)
     second = batch_element(31, "second", 6, 12, version=3)
-    document.review_pages = [SimpleNamespace(elements=[first, second])]
+    document.review_pages = [SimpleNamespace(id=40, elements=[first, second])]
     service, db, repository = build_service(document=document)
     repository.get_ocr_elements_for_update.return_value = [first, second]
 
@@ -220,6 +224,27 @@ def test_batch_update_rolls_back_all_items_on_stale_version():
     db.rollback.assert_called_once()
 
 
+def test_batch_update_saves_review_and_deletion_status_together():
+    document = editable_document()
+    element = batch_element(30, "first", 0, 5)
+    element.is_reviewed = False
+    document.review_pages = [SimpleNamespace(id=40, elements=[element])]
+    service, _, repository = build_service(document=document)
+    repository.get_ocr_elements_for_update.return_value = [element]
+
+    _, updated = service.update_ocr_elements_batch(
+        10,
+        20,
+        [OcrElementBatchChange(id=30, version=1, is_reviewed=True, is_deleted=True)],
+        7,
+    )
+
+    assert updated == [element]
+    assert element.is_reviewed is True
+    assert element.is_deleted is True
+    assert element.version == 2
+
+
 def test_batch_paragraph_change_marks_chunks_stale_once():
     document = editable_document()
     document.extracted_text = SimpleNamespace(
@@ -233,7 +258,7 @@ def test_batch_paragraph_change_marks_chunks_stale_once():
     )
     heading = batch_element(30, "heading", 0, 7)
     body = batch_element(31, "body", 8, 12)
-    document.review_pages = [SimpleNamespace(elements=[heading, body])]
+    document.review_pages = [SimpleNamespace(id=40, elements=[heading, body])]
     service, _, repository = build_service(document=document)
     repository.get_ocr_elements_for_update.return_value = [heading, body]
 
@@ -259,7 +284,7 @@ def test_batch_geometry_change_updates_box_without_changing_text_version():
     document = editable_document()
     document.extracted_text = SimpleNamespace(text_version=2, ocr_char_count=3)
     element = batch_element(30, "box", 0, 3)
-    document.review_pages = [SimpleNamespace(elements=[element])]
+    document.review_pages = [SimpleNamespace(id=40, elements=[element])]
     service, _, repository = build_service(document=document)
     repository.get_ocr_elements_for_update.return_value = [element]
 

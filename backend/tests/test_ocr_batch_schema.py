@@ -11,10 +11,12 @@ def test_batch_request_accepts_partial_updates():
             {"id": 15, "version": 1, "is_excluded": True},
             {"id": 18, "version": 2, "is_paragraph_start": True},
             {"id": 19, "version": 1, "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1},
+            {"id": 20, "version": 1, "is_reviewed": True},
+            {"id": 21, "version": 1, "is_deleted": True},
         ]
     })
 
-    assert len(request.items) == 4
+    assert len(request.items) == 6
 
 
 @pytest.mark.parametrize(

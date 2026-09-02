@@ -56,6 +56,8 @@ class OcrElementBatchChange:
     version: int
     text: str | None = None
     is_excluded: bool | None = None
+    is_deleted: bool | None = None
+    is_reviewed: bool | None = None
     is_paragraph_start: bool | None = None
     element_type: str | None = None
     x: float | None = None
@@ -547,6 +549,23 @@ class DocumentService:
 
                 if change.is_excluded is not None and change.is_excluded != element.is_excluded:
                     element.is_excluded = change.is_excluded
+                    item_changed = True
+
+                if change.is_deleted is not None and change.is_deleted != element.is_deleted:
+                    if change.is_deleted:
+                        if element.is_in_content:
+                            content_changed = self._replace_ocr_content(document, element, "") or content_changed
+                            element.is_in_content = False
+                        element.is_deleted = True
+                    else:
+                        element.is_deleted = False
+                        if not element.is_excluded and not element.is_in_content:
+                            content_changed = self._replace_ocr_content(document, element, element.text) or content_changed
+                            element.is_in_content = True
+                    item_changed = True
+
+                if change.is_reviewed is not None and change.is_reviewed != element.is_reviewed:
+                    element.is_reviewed = change.is_reviewed
                     item_changed = True
 
                 if change.element_type is not None and change.element_type != element.element_type:
