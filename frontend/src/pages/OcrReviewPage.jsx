@@ -48,6 +48,9 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [elementFilter, setElementFilter] = useState('ALL')
   const [createMode, setCreateMode] = useState(false)
+  const [boxEditMode, setBoxEditMode] = useState(false)
+  const [paragraphEditMode, setParagraphEditMode] = useState(false)
+  const [zoom, setZoom] = useState(1)
   const allowNavigationRef = useRef(false)
   const { projects } = useProjectsQuery(notify)
   const projectQuery = useQuery({ queryKey: ['project-access', projectId], queryFn: () => getProject(projectId), retry: false })
@@ -58,11 +61,14 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const availableLastMerge = lastMerge ?? (review?.latest_merge_operation_id ? { operationId: review.latest_merge_operation_id, pageId: review.latest_merge_page_id } : null)
   const pages = review?.pages ?? []
   const page = pages[pageIndex]
-  const effectiveSelectedId = selectedId ?? page?.elements[0]?.id ?? null
+  const defaultSelectedElement = elementFilter === 'LOW'
+    ? page?.elements.find(element => !element.is_deleted && confidenceLevel(element.confidence) === 'low')
+    : page?.elements.find(element => !element.is_deleted) ?? page?.elements[0]
+  const effectiveSelectedId = selectedId ?? defaultSelectedElement?.id ?? null
   const selectedSource = useMemo(() => page?.elements.find(item => item.id === effectiveSelectedId) ?? null, [page, effectiveSelectedId])
   const selected = selectedSource ? { ...selectedSource, ...structureDrafts[selectedSource.id] } : null
   const draft = selected ? (drafts[selected.id] ?? selected.text) : ''
-  const effectivePageElements = useMemo(() => page?.elements.map(element => ({ ...element, ...structureDrafts[element.id], ...geometryDrafts[element.id] })) ?? [], [page, structureDrafts, geometryDrafts])
+  const effectivePageElements = useMemo(() => page?.elements.map(element => ({ ...element, ...structureDrafts[element.id], ...geometryDrafts[element.id], text: drafts[element.id] ?? element.text })) ?? [], [page, drafts, structureDrafts, geometryDrafts])
   const lowConfidenceElements = useMemo(() => effectivePageElements.filter(element => !element.is_deleted && confidenceLevel(element.confidence) === 'low'), [effectivePageElements])
   const undoableMergeBySurvivor = useMemo(() => new Map((review?.undoable_merges ?? []).map(operation => [operation.survivor_id, operation])), [review?.undoable_merges])
   const mergeableParagraphGroups = useMemo(() => paragraphMergeGroups(effectivePageElements), [effectivePageElements])
@@ -92,16 +98,21 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     return !hasUnsavedChanges || window.confirm(message)
   }
 
-  function selectElement(element, moveToEditor = false) {
-    if (element.id === effectiveSelectedId) return
+  function selectElement(element, reveal = null) {
+    if (reveal === 'ocr-element' && elementFilter === 'LOW' && confidenceLevel(element.confidence) !== 'low') setElementFilter('ALL')
     setSelectedId(element.id)
-    if (moveToEditor) requestAnimationFrame(() => document.getElementById('ocr-element-' + element.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    if (reveal) requestAnimationFrame(() => document.getElementById(`${reveal}-${element.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }))
   }
 
   function changePage(nextIndex) {
     if (nextIndex < 0 || nextIndex >= pages.length || nextIndex === pageIndex) return
     setPageIndex(nextIndex)
     setSelectedId(null)
+    setMergeSelection([])
+    setMergeMode(false)
+    setCreateMode(false)
+    setBoxEditMode(false)
+    setZoom(1)
   }
 
   function changeElementFilter(nextFilter) {
@@ -152,10 +163,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     onSuccess: result => {
       const updatedById = new Map(result.items.map(element => [element.id, element]))
       queryClient.setQueryData(reviewKey, current => current ? ({ ...current, ocr_revision: result.ocr_revision, review_status: 'IN_PROGRESS', pages: current.pages.map(item => ({ ...item, elements: item.elements.map(element => updatedById.get(element.id) ?? element) })) }) : current)
-      setDrafts({})
-      setStructureDrafts({})
-      setGeometryDrafts({})
-      setReOcrDrafts({})
+      clearSavedDrafts(result.items)
       queryClient.invalidateQueries({ queryKey: reviewKey, exact: true })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId], exact: true })
@@ -163,6 +171,34 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
     },
     onError: error => { reviewQuery.refetch(); notify('error', error.status === 409 ? '수정 내용 충돌' : 'OCR 검수 내용 저장 실패', error.message) },
   })
+
+  function clearSavedDrafts(savedItems) {
+    const savedById = new Map(savedItems.map(item => [item.id, item]))
+    setDrafts(current => Object.fromEntries(Object.entries(current).filter(([id, value]) => savedById.get(Number(id))?.text !== value)))
+    setStructureDrafts(current => Object.fromEntries(Object.entries(current).filter(([id, value]) => {
+      const saved = savedById.get(Number(id))
+      return !saved || Object.entries(value).some(([field, fieldValue]) => saved[field] !== fieldValue)
+    })))
+    setGeometryDrafts(current => Object.fromEntries(Object.entries(current).filter(([id, value]) => {
+      const saved = savedById.get(Number(id))
+      return !saved || Object.entries(value).some(([field, fieldValue]) => saved[field] !== fieldValue)
+    })))
+    setReOcrDrafts(current => Object.fromEntries(Object.entries(current).filter(([id]) => !savedById.has(Number(id)))))
+  }
+
+  function toggleCreateMode() {
+    setCreateMode(current => !current)
+    setBoxEditMode(false)
+    setMergeMode(false)
+    setMergeSelection([])
+  }
+
+  function toggleMergeMode() {
+    setMergeMode(current => !current)
+    setCreateMode(false)
+    setBoxEditMode(false)
+    setMergeSelection([])
+  }
 
   const exclusionMutation = useMutation({
     mutationFn: element => setOcrElementExclusion(projectId, documentId, element.id, !element.is_excluded, element.version),
@@ -217,7 +253,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       }
       return results
     },
-    onSuccess: results => setBatchReOcrResults(results),
+    onSuccess: results => setBatchReOcrResults(results.map(item => ({ ...item, selected: item.status === 'SUCCESS' }))),
   })
 
   const mergeMutation = useMutation({
@@ -288,7 +324,7 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   }
 
   function applyBatchReOcrResults() {
-    const successes = (batchReOcrResults ?? []).filter(item => item.status === 'SUCCESS')
+    const successes = (batchReOcrResults ?? []).filter(item => item.status === 'SUCCESS' && item.selected)
     setDrafts(current => ({ ...current, ...Object.fromEntries(successes.map(item => [item.element.id, item.result.recognized_text])) }))
     setReOcrDrafts(current => ({ ...current, ...Object.fromEntries(successes.map(item => [item.element.id, { confidence: item.result.confidence }])) }))
     setBatchReOcrResults(null)
@@ -302,7 +338,10 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   })
 
   function completeReview() {
-    if (!confirmDiscard('저장하지 않은 수정 내용이 있습니다. 저장하지 않고 검수를 완료할까요?')) return
+    if (hasUnsavedChanges) {
+      updateMutation.mutate(dirtyChanges, { onSuccess: () => completeMutation.mutate() })
+      return
+    }
     completeMutation.mutate()
   }
 
@@ -313,13 +352,14 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
   const documentPageCount = documentQuery.data?.page_count ?? pages.length
   const selectedIndex = effectivePageElements.findIndex(element => element.id === effectiveSelectedId)
   const effectivePage = { ...page, elements: effectivePageElements.map(element => ({ ...element, is_merge_result: undoableMergeBySurvivor.has(element.id) })) }
+  const isBusy = updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending || batchReOcrMutation.isPending || mergeMutation.isPending || undoMergeMutation.isPending
   return <div className='app-frame ocr-review-page'>
     <AppHeader user={user} onLogout={onLogout} notify={notify} project={projectQuery.data} section="OCR 검수"/>
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab='documents' onSelect={project => navigate(`/projects/${project.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className='standalone-workspace-content'>
     <header className='ocr-review-toolbar'>
       <div className='ocr-review-title'><button className='back-button' onClick={goBack}>← 문서로 돌아가기</button><h1>{documentQuery.data?.filename ?? 'OCR 검수'}</h1><p>문서 {page.page_number}/{documentPageCount}쪽 · OCR 대상 {pageIndex + 1}/{pages.length}쪽</p></div>
-      <div className='ocr-review-toolbar-actions'><span className={'status-badge status-' + reviewStatus.tone} title={reviewStatus.description}>{reviewStatus.label}</span><button className='primary' disabled={!canEdit || completeMutation.isPending || updateMutation.isPending || exclusionMutation.isPending} onClick={completeReview}>{completeMutation.isPending ? '검수 완료 처리 중...' : 'OCR 검수 완료'}</button></div>
+      <div className='ocr-review-toolbar-actions'><span className={'status-badge status-' + reviewStatus.tone} title={reviewStatus.description}>{reviewStatus.label}</span><button className='primary' disabled={!canEdit || isBusy} onClick={completeReview}>{completeMutation.isPending ? '검수 완료 처리 중...' : updateMutation.isPending ? '변경 저장 중...' : hasUnsavedChanges ? '저장 후 검수 완료' : 'OCR 검수 완료'}</button></div>
     </header>
     <section className='ocr-review-progress' aria-label='OCR 검수 진행 현황'><div><span>OCR 요소</span><strong>{totalElements}개</strong></div><div><span>수정 또는 제외 예정</span><strong>{changedElements}개</strong></div><div><span>현재 선택 영역</span><strong>{selectedIndex >= 0 ? String(selectedIndex + 1) + '/' + effectivePageElements.length : '선택된 항목 없음'}</strong></div><p className={hasUnsavedChanges ? 'has-unsaved' : ''}>{hasUnsavedChanges ? '저장하지 않은 변경 사항이 있습니다.' : '현재 선택 영역의 변경 사항은 저장된 상태입니다.'}</p></section>
     <details className='ocr-advanced-tools'>
@@ -330,20 +370,29 @@ export default function OcrReviewPage({ user, onLogout, notify }) {
       </div>
     </details>
     <main className='ocr-review-workspace ocr-review-layout'>
-      <section className='ocr-canvas-panel'><div className='ocr-canvas-toolbar'><ConfidenceLegend/><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-page-context'><strong>원본 문서 {page.page_number}쪽</strong><small>{mergeMode ? '합칠 인접 박스를 원본 화면에서 차례로 선택하세요.' : createMode ? '원본에서 원하는 영역을 대각선으로 드래그하세요.' : '박스를 끌어서 이동하고 우하단 손잡이로 크기를 조정합니다.'}</small></div></div><OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit} createMode={createMode} mergeMode={mergeMode} mergeSelection={mergeSelection} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => mergeMode ? toggleMergeSelection(element) : selectElement(element, true)} onGeometryChange={updateGeometry}/></section>
-      <aside className='ocr-editor-panel'><div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>텍스트 종류와 단락 경계를 확인한 뒤 변경 내용을 한 번에 저장합니다.</p></div><div className='ocr-editor-heading-actions'><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span>{canEdit && <button type='button' className={createMode ? 'active' : ''} disabled={createMutation.isPending} onClick={() => setCreateMode(current => !current)}>{createMode ? '추가 취소' : '+ 박스 추가'}</button>}</div></div>{canEdit && <div className='ocr-batch-reocr'><span>일괄 재OCR</span><button type='button' disabled={!lowConfidenceElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(lowConfidenceElements)}>낮은 신뢰도 {lowConfidenceElements.length}개</button><button type='button' disabled={!effectivePageElements.length || batchReOcrMutation.isPending} onClick={() => batchReOcrMutation.mutate(effectivePageElements.filter(element => !element.is_deleted))}>현재 페이지 전체</button>{batchReOcrMutation.isPending && <small>선택 영역을 순서대로 처리하고 있습니다...</small>}</div>}{canEdit && <div className='ocr-merge-toolbar'><button type='button' className={mergeMode ? 'active' : ''} onClick={() => { setMergeMode(current => !current); setMergeSelection([]) }}>{mergeMode ? '병합 선택 취소' : '박스 병합'}</button>{mergeMode && <><span>{mergeSelection.length}개 선택</span><button type='button' className='primary' disabled={mergeSelection.length < 2 || mergeMutation.isPending} onClick={mergeSelectedElements}>선택 박스 병합</button></>}{availableLastMerge && <button type='button' disabled={undoMergeMutation.isPending} onClick={() => undoMergeMutation.mutate(availableLastMerge)}>{undoMergeMutation.isPending ? '되돌리는 중...' : '최근 병합 되돌리기'}</button>}</div>}<ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={selectElement} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} canEdit={canEdit} saving={updateMutation.isPending || completeMutation.isPending || exclusionMutation.isPending || deletionMutation.isPending || reOcrMutation.isPending || batchReOcrMutation.isPending || mergeMutation.isPending || undoMergeMutation.isPending} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)} mergeMode={mergeMode} mergeSelection={mergeSelection} onToggleMerge={toggleMergeSelection}/></aside>
+      <section className='ocr-canvas-panel'>
+        <div className='ocr-canvas-toolbar'><PageNavigator pageIndex={pageIndex} pageCount={pages.length} onChange={changePage}/><div className='ocr-canvas-meta'><ConfidenceLegend/><div className='ocr-zoom-controls' aria-label='원본 확대/축소'><button type='button' disabled={zoom <= .75} onClick={() => setZoom(value => Math.max(.75, value - .25))}>−</button><span>{Math.round(zoom * 100)}%</span><button type='button' disabled={zoom >= 2} onClick={() => setZoom(value => Math.min(2, value + .25))}>＋</button></div></div></div>
+        <div className={'ocr-mode-notice' + (createMode || mergeMode || boxEditMode ? ' active' : '')}>{mergeMode ? '합칠 박스를 원본에서 차례로 선택하세요.' : createMode ? '원본에서 새 영역을 대각선으로 드래그하세요.' : boxEditMode ? '박스를 끌어 이동하고 우하단 손잡이로 크기를 조정하세요.' : '박스를 선택해 텍스트를 확인하세요. 위치 변경은 검토 보조 도구에서 켤 수 있습니다.'}</div>
+        <OcrCanvas page={effectivePage} selectedId={effectiveSelectedId} canEdit={canEdit && !isBusy && boxEditMode} createMode={createMode} mergeMode={mergeMode} mergeSelection={mergeSelection} zoom={zoom} showParagraphGroups={paragraphEditMode} onCreate={geometry => createMutation.mutate(geometry)} onSelect={element => mergeMode ? toggleMergeSelection(element) : selectElement(element, 'ocr-element')} onGeometryChange={updateGeometry}/>
+      </section>
+      <aside className='ocr-editor-panel'>
+        <div className='ocr-editor-heading'><div><h2>인식 텍스트</h2><p>원본과 비교해 필요한 내용만 수정하세요.</p></div><span>{effectivePageElements.filter(element => !element.is_deleted).length}개</span></div>
+        {canEdit && <details className='ocr-editor-tools'><summary>검토 보조 도구</summary><div className='ocr-editor-tools-body'><div className='ocr-tool-mode-row'><button type='button' className={boxEditMode ? 'active' : ''} disabled={isBusy} onClick={() => { setBoxEditMode(value => !value); setCreateMode(false); setMergeMode(false); setMergeSelection([]) }}>{boxEditMode ? '박스 이동 닫기' : '박스 이동·크기'}</button><button type='button' className={createMode ? 'active' : ''} disabled={isBusy} onClick={toggleCreateMode}>{createMode ? '박스 추가 취소' : '박스 추가'}</button><button type='button' className={mergeMode ? 'active' : ''} disabled={isBusy} onClick={toggleMergeMode}>{mergeMode ? '병합 선택 취소' : '박스 병합'}</button><button type='button' className={paragraphEditMode ? 'active' : ''} disabled={isBusy} onClick={() => setParagraphEditMode(value => !value)}>{paragraphEditMode ? '단락 편집 닫기' : '단락 편집'}</button></div>{mergeMode && <div className='ocr-merge-toolbar'><span>{mergeSelection.length}개 선택</span><button type='button' className='primary' disabled={mergeSelection.length < 2 || mergeMutation.isPending} onClick={mergeSelectedElements}>선택 박스 병합</button></div>}<div className='ocr-batch-reocr'><span>일괄 재OCR</span><button type='button' disabled={!lowConfidenceElements.length || isBusy} onClick={() => batchReOcrMutation.mutate(lowConfidenceElements)}>낮은 신뢰도 {lowConfidenceElements.length}개</button><button type='button' disabled={!effectivePageElements.length || isBusy} onClick={() => batchReOcrMutation.mutate(effectivePageElements.filter(element => !element.is_deleted))}>현재 페이지 전체</button></div>{availableLastMerge && <button type='button' className='ocr-undo-merge' disabled={isBusy} onClick={() => undoMergeMutation.mutate(availableLastMerge)}>최근 병합 되돌리기</button>}</div></details>}
+        <ElementList elements={effectivePageElements} filter={elementFilter} lowConfidenceCount={lowConfidenceElements.length} onFilterChange={changeElementFilter} selectedId={effectiveSelectedId} onSelect={element => selectElement(element, 'ocr-box')} draft={draft} onDraft={text => selected && setDrafts(current => ({ ...current, [selected.id]: text }))} onStructureChange={updateStructure} onApplyAutomaticParagraphs={applyAutomaticParagraphs} paragraphEditMode={paragraphEditMode} canEdit={canEdit} saving={isBusy} excluding={exclusionMutation.isPending || updateMutation.isPending || completeMutation.isPending || deletionMutation.isPending} unsavedCount={dirtyChanges.length} onSave={() => updateMutation.mutate(dirtyChanges)} onToggleExclusion={element => exclusionMutation.mutate(element)} onToggleDeletion={element => deletionMutation.mutate(element)} onReOcr={element => reOcrMutation.mutate(element)}/>
+      </aside>
     </main>
     </div>
-    {reOcrResult && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setReOcrResult(null)}><section className='reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='reocr-title'>재OCR 결과 비교</h2><p>새 인식 결과를 확인한 뒤 적용하세요. 적용 후에도 하단 저장 버튼을 눌러야 확정됩니다.</p><div className='reocr-comparison'><div><span>현재 텍스트</span><pre>{reOcrResult.original_text}</pre></div><div><span>새 인식 결과 {reOcrResult.confidence == null ? '' : `· ${Math.round(reOcrResult.confidence * 100)}%`}</span><pre>{reOcrResult.recognized_text}</pre></div></div><div className='reocr-dialog-actions'><button onClick={() => setReOcrResult(null)}>취소</button><button className='primary' onClick={applyReOcrResult}>새 결과 적용</button></div></section></div>}
-    {batchReOcrResults && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setBatchReOcrResults(null)}><section className='reocr-dialog batch-reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='batch-reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='batch-reocr-title'>일괄 재OCR 결과</h2><p>성공한 결과를 검토하고 한꺼번에 변경 초안으로 적용할 수 있습니다.</p><ul>{batchReOcrResults.map(item => <li key={item.element.id} className={item.status === 'SUCCESS' ? 'success' : 'failed'}><div><strong>{item.element.text || '(빈 텍스트)'}</strong><span>{item.status === 'SUCCESS' ? '→ ' + item.result.recognized_text : item.error}</span></div><small>{item.status === 'SUCCESS' ? (item.result.confidence == null ? '신뢰도 정보 없음' : `신뢰도 ${Math.round(item.result.confidence * 100)}%`) : '실패'}</small></li>)}</ul><div className='reocr-dialog-actions'><button onClick={() => setBatchReOcrResults(null)}>취소</button><button className='primary' disabled={!batchReOcrResults.some(item => item.status === 'SUCCESS')} onClick={applyBatchReOcrResults}>성공 결과 전체 적용</button></div></section></div>}
+    {reOcrResult && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setReOcrResult(null)}><section className='reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='reocr-title'>재OCR 결과 비교</h2><p>새 인식 결과를 확인한 뒤 적용하세요. 적용 후에도 하단 저장 버튼을 눌러야 확정됩니다.</p><div className='reocr-comparison'><div><span>현재 편집 텍스트</span><pre>{drafts[reOcrResult.element_id] ?? reOcrResult.original_text}</pre></div><div><span>새 인식 결과 {reOcrResult.confidence == null ? '' : `· ${Math.round(reOcrResult.confidence * 100)}%`}</span><pre>{reOcrResult.recognized_text}</pre></div></div><div className='reocr-dialog-actions'><button onClick={() => setReOcrResult(null)}>취소</button><button className='primary' onClick={applyReOcrResult}>새 결과 적용</button></div></section></div>}
+    {batchReOcrResults && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setBatchReOcrResults(null)}><section className='reocr-dialog batch-reocr-dialog' role='dialog' aria-modal='true' aria-labelledby='batch-reocr-title' onMouseDown={event => event.stopPropagation()}><h2 id='batch-reocr-title'>일괄 재OCR 결과</h2><p>적용할 결과만 선택해 변경 초안에 반영할 수 있습니다.</p><ul>{batchReOcrResults.map(item => <li key={item.element.id} className={item.status === 'SUCCESS' ? 'success' : 'failed'}>{item.status === 'SUCCESS' && <input type='checkbox' aria-label={`${item.element.text || '빈 텍스트'} 결과 적용`} checked={item.selected} onChange={event => setBatchReOcrResults(current => current.map(result => result.element.id === item.element.id ? { ...result, selected: event.target.checked } : result))}/>}<div><strong>{item.element.text || '(빈 텍스트)'}</strong><span>{item.status === 'SUCCESS' ? '→ ' + item.result.recognized_text : item.error}</span></div><small>{item.status === 'SUCCESS' ? (item.result.confidence == null ? '신뢰도 정보 없음' : `신뢰도 ${Math.round(item.result.confidence * 100)}%`) : '실패'}</small></li>)}</ul><div className='reocr-dialog-actions'><button onClick={() => setBatchReOcrResults(null)}>취소</button><button className='primary' disabled={!batchReOcrResults.some(item => item.status === 'SUCCESS' && item.selected)} onClick={applyBatchReOcrResults}>선택 결과 적용</button></div></section></div>}
     {mergePreview && <div className='reocr-dialog-backdrop' role='presentation' onMouseDown={() => setMergePreview(null)}><section className='reocr-dialog merge-preview-dialog' role='dialog' aria-modal='true' aria-labelledby='merge-preview-title' onMouseDown={event => event.stopPropagation()}><h2 id='merge-preview-title'>박스 병합 미리보기</h2><p>{mergePreview.elements.length}개 박스가 아래 텍스트로 합쳐집니다.</p><label className='merge-linebreak-option'><input type='checkbox' checked={mergePreview.joinWithSpace} onChange={event => setMergePreview(current => ({ ...current, joinWithSpace: event.target.checked, text: current.texts.join(event.target.checked ? ' ' : '\n') }))}/>박스 사이 줄바꿈 없이 연결</label><pre>{mergePreview.text}</pre><div className='reocr-dialog-actions'><button onClick={() => setMergePreview(null)}>취소</button><button className='primary' disabled={mergeMutation.isPending} onClick={() => mergeMutation.mutate(mergePreview)}>{mergeMutation.isPending ? '병합 중...' : '이대로 병합'}</button></div></section></div>}
   </div>
 }
 
-function OcrCanvas({ page, selectedId, canEdit, createMode, mergeMode, mergeSelection, onCreate, onSelect, onGeometryChange }) {
+function OcrCanvas({ page, selectedId, canEdit, createMode, mergeMode, mergeSelection, zoom, showParagraphGroups, onCreate, onSelect, onGeometryChange }) {
   const imageQuery = useQuery({ queryKey: ['ocr-page-image', page.id], queryFn: () => getOcrPageImage(page.image_url), staleTime: Infinity })
   const [creation, setCreation] = useState(null)
   if (imageQuery.isPending) return <LoadingState label='원본 이미지를 불러오는 중...'/>
+  if (imageQuery.isError) return <div className='ocr-image-error' role='alert'><strong>원본 이미지를 불러오지 못했습니다.</strong><button type='button' onClick={() => imageQuery.refetch()}>다시 시도</button></div>
   const paragraphGroups = paragraphGroupNumbers(page.elements)
 
   function beginCreation(event) {
@@ -372,7 +421,7 @@ function OcrCanvas({ page, selectedId, canEdit, createMode, mergeMode, mergeSele
     setCreation(null)
   }
 
-  return <div className='ocr-canvas-scroll'><div className={'ocr-canvas' + (createMode ? ' is-creating' : '') + (mergeMode ? ' is-merging' : '')} onPointerDown={beginCreation} onPointerMove={moveCreation} onPointerUp={endCreation} onPointerCancel={() => setCreation(null)}><img src={imageQuery.data} draggable='false' alt={String(page.page_number) + '페이지 원본'}/>{page.elements.filter(element => !element.is_deleted).map(element => <EditableOcrBox key={element.id} element={element} group={paragraphGroups.get(element.id) % 6} selected={selectedId === element.id} mergeSelected={mergeSelection.includes(element.id)} canEdit={canEdit && !createMode && !mergeMode} onSelect={onSelect} onGeometryChange={onGeometryChange}/>)}{creation && <span className='ocr-creation-preview' style={{ left: String(creation.x * 100) + '%', top: String(creation.y * 100) + '%', width: String(creation.width * 100) + '%', height: String(creation.height * 100) + '%' }}/>}</div></div>
+  return <div className='ocr-canvas-scroll'><div className={'ocr-canvas' + (createMode ? ' is-creating' : '') + (mergeMode ? ' is-merging' : '') + (showParagraphGroups ? ' show-paragraph-groups' : '')} style={{ width: `${zoom * 100}%` }} onPointerDown={beginCreation} onPointerMove={moveCreation} onPointerUp={endCreation} onPointerCancel={() => setCreation(null)}><img src={imageQuery.data} draggable='false' alt={String(page.page_number) + '페이지 원본'}/>{page.elements.filter(element => !element.is_deleted).map(element => <EditableOcrBox key={element.id} element={element} group={paragraphGroups.get(element.id) % 6} selected={selectedId === element.id} mergeSelected={mergeSelection.includes(element.id)} canEdit={canEdit && !createMode && !mergeMode} onSelect={onSelect} onGeometryChange={onGeometryChange}/>)}{creation && <span className='ocr-creation-preview' style={{ left: String(creation.x * 100) + '%', top: String(creation.y * 100) + '%', width: String(creation.width * 100) + '%', height: String(creation.height * 100) + '%' }}/>}</div></div>
 }
 
 function EditableOcrBox({ element, group, selected, mergeSelected, canEdit, onSelect, onGeometryChange }) {
@@ -384,13 +433,15 @@ function EditableOcrBox({ element, group, selected, mergeSelected, canEdit, onSe
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const canvas = event.currentTarget.parentElement.getBoundingClientRect()
-    setInteraction({ mode: event.target.dataset.resize ? 'resize' : 'move', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, canvasWidth: canvas.width, canvasHeight: canvas.height, original: { x: element.x, y: element.y, width: element.width, height: element.height } })
+    setInteraction({ mode: event.target.dataset.resize ? 'resize' : 'move', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, canvasWidth: canvas.width, canvasHeight: canvas.height, moved: false, original: { x: element.x, y: element.y, width: element.width, height: element.height } })
   }
 
   function moveInteraction(event) {
     if (!interaction || interaction.pointerId !== event.pointerId) return
     const dx = (event.clientX - interaction.startX) / interaction.canvasWidth
     const dy = (event.clientY - interaction.startY) / interaction.canvasHeight
+    if (!interaction.moved && Math.hypot(event.clientX - interaction.startX, event.clientY - interaction.startY) < 4) return
+    if (!interaction.moved) setInteraction(current => ({ ...current, moved: true }))
     const original = interaction.original
     onGeometryChange(element, interaction.mode === 'move'
       ? { x: clamp(original.x + dx, 0, 1 - original.width), y: clamp(original.y + dy, 0, 1 - original.height), width: original.width, height: original.height }
@@ -402,7 +453,7 @@ function EditableOcrBox({ element, group, selected, mergeSelected, canEdit, onSe
     setInteraction(null)
   }
 
-  return <button title={element.text} aria-label={'OCR 영역: ' + element.text} className={'ocr-box confidence-' + confidenceLevel(element.confidence) + ' paragraph-group-' + group + (selected ? ' selected' : '') + (mergeSelected ? ' merge-selected' : '') + (interaction ? ' is-adjusting' : '')} style={{ left: String(element.x * 100) + '%', top: String(element.y * 100) + '%', width: String(element.width * 100) + '%', height: String(element.height * 100) + '%' }} onClick={() => onSelect(element)} onPointerDown={beginInteraction} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction}>{element.is_merge_result && <span className='ocr-merged-badge'>병합</span>}{selected && canEdit && <span className='ocr-resize-handle' data-resize='true' aria-hidden='true'/>}</button>
+  return <button id={'ocr-box-' + element.id} title={element.text} aria-label={'OCR 영역: ' + element.text} className={'ocr-box confidence-' + confidenceLevel(element.confidence) + ' paragraph-group-' + group + (selected ? ' selected' : '') + (mergeSelected ? ' merge-selected' : '') + (interaction?.moved ? ' is-adjusting' : '')} style={{ left: String(element.x * 100) + '%', top: String(element.y * 100) + '%', width: String(element.width * 100) + '%', height: String(element.height * 100) + '%' }} onClick={() => onSelect(element)} onPointerDown={beginInteraction} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction}>{element.is_merge_result && <span className='ocr-merged-badge'>병합</span>}{selected && canEdit && <span className='ocr-resize-handle' data-resize='true' aria-hidden='true'/>}</button>
 }
 
 function PageNavigator({ pageIndex, pageCount, onChange }) {
@@ -411,9 +462,9 @@ function PageNavigator({ pageIndex, pageCount, onChange }) {
 
 function ConfidenceLegend() { return <div className='confidence-legend'><span className='high'>높음</span><span className='medium'>검토 권장</span><span className='low'>낮음</span><span className='selected-key'>선택 영역</span></div> }
 
-function ElementList({ elements, filter, lowConfidenceCount, onFilterChange, selectedId, onSelect, draft, onDraft, onStructureChange, onApplyAutomaticParagraphs, canEdit, saving, excluding, unsavedCount, onSave, onToggleExclusion, onToggleDeletion, onReOcr }) {
+function ElementList({ elements, filter, lowConfidenceCount, onFilterChange, selectedId, onSelect, draft, onDraft, onStructureChange, onApplyAutomaticParagraphs, paragraphEditMode, canEdit, saving, excluding, unsavedCount, onSave, onToggleExclusion, onToggleDeletion, onReOcr }) {
   const visibleElements = elements.map((element, index) => ({ element, index })).filter(({ element }) => element.is_deleted || filter === 'ALL' || confidenceLevel(element.confidence) === 'low')
-  return <section className='ocr-element-list'><div className='ocr-element-list-title'><h3>현재 페이지 OCR 영역 <span>{elements.length}</span></h3><button type='button' disabled={!canEdit || saving} onClick={onApplyAutomaticParagraphs}>자동 단락 제안</button></div><div className='ocr-confidence-filter' role='group' aria-label='OCR 신뢰도 필터'><button type='button' className={filter === 'ALL' ? 'active' : ''} aria-pressed={filter === 'ALL'} onClick={() => onFilterChange('ALL')}>전체 <span>{elements.length}</span></button><button type='button' className={filter === 'LOW' ? 'active' : ''} aria-pressed={filter === 'LOW'} onClick={() => onFilterChange('LOW')}>낮은 신뢰도 <span>{lowConfidenceCount}</span></button></div>{visibleElements.length === 0 && <div className='ocr-filter-empty'><strong>낮은 신뢰도 영역이 없습니다.</strong><p>현재 페이지의 OCR 요소가 모두 기준 신뢰도 이상입니다.</p></div>}{visibleElements.map(({ element, index }) => <div className={'ocr-element-with-boundary' + (element.is_deleted ? ' is-deleted' : '')} key={element.id}>{!element.is_deleted && <ParagraphBoundary element={element} index={index} canEdit={canEdit && !saving} onChange={value => onStructureChange(element, { is_paragraph_start: value })}/>}<article id={'ocr-element-' + element.id} className={(selectedId === element.id ? 'active' : '') + (element.is_excluded ? ' excluded' : '')}><button className='ocr-element-summary' onClick={() => onSelect(element)}><i className={'confidence-dot confidence-' + confidenceLevel(element.confidence)}/><span>{index + 1}. {element.text || '(빈 텍스트)'}</span><small>{element.is_deleted ? '삭제됨 · 복원 가능' : elementTypeLabel(element.element_type) + ' · ' + (element.is_excluded ? '제외 예정' : 'v' + element.version)}</small></button>{selectedId === element.id && <div className='inline-ocr-editor'>{!element.is_deleted && <><ConfidenceSummary confidence={element.confidence}/><label className='ocr-element-type'>요소 종류<select value={element.element_type} disabled={!canEdit || saving} onChange={event => onStructureChange(element, { element_type: event.target.value })}>{OCR_ELEMENT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label>선택 영역 텍스트<textarea value={draft} readOnly={!canEdit} onChange={event => onDraft(event.target.value)}/></label><div className='original-value'><span>최초 인식 원문</span><p>{element.original_text}</p></div></>}<div className='ocr-edit-actions'>{!element.is_deleted && <button className='reocr-button' disabled={!canEdit || saving} onClick={() => onReOcr(element)}>선택 영역 재OCR</button>}{!element.is_deleted && <button className={element.is_excluded ? 'include-ocr' : 'exclude-ocr'} disabled={!canEdit || excluding} onClick={() => onToggleExclusion(element)}>{element.is_excluded ? '본문에 다시 포함' : '본문에서 제외'}</button>}<button className={element.is_deleted ? 'restore-ocr' : 'delete-ocr'} disabled={!canEdit || saving} onClick={() => onToggleDeletion(element)}>{element.is_deleted ? '삭제한 박스 복원' : '박스 삭제'}</button></div></div>}</article></div>)}<div className='ocr-sticky-save' role='status'><span className={unsavedCount ? 'has-unsaved' : ''}>{unsavedCount ? '미저장 변경 ' + unsavedCount + '개' : '변경 사항 저장됨'}</span><button className='primary' disabled={!canEdit || !unsavedCount || saving} onClick={onSave}>{saving ? '저장 중...' : '변경 내용 일괄 저장'}</button></div></section>
+  return <section className='ocr-element-list'><div className='ocr-element-list-title'><h3>현재 페이지 OCR 영역 <span>{elements.filter(element => !element.is_deleted).length}</span></h3>{paragraphEditMode && <button type='button' disabled={!canEdit || saving} onClick={onApplyAutomaticParagraphs}>자동 단락 제안</button>}</div><div className='ocr-confidence-filter' role='group' aria-label='OCR 신뢰도 필터'><button type='button' className={filter === 'ALL' ? 'active' : ''} aria-pressed={filter === 'ALL'} onClick={() => onFilterChange('ALL')}>전체 <span>{elements.length}</span></button><button type='button' className={filter === 'LOW' ? 'active' : ''} aria-pressed={filter === 'LOW'} onClick={() => onFilterChange('LOW')}>낮은 신뢰도 <span>{lowConfidenceCount}</span></button></div>{visibleElements.length === 0 && <div className='ocr-filter-empty'><strong>낮은 신뢰도 영역이 없습니다.</strong><p>현재 페이지의 OCR 요소가 모두 기준 신뢰도 이상입니다.</p></div>}{visibleElements.map(({ element, index }) => <div className={'ocr-element-with-boundary' + (element.is_deleted ? ' is-deleted' : '')} key={element.id}>{paragraphEditMode && !element.is_deleted && <ParagraphBoundary element={element} index={index} canEdit={canEdit && !saving} onChange={value => onStructureChange(element, { is_paragraph_start: value })}/>}<article id={'ocr-element-' + element.id} className={(selectedId === element.id ? 'active ' : '') + (element.is_excluded ? 'excluded' : '')}><button className='ocr-element-summary' onClick={() => onSelect(element)}><i className={'confidence-dot confidence-' + confidenceLevel(element.confidence)}/><span>{index + 1}. {element.text || '(빈 텍스트)'}</span><small>{element.is_deleted ? '삭제됨 · 복원 가능' : elementTypeLabel(element.element_type) + ' · ' + (element.is_excluded ? '제외 예정' : 'v' + element.version)}</small></button>{selectedId === element.id && <div className='inline-ocr-editor'>{!element.is_deleted && <><ConfidenceSummary confidence={element.confidence}/><label className='ocr-element-type'>요소 종류<select value={element.element_type} disabled={!canEdit || saving} onChange={event => onStructureChange(element, { element_type: event.target.value })}>{OCR_ELEMENT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label>선택 영역 텍스트<textarea value={draft} readOnly={!canEdit || saving} onChange={event => onDraft(event.target.value)}/></label><div className='original-value'><span>최초 인식 원문</span><p>{element.original_text}</p></div></>}<div className='ocr-edit-actions'>{!element.is_deleted && <button className='reocr-button' disabled={!canEdit || saving} onClick={() => onReOcr(element)}>선택 영역 재OCR</button>}{!element.is_deleted && <button className={element.is_excluded ? 'include-ocr' : 'exclude-ocr'} disabled={!canEdit || excluding} onClick={() => onToggleExclusion(element)}>{element.is_excluded ? '본문에 다시 포함' : '본문에서 제외'}</button>}<button className={element.is_deleted ? 'restore-ocr' : 'delete-ocr'} disabled={!canEdit || saving} onClick={() => onToggleDeletion(element)}>{element.is_deleted ? '삭제한 박스 복원' : '박스 삭제'}</button></div></div>}</article></div>)}<div className='ocr-sticky-save' role='status'><span className={unsavedCount ? 'has-unsaved' : ''}>{unsavedCount ? '미저장 변경 ' + unsavedCount + '개' : '변경 사항 저장됨'}</span><button className='primary' disabled={!canEdit || !unsavedCount || saving} onClick={onSave}>{saving ? '저장 중...' : '변경 내용 일괄 저장'}</button></div></section>
 }
 
 function ParagraphBoundary({ element, index, canEdit, onChange }) {

@@ -49,7 +49,9 @@ def get_document_history(document_id: int, access: ProjectAccess = Depends(get_p
 @router.get("/documents/{document_id}/review", response_model=OcrReviewResponse)
 def get_ocr_review(document_id: int, access: ProjectAccess = Depends(get_project_access), service: DocumentService = Depends(get_document_service)):
     document = service.get_document_for_review(access.project.id, document_id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
+    # 삭제한 영역도 검토 화면에는 내려줘야 새로고침 후 복원할 수 있다.
+    # 원본 캔버스에서는 프런트가 삭제 영역을 숨기고 목록에서만 복원 동작을 제공한다.
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
     undoable_merges = service.list_undoable_merges(access.project.id, document_id)
     structure_history = service.list_ocr_structure_events(access.project.id, document_id)
@@ -121,7 +123,7 @@ def complete_ocr_review(document_id: int, access: ProjectAccess = Depends(get_pr
     # 고치면 충돌 지점이 되기 때문이다. 값을 못 얻으면 "-" 이고 아무것도 깨지지 않는다.
     enqueue_build_chunks(access.project.id, document.id, reason="OCR 검수 확정 (RAG-001-3)", request_id=current_request_id())
     document = service.get_document_for_review(access.project.id, document.id)
-    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements if not item.is_deleted]) for page in document.review_pages]
+    pages = [OcrPageResponse(id=page.id, page_number=page.page_number, page_kind=page.page_kind, width=page.width, height=page.height, image_url=f"/api/projects/{access.project.id}/documents/{document.id}/review/pages/{page.id}/image", elements=[OcrElementResponse.model_validate(item) for item in page.elements]) for page in document.review_pages]
     latest_merge = service.get_latest_undoable_merge(access.project.id, document_id)
     undoable_merges = service.list_undoable_merges(access.project.id, document_id)
     structure_history = service.list_ocr_structure_events(access.project.id, document_id)
