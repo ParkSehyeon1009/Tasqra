@@ -53,7 +53,7 @@ export default function LandingPage({ user, onLogout, notify }) {
       <section className="landing-hero">
         <div className="landing-hero__copy">
           <p className="eyebrow">DOCUMENT INTELLIGENCE WORKSPACE</p>
-          <h1>복잡한 문서를<br/>명확한 <strong>실행으로</strong></h1>
+          <h1>흩어진 문서를 <strong>한곳에</strong><br/>프로젝트를 <strong>한눈에</strong></h1>
           <p className="landing-hero__description">AI가 문서의 핵심을 분석하고,<br/>프로젝트와 태스크로 전환해 실행까지 지원합니다.</p>
           <div className="landing-hero__actions">
             <Link className="primary" to={user ? '/projects' : '/signup'}>{user ? '내 대시보드 열기' : '무료로 시작하기'}<Arrow/></Link>
