@@ -25,6 +25,7 @@ from app.ai.fake_client import FakeAIClient
 from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.protocol import Analyzer
 from app.analyzers.schedule_analyzer import ScheduleAnalyzer
@@ -57,6 +58,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_suggestion_repository import TaskSuggestionRepository
 from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
@@ -76,6 +78,8 @@ from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
 from app.services.task_service import TaskService
+from app.services.task_suggestion_service import TaskSuggestionService
+from app.services.task_suggestion_writer import TaskSuggestionWriter
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -193,6 +197,8 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
         "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
         "decision": DecisionAnalyzer(get_ai_client(settings.AI_MODEL_DECISION or None)),
         "schedule": ScheduleAnalyzer(get_ai_client(settings.AI_MODEL_SCHEDULE or None)),
+        # 액션 태스크는 별도 학습 모델이 없어 요약 모델의 선택 능력을 재사용한다.
+        "action_task": ActionTaskAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
     }
     return registry
 
@@ -217,11 +223,23 @@ def get_task_repository(db: Session = Depends(get_db)) -> TaskRepository:
     return TaskRepository(db)
 
 
+def get_task_suggestion_repository(db: Session = Depends(get_db)) -> TaskSuggestionRepository:
+    return TaskSuggestionRepository(db)
+
+
 def get_task_service(
     db: Session = Depends(get_db),
     task_repository: TaskRepository = Depends(get_task_repository),
 ) -> TaskService:
     return TaskService(db, task_repository)
+
+
+def get_task_suggestion_service(
+    db: Session = Depends(get_db),
+    repository: TaskSuggestionRepository = Depends(get_task_suggestion_repository),
+    task_service: TaskService = Depends(get_task_service),
+) -> TaskSuggestionService:
+    return TaskSuggestionService(db, repository, task_service)
 
 
 # get_search_service 는 get_project_repository 아래에 두어야 한다.
@@ -408,6 +426,7 @@ def get_analysis_service(
     analysis_repository: AnalysisRepository = Depends(get_analysis_repository),
     analyzer_registry: dict[str, Analyzer] = Depends(get_analyzer_registry),
     decision_schedule_writer: DecisionScheduleWriter = Depends(get_decision_schedule_writer),
+    task_suggestion_repository: TaskSuggestionRepository = Depends(get_task_suggestion_repository),
 ) -> AnalysisService:
     return AnalysisService(
         db=db,
@@ -415,6 +434,7 @@ def get_analysis_service(
         analysis_repository=analysis_repository,
         analyzer_registry=analyzer_registry,
         decision_schedule_writer=decision_schedule_writer,
+        task_suggestion_writer=TaskSuggestionWriter(analysis_repository, task_suggestion_repository),
     )
 
 

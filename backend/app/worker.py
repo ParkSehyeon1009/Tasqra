@@ -180,9 +180,12 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
         from app.ai.local_client import LocalAIClient
         from app.ai.openai_client import OpenAIClient
         from app.analyzers.extraction_analyzer import DecisionAnalyzer
+        from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
         from app.analyzers.schedule_analyzer import ScheduleAnalyzer
         from app.repositories.decision_schedule_repository import DecisionScheduleRepository
+        from app.repositories.task_suggestion_repository import TaskSuggestionRepository
         from app.services.decision_schedule_writer import DecisionScheduleWriter
+        from app.services.task_suggestion_writer import TaskSuggestionWriter
 
         def make_client(model):
             if settings.USE_FAKE_AI:
@@ -209,12 +212,15 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
                 analysis_repository = AnalysisRepository(db)
                 writer = DecisionScheduleWriter(
                     analysis_repository, DecisionScheduleRepository(db))
+                task_writer = TaskSuggestionWriter(
+                    analysis_repository, TaskSuggestionRepository(db))
                 analysis = AnalysisService(db, documents, analysis_repository, {
                     "summary": SummaryAnalyzer(summary_client),
                     "category": CategoryAnalyzer(category_client),
                     "decision": DecisionAnalyzer(decision_client),
                     "schedule": ScheduleAnalyzer(schedule_client),
-                }, writer)
+                    "action_task": ActionTaskAnalyzer(summary_client),
+                }, writer, task_writer)
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)
     asyncio.run(run())

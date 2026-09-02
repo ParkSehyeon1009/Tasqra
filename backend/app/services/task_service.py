@@ -37,16 +37,35 @@ class TaskService:
             raise BusinessError(ErrorCode.TASK_NOT_FOUND)
         return task
 
-    def create(self, project_id: int, user_id: int, values: dict, *, origin: str = "MANUAL", source_suggestion_id: int | None = None) -> Task:
+    def create(self, project_id: int, user_id: int, values: dict, *, origin: str = "MANUAL",
+               source_suggestion_id: int | None = None,
+               source_amount_item_id: int | None = None) -> Task:
+        with transactional(self._db):
+            task = self.create_in_transaction(
+                project_id, user_id, values, origin=origin,
+                source_suggestion_id=source_suggestion_id,
+                source_amount_item_id=source_amount_item_id,
+            )
+        return self.get(project_id, task.id)
+
+    def create_in_transaction(self, project_id: int, user_id: int, values: dict, *,
+                              origin: str = "MANUAL",
+                              source_suggestion_id: int | None = None,
+                              source_amount_item_id: int | None = None) -> Task:
+        """호출자가 연 트랜잭션 안에서 태스크와 활동 기록을 함께 만든다."""
+        values = values.copy()
         values["title"] = values["title"].strip()
         if not values["title"]:
             raise BusinessError(ErrorCode.INVALID_TASK_TITLE)
         self._validate_due_on(values.get("due_on"))
         self._validate_assignee(project_id, values.get("assignee_id"))
-        with transactional(self._db):
-            task = self._tasks.create(Task(project_id=project_id, created_by=user_id, origin=origin, source_suggestion_id=source_suggestion_id, **values))
-            self._record(task, user_id, "CREATED", {"origin": origin, "source_suggestion_id": source_suggestion_id})
-        return self.get(project_id, task.id)
+        task = self._tasks.create(Task(project_id=project_id, created_by=user_id,
+            origin=origin, source_suggestion_id=source_suggestion_id,
+            source_amount_item_id=source_amount_item_id, **values))
+        self._record(task, user_id, "CREATED", {"origin": origin,
+            "source_suggestion_id": source_suggestion_id,
+            "source_amount_item_id": source_amount_item_id})
+        return task
 
     def update(self, project_id: int, task_id: int, user_id: int, values: dict) -> Task:
         task = self.get(project_id, task_id)

@@ -153,7 +153,7 @@ def test_analysis_service_serializes_calls_and_validates_before_any_call():
     first = SimpleNamespace(analyze=AsyncMock(return_value="summary"))
     second = SimpleNamespace(analyze=AsyncMock(return_value="category"))
     service = AnalysisService(MagicMock(), MagicMock(), MagicMock(),
-        {"summary": first, "category": second}, MagicMock())
+        {"summary": first, "category": second}, MagicMock(), MagicMock())
     with pytest.raises(BusinessError):
         service.validate_types(["summary", "invalid"])
     first.analyze.assert_not_called()
@@ -162,7 +162,7 @@ def test_analysis_service_serializes_calls_and_validates_before_any_call():
 
 
 def test_default_analysis_includes_decisions_and_schedule():
-    assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule"]
+    assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule", "action_task"]
 
 
 def test_save_routes_decision_and_schedule_fields_to_writer():
@@ -172,7 +172,7 @@ def test_save_routes_decision_and_schedule_fields_to_writer():
     schedule_analysis = SimpleNamespace(id=32)
     writer.write_decisions.return_value = (decision_analysis, [SimpleNamespace()])
     writer.write_schedule_items.return_value = (schedule_analysis, [SimpleNamespace()])
-    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, writer)
+    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, writer, MagicMock())
     document = SimpleNamespace(id=2, project_id=1, document_type=None,
         document_type_source=None)
     metadata = dict(provider="local", model_name="task-model",
@@ -203,7 +203,7 @@ def test_empty_suggestion_fields_still_use_writer_for_single_analysis_row():
     writer = MagicMock()
     analysis = SimpleNamespace(id=33)
     writer.write_schedule_items.return_value = (analysis, [])
-    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer)
+    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer, MagicMock())
     document = SimpleNamespace(id=2, project_id=1, document_type=None,
         document_type_source=None)
     result = SimpleNamespace(result={"schedule_items": []}, provider="local",
@@ -216,7 +216,7 @@ def test_empty_suggestion_fields_still_use_writer_for_single_analysis_row():
 
 def test_invalid_suggestion_field_is_rejected_before_writer():
     writer = MagicMock()
-    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer)
+    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer, MagicMock())
     document = SimpleNamespace(id=2, project_id=1, document_type=None,
         document_type_source=None)
     result = SimpleNamespace(result={"schedule_items": [{
@@ -235,7 +235,7 @@ def test_invalid_suggestion_field_is_rejected_before_writer():
 def test_save_uses_snapshot_version_not_current_ocr_revision():
     repository = MagicMock()
     repository.create.side_effect = lambda row: row
-    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, MagicMock())
+    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, MagicMock(), MagicMock())
     result = SimpleNamespace(result={"category": "ETC"}, provider="fake", model_name="fake",
         prompt_version="category-v2", tokens_in=None, tokens_out=None, latency_ms=None)
     document = SimpleNamespace(id=2, document_type=None, document_type_source=None)

@@ -1,4 +1,4 @@
-/* 문서 상세 오른쪽의 압축 액션 아이템 검토 패널. 상태별 목록을 한 번에 하나만 보여준다. */
+/* 문서 상세 오른쪽의 결정사항·일정·태스크 제안 검토 패널. */
 .decision-schedule-panel { display: grid; margin-top: 24px; overflow: hidden; border: 1px solid #d6dce8; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px rgba(27, 36, 54, .06); }
 .decision-schedule-panel__heading { padding: 16px 18px 10px; }
 .review-title-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

@@ -1,5 +1,5 @@
 // =============================================================================
-// 이 파일의 책임: 문서에서 추출한 결정사항·일정을 하나의 액션 아이템 카드 목록으로 검토한다.
+// 이 파일의 책임: 문서에서 추출한 결정사항·일정을 카드 목록으로 검토한다.
 // 다른 파일과의 관계: api/decisionSchedule.js의 두 도메인 API를 문서 ID로 조회해
 //   화면에서 합치고, 상태 변경 뒤 문서별 목록·대시보드·산출물 query를 무효화한다.
 // Spring 비교: 서로 다른 두 Controller 응답을 하나의 화면 DTO처럼 조립하는 하위
@@ -75,9 +75,9 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
   const approvedQueries = reviews.map(review => review.approved)
   const rejectedQueries = reviews.map(review => review.rejected)
   const stateViews = {
-    pending: { label: '승인 대기', items: pendingItems, queries: pendingQueries, empty: '승인 대기 액션 아이템이 없습니다.' },
-    approved: { label: '반영됨', items: approvedItems, queries: approvedQueries, empty: '산출물에 반영된 액션 아이템이 없습니다.' },
-    rejected: { label: '거절됨', items: rejectedItems, queries: rejectedQueries, empty: '거절된 액션 아이템이 없습니다.' },
+    pending: { label: '승인 대기', items: pendingItems, queries: pendingQueries, empty: '승인 대기 결정사항·일정이 없습니다.' },
+    approved: { label: '반영됨', items: approvedItems, queries: approvedQueries, empty: '산출물에 반영된 결정사항·일정이 없습니다.' },
+    rejected: { label: '거절됨', items: rejectedItems, queries: rejectedQueries, empty: '거절된 결정사항·일정이 없습니다.' },
   }
   const activeView = stateViews[activeState]
   const totalItems = Object.values(stateViews).reduce((sum, view) => sum + sumTotal(view.queries), 0)
@@ -122,16 +122,16 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
   const editingKey = itemKey(editing)
   const reviewLocked = actionMutation.isPending || updateMutation.isPending
 
-  return <section className='decision-schedule-panel' aria-label='이 문서에서 추출한 액션 아이템'>
+  return <section className='decision-schedule-panel' aria-label='이 문서에서 추출한 결정사항과 일정'>
     <header className='decision-schedule-panel__heading'>
       <div className='review-title-line'>
-        <div><span>AI 추출 결과</span><h2>추출된 액션 아이템 <b>{totalItems}</b></h2></div>
+        <div><span>AI 추출 결과</span><h2>결정사항·일정 <b>{totalItems}</b></h2></div>
         {!canEdit && <strong>읽기 전용</strong>}
       </div>
       <p>결정사항과 일정을 카드별로 검토합니다.</p>
     </header>
 
-    <nav className='review-state-tabs' aria-label='액션 아이템 상태'>
+    <nav className='review-state-tabs' aria-label='결정사항과 일정 상태'>
       {Object.entries(stateViews).map(([key, view]) => <button
         type='button'
         key={key}
@@ -171,7 +171,7 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
 
     <ConfirmDialog
       open={Boolean(rejectTarget)}
-      title='이 액션 아이템을 거절할까요?'
+      title='이 제안을 거절할까요?'
       message={rejectTarget ? `“${rejectTarget.row.title}”은 산출물에서 제외되며 거절함에서 되살릴 수 있습니다.` : ''}
       confirmLabel='거절'
       danger

@@ -11,19 +11,20 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
-from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList
+from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
-DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule"]
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
 
 
 class AnalysisService:
     def __init__(self, db, document_repository, analysis_repository, analyzer_registry,
-                 decision_schedule_writer):
+                 decision_schedule_writer, task_suggestion_writer):
         self._db = db
         self._document_repository = document_repository
         self._analysis_repository = analysis_repository
         self._analyzer_registry = analyzer_registry
         self._decision_schedule_writer = decision_schedule_writer
+        self._task_suggestion_writer = task_suggestion_writer
 
     def validate_types(self, analyzer_types):
         types = list(dict.fromkeys(analyzer_types or DEFAULT_ANALYZER_TYPES))
@@ -82,6 +83,18 @@ class AnalysisService:
                 except (TypeError, ValidationError) as exc:
                     raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
                 analysis, _ = self._decision_schedule_writer.write_schedule_items(
+                    project_id=document.project_id, document_id=document.id,
+                    source_text_revision=revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            if "task_suggestions" in result.result:
+                try:
+                    items = TaskSuggestionExtractionList.model_validate_json(
+                        json.dumps(result.result["task_suggestions"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._task_suggestion_writer.write(
                     project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision, analyzer_type=name,
                     result=result, extractions=items)

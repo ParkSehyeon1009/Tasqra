@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 
 import app.models  # noqa: F401
-from app.api.routes import amount_router, analysis_router, auth_router, dashboard_router, decision_schedule_router, deliverable_router, document_router, invitation_router, project_router, search_router, task_router, upload_router
+from app.api.routes import amount_router, analysis_router, auth_router, dashboard_router, decision_schedule_router, deliverable_router, document_router, invitation_router, project_router, search_router, task_router, task_suggestion_router, upload_router
 from app.core.config import settings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -36,6 +36,7 @@ def health() -> dict[str, str]:
 app.include_router(auth_router.router)
 app.include_router(project_router.router)
 app.include_router(task_router.router)
+app.include_router(task_suggestion_router.router)
 app.include_router(invitation_router.router)
 app.include_router(upload_router.router)
 app.include_router(analysis_router.router)

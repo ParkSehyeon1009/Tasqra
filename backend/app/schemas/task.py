@@ -67,6 +67,7 @@ class TaskResponse(BaseModel):
     completed_at: datetime | None
     origin: str
     source_suggestion_id: int | None
+    source_amount_item_id: int | None
     created_by: int | None
     created_at: datetime
     updated_at: datetime

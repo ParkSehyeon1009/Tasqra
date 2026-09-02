@@ -39,6 +39,10 @@ class SelectionOutput(StrictOutput):
     selected_ids: list[NonEmpty] = Field(min_length=1)
 
 
+class ActionSelectionOutput(StrictOutput):
+    selected_ids: list[NonEmpty] = Field(max_length=20)
+
+
 class GroundedSummaryOutput(SummaryOutput):
     evidence_ids: list[NonEmpty] = Field(min_length=1)
 

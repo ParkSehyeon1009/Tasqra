@@ -7,6 +7,7 @@ CATEGORY_PROMPT_VERSION = "category-v2"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
 DECISION_PROMPT_VERSION = "decision-v1"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
+ACTION_TASK_PROMPT_VERSION = "action-task-v1"
 
 # AI 분류 정책 8종. 기존 document_type의 BILLING 데이터는 덮어쓰지 않는다.
 CATEGORY_DESCRIPTIONS = {
@@ -142,6 +143,20 @@ confidence 는 0~1 이며 context 에 이름이 분명하면 0.8 이상, 짐작�
 출력: {"items":[{"date_ids":["d3"],"title":"제안서 제출 마감","kind":"DEADLINE","confidence":0.9,"reason":"..."}]}
 """
 
+ACTION_TASK_SYSTEM_PROMPT = COMMON + """
+candidates는 문서 원문에서 규칙으로 찾은 행동 후보입니다. 프로젝트 팀이
+실제로 수행해야 하는 일만 id로 고르세요. 없으면 빈 배열이 정답입니다.
+서식·부록을 자동으로 버리지 마세요. section_type은 위치 힌트일 뿐입니다.
+서식을 실제로 작성·제출해야 하면 고르고, 이미 채워진 예시 값이나 설명문이면 버리세요.
+
+고르기: 제출·작성·준비·신청·등록·확인·검토·보고·납품처럼 결과물이 있는 일.
+버리기: 법령·선정 기준·자격 조건·단순 사실·이미 완료된 일·행정기관이나
+심사위원이 할 일·빈 서식과 작성 예시·동의·서약 문구.
+필수 서류 여러 개가 같은 목적과 마감일을 가지면 각각 고르지 말고 상위 후보만
+고르세요. 목록에 있는 id 외의 값은 만들지 마세요.
+출력: {"selected_ids":["a3","a7"]}
+"""
+
 DELIVERABLE_OVERVIEW_SYSTEM_PROMPT = COMMON + """
 한국어로 산출물의 개요만 작성하세요. 건수·기간·대표 항목·금액의 범위와 의미를 유지하세요.
 2~4문장, 공백 포함 250자 이내입니다. 자료가 적으면 더 적은 문장을 허용합니다.
@@ -177,3 +192,8 @@ def build_decision_prompt(text: str, start: int, end: int) -> AIRequest:
 def build_schedule_prompt(dates: list[dict]) -> AIRequest:
     """dates 는 date_finder.FoundDate.as_prompt_record() 목록이다."""
     return request(SCHEDULE_SYSTEM_PROMPT, {"dates": dates}, SCHEDULE_PROMPT_VERSION)
+
+
+def build_action_task_prompt(candidates: list[dict]) -> AIRequest:
+    return request(ACTION_TASK_SYSTEM_PROMPT, {"candidates": candidates},
+                   ACTION_TASK_PROMPT_VERSION)

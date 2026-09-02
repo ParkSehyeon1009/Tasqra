@@ -20,6 +20,7 @@ import DocumentHeader from '../features/document-detail/DocumentHeader'
 import DocumentHistoryTab from '../features/document-detail/DocumentHistoryTab'
 import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
 import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionScheduleReviewView'
+import TaskSuggestionReviewPanel from '../features/decision-schedule/TaskSuggestionReviewView'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
@@ -75,6 +76,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'decision-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'schedule-review'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'task-suggestion-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
       if (previousJob.current === job.job_id) notify('success', '문서 분석 완료', '분석 결과를 생성했습니다.')
@@ -119,7 +121,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
         {activeTab === 'analysis' && <div className="document-analysis-layout">
           <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
-          <DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/>
+          <div><TaskSuggestionReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/><DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/></div>
         </div>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>

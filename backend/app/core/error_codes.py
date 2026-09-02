@@ -90,6 +90,8 @@ class ErrorCode(Enum):
     INVALID_TASK_TITLE = ("INVALID_TASK_TITLE", "태스크 제목은 비워둘 수 없습니다.", 400)
     INVALID_TASK_DUE_DATE = ("INVALID_TASK_DUE_DATE", "태스크 마감일은 오늘보다 이전으로 설정할 수 없습니다.", 400)
     TASK_ASSIGNEE_NOT_MEMBER = ("TASK_ASSIGNEE_NOT_MEMBER", "프로젝트 멤버만 태스크 담당자로 지정할 수 있습니다.", 400)
+    TASK_SUGGESTION_NOT_FOUND = ("TASK_SUGGESTION_NOT_FOUND", "액션 태스크 제안을 찾을 수 없습니다.", 404)
+    TASK_SUGGESTION_ALREADY_APPROVED = ("TASK_SUGGESTION_ALREADY_APPROVED", "이미 태스크로 만든 제안은 승인 대기로 돌릴 수 없습니다.", 409)
 
     # ── 산출물 (deliverables) ──
     DELIVERABLE_NOT_FOUND = ("DELIVERABLE_NOT_FOUND", "산출물을 찾을 수 없습니다.", 404)

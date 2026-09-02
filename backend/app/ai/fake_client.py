@@ -34,7 +34,9 @@ class FakeAIClient(AIClientProtocol):
 
         # 실제 분석으로 오인하지 않도록 fake임을 문장에도 표시한다.
         data = json.loads(prompt.user)
-        if 'selected_ids' in prompt.system:
+        if prompt.prompt_version.startswith("action-task"):
+            payload = {"selected_ids": [data["candidates"][0]["id"]] if data.get("candidates") else []}
+        elif 'selected_ids' in prompt.system:
             payload = {"selected_ids": [data["records"][0]["id"]]}
         elif 'facts' in prompt.system:
             quote = data.get("document", "").strip()[:120]

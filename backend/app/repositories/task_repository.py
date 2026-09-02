@@ -28,21 +28,19 @@ class TaskRepository:
         `origin = 'AI_APPROVED'` 인 태스크만 본다. 사람이 직접 만든 태스크는
         `source_suggestion_id` 가 없다.
 
-        ⚠ **지금 이 제안 id 는 `amount_items.id` 다** (금액 불일치 태스크 제안,
-        `AMT-004-3`). `task_suggestions` 테이블이 생기면 `source_suggestion_id` 가
-        두 가지를 가리키게 되므로, 그 리비전에서 컬럼을 가르고 **이 메서드도
-        어느 쪽을 볼지 정해야 한다.** 자세한 것은 models/task.py 의 그 컬럼 주석에
-        있다.
+        이 메서드는 금액 불일치에서 만든 태스크를 찾으므로 분리된
+        `source_amount_item_id` 를 조회한다. 문서 액션 태스크 제안은
+        `source_suggestion_id` 로 별도 추적한다.
 
         한 번에 다 가져오는 이유: 목록 화면이 항목마다 따로 물으면 N+1 이 된다.
         한 프로젝트의 AI 태스크는 많아도 수백 건이라 전부 담아도 무겁지 않다.
         """
         rows = (
-            self._db.query(Task.source_suggestion_id, Task.id)
+            self._db.query(Task.source_amount_item_id, Task.id)
             .filter(
                 Task.project_id == project_id,
                 Task.origin == "AI_APPROVED",
-                Task.source_suggestion_id.isnot(None),
+                Task.source_amount_item_id.isnot(None),
             )
             .all()
         )

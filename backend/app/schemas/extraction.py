@@ -67,3 +67,22 @@ class DecisionExtractionList(RootModel[list[DecisionExtraction]]):
 
 class ScheduleItemExtractionList(RootModel[list[ScheduleItemExtraction]]):
     """일정/기한 JSON 최상위가 배열임을 검증한다."""
+
+
+class TaskSuggestionExtraction(BaseModel):
+    """원문 행동 후보에 묶인 실행 가능한 태스크 제안."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=300)
+    description: str | None = None
+    due_on: date | None = None
+    actor: str | None = Field(default=None, max_length=160)
+    evidence_text: str = Field(min_length=1)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    quality_score: float = Field(ge=0, le=1)
+    reason: str = Field(min_length=1)
+
+
+class TaskSuggestionExtractionList(RootModel[list[TaskSuggestionExtraction]]):
+    pass
