@@ -23,7 +23,7 @@ class LocalAIClient(AIClientProtocol):
     # model 을 주면 그것을 쓰고, 없으면 settings.AI_MODEL 로 떨어진다.
     # 요약과 분류가 서로 다른 모델을 쓰기 위한 것이다(config.py 주석 참고).
     def __init__(self, settings: Settings, model: str | None = None) -> None:
-        self._model = model or settings.AI_MODEL
+        self._model = self.model_name = model or settings.AI_MODEL
         self._client = AsyncOpenAI(
             base_url=settings.AI_BASE_URL,
             max_retries=0,

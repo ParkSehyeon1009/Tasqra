@@ -5,6 +5,8 @@ from app.ai.client_protocol import AIRequest
 SUMMARY_PROMPT_VERSION = "summary-v2"
 CATEGORY_PROMPT_VERSION = "category-v2"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
+DECISION_PROMPT_VERSION = "decision-v1"
+SCHEDULE_PROMPT_VERSION = "schedule-v1"
 
 # AI 분류 정책 8종. 기존 document_type의 BILLING 데이터는 덮어쓰지 않는다.
 CATEGORY_DESCRIPTIONS = {
@@ -74,6 +76,72 @@ records는 문서 전체에서 선택된 근거이며 전부가 아닙니다.
 출력: {"summary":"300자 이내 요약","evidence_ids":["기존 id"]}
 """
 
+# 결정사항·일정은 **사람이 승인하기 전까지 제안(PENDING)** 으로만 남는다. 그래서
+# 「빠뜨리지 않기」보다 「없는 것을 만들지 않기」가 중요하다 — 빠진 것은 사람이
+# 채우면 되지만, 지어낸 것은 승인 화면에서 하나씩 걸러내야 한다.
+EXTRACTION_RULES = """
+긴 문서의 한 구간입니다. 이 구간에 **실제로 적힌 것만** 뽑으세요.
+없으면 빈 배열이 정답입니다. 개수를 채우려고 만들지 마세요.
+reason 은 그렇게 판단한 근거를 원문에 기대어 한국어 한 문장으로 쓰세요.
+confidence 는 0~1 이며, 원문에 분명히 적혀 있으면 0.8 이상, 추론이 섞이면
+0.5 이하로 쓰세요. 판단이 어려우면 아예 넣지 마세요(null).
+날짜는 반드시 YYYY-MM-DD 형식입니다. 연도가 없으면 날짜를 넣지 말고 null 로
+두세요 — 올해로 짐작하지 마세요. 「2026. 07. 20.」은 2026-07-20 입니다.
+"""
+
+DECISION_SYSTEM_PROMPT = COMMON + EXTRACTION_RULES + """
+문서에서 **결정사항**을 뽑으세요. 결정사항은 「무엇을 하기로 정했는가」입니다.
+  DECIDED  이미 정해진 것 (확정·낙찰·승인·선정)
+  PENDING  정해질 예정이거나 검토 중인 것
+  REVERSED 앞서 정한 것을 뒤집거나 취소한 것
+
+⚠️ 다음은 결정사항이 **아닙니다.** 뽑지 마세요.
+  · 법령·규정의 일반 조항 (「국가계약법 제5조에 따른다」)
+  · 입찰 유의사항·청렴계약 조항 같은 모든 공고에 붙는 상투 문구
+  · 앞으로 지켜야 할 의무·자격 요건 (그것은 과업이지 결정이 아닙니다)
+  · 단순한 사실 서술 (금액·기간이 적혀 있다는 것만으로는 결정이 아닙니다)
+
+title 은 결정 내용을 300자 이내 한 줄로, content 는 조건·예외가 있으면 적고
+없으면 null 입니다. decided_on 은 그 결정이 내려진 날짜이며 모르면 null 입니다.
+출력: {"decisions":[{"title":"...","content":null,"status":"DECIDED","decided_on":null,"confidence":0.9,"reason":"..."}]}
+"""
+
+# ⚠️ 이 프롬프트는 모델에게 날짜를 **쓰라고 하지 않는다. 고르라고 한다.**
+#   3B 모델은 날짜를 제목에 적고 날짜 필드를 비워둔다(실측 0/4). 그래서 날짜는
+#   date_finder.py 가 정규식으로 찾아 id 를 붙여 넘기고, 모델은 그중 무엇이
+#   일정인지만 판단한다. 모델이 고를 수 있는 것은 목록에 있는 id 뿐이다.
+SCHEDULE_SYSTEM_PROMPT = COMMON + """
+dates 는 문서에서 찾아낸 날짜 목록입니다. 각 항목의 context 는 그 날짜의 앞뒤
+원문이고, 【 】 안이 그 날짜입니다. **무엇의 날짜인지 판단해서 고르세요.**
+날짜를 직접 쓰지 말고 id 로 가리키세요.
+
+  MILESTONE 중간 지점 (착수·중간보고·검수·선임)
+  DEADLINE  넘기면 안 되는 시점. **「기한」·「마감」·「까지」가 붙으면 여기입니다**
+            (납품기한·제출기한·제출마감일시·등록마감·종료일시)
+  MEETING   모여서 하는 일 (평가·발표·회의·설명회·개찰·현장공개회)
+  PERIOD    시작과 끝이 있는 구간 (과업기간·계약기간·연구기간·접수기간)
+
+date_ids 에는 보통 id 하나를 넣습니다. **PERIOD 일 때만 둘**을 넣으세요
+(시작, 끝 순서). 「2026/07/13 10:00 ~ 2026/07/15 10:00」처럼 한 문맥에 두 날짜가
+범위로 묶여 있거나, 「2021년 3월 25일부터 8월 20일까지」처럼 한 기간을 말할 때입니다.
+
+■ title 은 그 날짜가 무엇인지 짧은 이름으로 쓰세요(「제안서 평가 일시」).
+  context 에 이름이 적혀 있으면 그것을 쓰고, 없으면 문맥으로 판단하세요.
+  ⚠️ 이름을 **바꾸거나 짐작하지 마세요.** 「제출시작일시」를 「제출 마감」으로
+    쓰면 틀린 일정이 됩니다. 시작과 마감은 다른 날입니다.
+  ⚠️ 원문 문장이나 날짜 자체를 title 에 넣지 마세요. title 은 이름입니다.
+
+⚠️ 「기한」·「마감」·「일시」가 붙은 날짜는 **빠짐없이 고르세요.** 그것이 사람이
+  달력에서 보려는 것입니다. 납품기한을 빠뜨리면 이 기능은 쓸모가 없습니다.
+⚠️ 일정이 아닌 날짜는 고르지 마세요. 공고일·작성일·법령 제정일·사업명에 들어간
+  연도·서식의 예시 날짜 같은 것입니다. 고르지 않은 날짜는 그냥 버려집니다.
+⚠️ 같은 날짜가 여러 번 나오면 각각 다른 id 입니다. 문맥이 다르면 따로 고르세요.
+
+confidence 는 0~1 이며 context 에 이름이 분명하면 0.8 이상, 짐작이면 0.5 이하,
+판단이 어려우면 null 입니다. reason 은 한국어 한 문장입니다.
+출력: {"items":[{"date_ids":["d3"],"title":"제안서 제출 마감","kind":"DEADLINE","confidence":0.9,"reason":"..."}]}
+"""
+
 DELIVERABLE_OVERVIEW_SYSTEM_PROMPT = COMMON + """
 한국어로 산출물의 개요만 작성하세요. 건수·기간·대표 항목·금액의 범위와 의미를 유지하세요.
 2~4문장, 공백 포함 250자 이내입니다. 자료가 적으면 더 적은 문장을 허용합니다.
@@ -99,3 +167,13 @@ def build_category_prompt(text: str, **metadata) -> AIRequest:
 
 def build_deliverable_overview_prompt(digest: str, **metadata) -> AIRequest:
     return request(DELIVERABLE_OVERVIEW_SYSTEM_PROMPT, {"materials": digest, **metadata}, OVERVIEW_PROMPT_VERSION)
+
+
+def build_decision_prompt(text: str, start: int, end: int) -> AIRequest:
+    return request(DECISION_SYSTEM_PROMPT, {"document": text, "start": start, "end": end},
+                   DECISION_PROMPT_VERSION)
+
+
+def build_schedule_prompt(dates: list[dict]) -> AIRequest:
+    """dates 는 date_finder.FoundDate.as_prompt_record() 목록이다."""
+    return request(SCHEDULE_SYSTEM_PROMPT, {"dates": dates}, SCHEDULE_PROMPT_VERSION)

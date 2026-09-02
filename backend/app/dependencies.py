@@ -25,7 +25,9 @@ from app.ai.fake_client import FakeAIClient
 from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.protocol import Analyzer
+from app.analyzers.schedule_analyzer import ScheduleAnalyzer
 from app.analyzers.summary_analyzer import SummaryAnalyzer
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
@@ -69,6 +71,7 @@ from app.services.chunking_service import ChunkingService
 from app.services.dashboard_service import DashboardService
 from app.services.deliverable_service import DeliverableService
 from app.services.decision_schedule_review_service import DecisionScheduleReviewService
+from app.services.decision_schedule_writer import DecisionScheduleWriter
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
 from app.services.document_service import DocumentService
@@ -188,6 +191,8 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
     registry: dict[str, Analyzer] = {
         "summary": SummaryAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
         "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
+        "decision": DecisionAnalyzer(get_ai_client()),
+        "schedule": ScheduleAnalyzer(get_ai_client()),
     }
     return registry
 
@@ -394,13 +399,21 @@ def get_analysis_service(
     db: Session = Depends(get_db),
     document_repository: DocumentRepository = Depends(get_document_repository),
     analysis_repository: AnalysisRepository = Depends(get_analysis_repository),
+    decision_schedule_repository: DecisionScheduleRepository = Depends(
+        get_decision_schedule_repository
+    ),
     analyzer_registry: dict[str, Analyzer] = Depends(get_analyzer_registry),
 ) -> AnalysisService:
+    decision_schedule_writer = DecisionScheduleWriter(
+        analysis_repository,
+        decision_schedule_repository,
+    )
     return AnalysisService(
         db=db,
         document_repository=document_repository,
         analysis_repository=analysis_repository,
         analyzer_registry=analyzer_registry,
+        decision_schedule_writer=decision_schedule_writer,
     )
 
 

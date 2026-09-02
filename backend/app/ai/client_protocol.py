@@ -74,6 +74,13 @@ class AIClientProtocol(Protocol):
     # 판별하지 않아도 되도록 클라이언트 자신이 들고 있는다.
     provider: str
 
+    # 이 클라이언트가 부르는 모델 이름. provider 와 같은 이유로 클라이언트가
+    # 들고 있는다 — 분석기가 구현체를 isinstance 로 캐묻지 않아도 되게 한다.
+    # ⚠️ 응답의 model 필드(AIResult.model_name)가 우선이다. 이 값은 **한 번도
+    #   호출하지 않은 분석**의 기록용이다(예: 문서에 날짜가 없어 모델을 부를
+    #   이유가 없었던 경우). analyses.model_name 이 NOT NULL 이라 필요하다.
+    model_name: str
+
     # 편의 메서드. 구현체는 generate_with_meta()를 호출해
     # .text만 반환하는 방식으로 만들어 로직 중복을 피한다.
     async def generate(self, prompt: AIRequest) -> str:

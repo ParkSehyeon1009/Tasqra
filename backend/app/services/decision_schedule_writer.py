@@ -36,6 +36,7 @@ class DecisionScheduleWriter:
         project_id: int,
         document_id: int,
         source_text_revision: int,
+        source_ocr_revision: int,
         analyzer_type: str,
         result: AnalyzeResult,
         extractions: list[DecisionExtraction],
@@ -45,6 +46,9 @@ class DecisionScheduleWriter:
             source_text_revision=source_text_revision,
             analyzer_type=analyzer_type,
             result=result,
+        )
+        self._decision_schedule_repository.delete_pending_decisions(
+            project_id, document_id
         )
         rows = [
             Decision(
@@ -58,7 +62,7 @@ class DecisionScheduleWriter:
                 confidence=_decimal(item.confidence),
                 reason=item.reason,
                 decision=_PENDING,
-                source_text_revision=source_text_revision,
+                source_text_revision=source_ocr_revision,
             )
             for item in extractions
         ]
@@ -70,6 +74,7 @@ class DecisionScheduleWriter:
         project_id: int,
         document_id: int,
         source_text_revision: int,
+        source_ocr_revision: int,
         analyzer_type: str,
         result: AnalyzeResult,
         extractions: list[ScheduleItemExtraction],
@@ -79,6 +84,9 @@ class DecisionScheduleWriter:
             source_text_revision=source_text_revision,
             analyzer_type=analyzer_type,
             result=result,
+        )
+        self._decision_schedule_repository.delete_pending_schedule_items(
+            project_id, document_id
         )
         rows = [
             ScheduleItem(
@@ -92,7 +100,7 @@ class DecisionScheduleWriter:
                 confidence=_decimal(item.confidence),
                 reason=item.reason,
                 decision=_PENDING,
-                source_text_revision=source_text_revision,
+                source_text_revision=source_ocr_revision,
             )
             for item in extractions
         ]

@@ -21,6 +21,7 @@ FAKE_DELAY_SECONDS = 0.1
 
 class FakeAIClient(AIClientProtocol):
     provider = "fake"
+    model_name = FAKE_MODEL_NAME
 
     async def generate(self, prompt: AIRequest) -> str:
         result = await self.generate_with_meta(prompt)
@@ -33,7 +34,11 @@ class FakeAIClient(AIClientProtocol):
 
         # 실제 분석으로 오인하지 않도록 fake임을 문장에도 표시한다.
         data = json.loads(prompt.user)
-        if 'selected_ids' in prompt.system:
+        if prompt.prompt_version.startswith("decision"):
+            payload = {"decisions": []}
+        elif prompt.prompt_version.startswith("schedule"):
+            payload = {"items": []}
+        elif 'selected_ids' in prompt.system:
             payload = {"selected_ids": [data["records"][0]["id"]]}
         elif 'facts' in prompt.system:
             quote = data.get("document", "").strip()[:120]

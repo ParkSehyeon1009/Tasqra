@@ -158,11 +158,15 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
     import asyncio
     from app.analyzers.summary_analyzer import SummaryAnalyzer
     from app.analyzers.category_analyzer import CategoryAnalyzer
+    from app.analyzers.extraction_analyzer import DecisionAnalyzer
+    from app.analyzers.schedule_analyzer import ScheduleAnalyzer
     from app.repositories.analysis_job_repository import AnalysisJobRepository
     from app.repositories.analysis_repository import AnalysisRepository
+    from app.repositories.decision_schedule_repository import DecisionScheduleRepository
     from app.repositories.document_repository import DocumentRepository
     from app.services.analysis_service import AnalysisService
     from app.services.analysis_job_service import AnalysisJobService
+    from app.services.decision_schedule_writer import DecisionScheduleWriter
     from app.core.transaction import transactional
 
     bind_request_id(request_id)
@@ -194,10 +198,28 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
             category_client = make_client(settings.AI_MODEL_CATEGORY)
             if hasattr(category_client, "aclose"):
                 stack.push_async_callback(category_client.aclose)
+            extraction_client = make_client(None)
+            if hasattr(extraction_client, "aclose"):
+                stack.push_async_callback(extraction_client.aclose)
             with SessionLocal() as db:
                 documents = DocumentRepository(db)
-                analysis = AnalysisService(db, documents, AnalysisRepository(db),
-                    {"summary": SummaryAnalyzer(summary_client), "category": CategoryAnalyzer(category_client)})
+                analysis_repository = AnalysisRepository(db)
+                decision_schedule_writer = DecisionScheduleWriter(
+                    analysis_repository,
+                    DecisionScheduleRepository(db),
+                )
+                analysis = AnalysisService(
+                    db,
+                    documents,
+                    analysis_repository,
+                    {
+                        "summary": SummaryAnalyzer(summary_client),
+                        "category": CategoryAnalyzer(category_client),
+                        "decision": DecisionAnalyzer(extraction_client),
+                        "schedule": ScheduleAnalyzer(extraction_client),
+                    },
+                    decision_schedule_writer,
+                )
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)
     asyncio.run(run())
