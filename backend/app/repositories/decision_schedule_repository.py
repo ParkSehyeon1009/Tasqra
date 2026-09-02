@@ -24,6 +24,14 @@ class DecisionScheduleRepository:
             self._db.flush()
         return rows
 
+    def delete_pending_decisions(self, project_id: int, document_id: int) -> int:
+        """재분석 전 아직 검토하지 않은 이전 결정 제안만 대체한다."""
+        return self._db.query(Decision).filter(
+            Decision.project_id == project_id,
+            Decision.document_id == document_id,
+            Decision.decision == "PENDING",
+        ).delete(synchronize_session=False)
+
     def add_schedule_items(
         self, rows: list[ScheduleItem]
     ) -> list[ScheduleItem]:
@@ -31,6 +39,16 @@ class DecisionScheduleRepository:
             self._db.add_all(rows)
             self._db.flush()
         return rows
+
+    def delete_pending_schedule_items(
+        self, project_id: int, document_id: int
+    ) -> int:
+        """재분석 전 아직 검토하지 않은 이전 일정 제안만 대체한다."""
+        return self._db.query(ScheduleItem).filter(
+            ScheduleItem.project_id == project_id,
+            ScheduleItem.document_id == document_id,
+            ScheduleItem.decision == "PENDING",
+        ).delete(synchronize_session=False)
 
     def lock_document(
         self, project_id: int, document_id: int
@@ -63,6 +81,14 @@ class DecisionScheduleRepository:
         row = self._db.execute(stmt).one_or_none()
         return (row[0], row[1], row[2]) if row else None
 
+    def get_decision_for_update(
+        self, project_id: int, item_id: int
+    ) -> Decision | None:
+        return self._db.query(Decision).filter(
+            Decision.project_id == project_id,
+            Decision.id == item_id,
+        ).with_for_update().one_or_none()
+
     def get_schedule_item(
         self, project_id: int, item_id: int
     ) -> tuple[ScheduleItem, str | None, int | None] | None:
@@ -79,6 +105,14 @@ class DecisionScheduleRepository:
         )
         row = self._db.execute(stmt).one_or_none()
         return (row[0], row[1], row[2]) if row else None
+
+    def get_schedule_item_for_update(
+        self, project_id: int, item_id: int
+    ) -> ScheduleItem | None:
+        return self._db.query(ScheduleItem).filter(
+            ScheduleItem.project_id == project_id,
+            ScheduleItem.id == item_id,
+        ).with_for_update().one_or_none()
 
     def list_decisions(
         self,

@@ -74,12 +74,11 @@ class DecisionScheduleReviewService:
     def update_decision(
         self, project_id: int, item_id: int, user_id: int, values: dict
     ) -> DecisionRow:
-        found = self._get_decision(project_id, item_id)
-        item, filename, current_revision = found
         with transactional(self._db):
-            filename, current_revision = self._lock_current_source(
-                project_id, item, filename, current_revision
+            item, filename, current_revision = self._lock_decision(
+                project_id, item_id
             )
+            self._ensure_current(item.source_text_revision, current_revision)
             for field in ("title", "content", "status", "decided_on"):
                 if field in values:
                     setattr(item, field, values[field])
@@ -89,16 +88,15 @@ class DecisionScheduleReviewService:
     def update_schedule_item(
         self, project_id: int, item_id: int, user_id: int, values: dict
     ) -> ScheduleItemRow:
-        found = self._get_schedule_item(project_id, item_id)
-        item, filename, current_revision = found
-        starts_on = values.get("starts_on", item.starts_on)
-        ends_on = values.get("ends_on", item.ends_on)
-        if starts_on and ends_on and starts_on > ends_on:
-            raise BusinessError(ErrorCode.INVALID_SCHEDULE_DATES)
         with transactional(self._db):
-            filename, current_revision = self._lock_current_source(
-                project_id, item, filename, current_revision
+            item, filename, current_revision = self._lock_schedule_item(
+                project_id, item_id
             )
+            starts_on = values.get("starts_on", item.starts_on)
+            ends_on = values.get("ends_on", item.ends_on)
+            if starts_on and ends_on and starts_on > ends_on:
+                raise BusinessError(ErrorCode.INVALID_SCHEDULE_DATES)
+            self._ensure_current(item.source_text_revision, current_revision)
             for field in ("title", "kind", "starts_on", "ends_on"):
                 if field in values:
                     setattr(item, field, values[field])
@@ -112,12 +110,12 @@ class DecisionScheduleReviewService:
         return self._decide_decision(project_id, item_id, user_id, "REJECTED")
 
     def cancel_decision(self, project_id: int, item_id: int) -> DecisionRow:
-        item, filename, current_revision = self._get_decision(project_id, item_id)
         with transactional(self._db):
+            item, filename, current_revision = self._lock_decision(
+                project_id, item_id
+            )
             if item.decision == "REJECTED":
-                filename, current_revision = self._lock_current_source(
-                    project_id, item, filename, current_revision
-                )
+                self._ensure_current(item.source_text_revision, current_revision)
             self._cancel(item)
         return self._decision_row(item, filename, current_revision)
 
@@ -132,50 +130,64 @@ class DecisionScheduleReviewService:
         return self._decide_schedule_item(project_id, item_id, user_id, "REJECTED")
 
     def cancel_schedule_item(self, project_id: int, item_id: int) -> ScheduleItemRow:
-        item, filename, current_revision = self._get_schedule_item(project_id, item_id)
         with transactional(self._db):
+            item, filename, current_revision = self._lock_schedule_item(
+                project_id, item_id
+            )
             if item.decision == "REJECTED":
-                filename, current_revision = self._lock_current_source(
-                    project_id, item, filename, current_revision
-                )
+                self._ensure_current(item.source_text_revision, current_revision)
             self._cancel(item)
         return self._schedule_row(item, filename, current_revision)
 
     def _decide_decision(
         self, project_id: int, item_id: int, user_id: int, decision: str
     ) -> DecisionRow:
-        item, filename, current_revision = self._get_decision(project_id, item_id)
         with transactional(self._db):
+            item, filename, current_revision = self._lock_decision(
+                project_id, item_id
+            )
             if decision == "APPROVED":
-                filename, current_revision = self._lock_current_source(
-                    project_id, item, filename, current_revision
-                )
+                self._ensure_current(item.source_text_revision, current_revision)
             self._mark(item, decision, user_id)
         return self._decision_row(item, filename, current_revision)
 
     def _decide_schedule_item(
         self, project_id: int, item_id: int, user_id: int, decision: str
     ) -> ScheduleItemRow:
-        item, filename, current_revision = self._get_schedule_item(project_id, item_id)
         with transactional(self._db):
+            item, filename, current_revision = self._lock_schedule_item(
+                project_id, item_id
+            )
             if decision == "APPROVED":
-                filename, current_revision = self._lock_current_source(
-                    project_id, item, filename, current_revision
-                )
+                self._ensure_current(item.source_text_revision, current_revision)
             self._mark(item, decision, user_id)
         return self._schedule_row(item, filename, current_revision)
 
-    def _get_decision(self, project_id: int, item_id: int):
+    def _lock_decision(self, project_id: int, item_id: int):
         found = self._repository.get_decision(project_id, item_id)
         if found is None:
             raise BusinessError(ErrorCode.DECISION_NOT_FOUND)
-        return found
+        item, filename, current_revision = found
+        filename, current_revision = self._lock_source(
+            project_id, item, filename, current_revision
+        )
+        locked = self._repository.get_decision_for_update(project_id, item_id)
+        if locked is None:
+            raise BusinessError(ErrorCode.DECISION_NOT_FOUND)
+        return locked, filename, current_revision
 
-    def _get_schedule_item(self, project_id: int, item_id: int):
+    def _lock_schedule_item(self, project_id: int, item_id: int):
         found = self._repository.get_schedule_item(project_id, item_id)
         if found is None:
             raise BusinessError(ErrorCode.SCHEDULE_ITEM_NOT_FOUND)
-        return found
+        item, filename, current_revision = found
+        filename, current_revision = self._lock_source(
+            project_id, item, filename, current_revision
+        )
+        locked = self._repository.get_schedule_item_for_update(project_id, item_id)
+        if locked is None:
+            raise BusinessError(ErrorCode.SCHEDULE_ITEM_NOT_FOUND)
+        return locked, filename, current_revision
 
     @staticmethod
     def _mark(item: Decision | ScheduleItem, decision: str, user_id: int) -> None:
@@ -192,14 +204,14 @@ class DecisionScheduleReviewService:
         item.decided_by = None
         item.decided_at = None
 
-    def _lock_current_source(
+    def _lock_source(
         self,
         project_id: int,
         item: Decision | ScheduleItem,
         filename: str | None,
         current_revision: int | None,
     ) -> tuple[str | None, int | None]:
-        """출처 문서를 잠근 뒤 revision을 다시 읽어 승인 판정을 원자화한다."""
+        """출처 문서를 먼저 잠가 재분석과 모든 검토 상태 전이를 직렬화한다."""
         if item.document_id is None:
             return filename, current_revision
         source = self._repository.lock_document(project_id, item.document_id)
@@ -207,9 +219,7 @@ class DecisionScheduleReviewService:
             # 문서 삭제 시 제안 행은 남기는 스키마다. 현재 revision을 알 수 없으므로
             # 삭제된 출처 행의 검토를 막지 않는다.
             return None, None
-        locked_filename, locked_revision = source
-        self._ensure_current(item.source_text_revision, locked_revision)
-        return locked_filename, locked_revision
+        return source
 
     @staticmethod
     def _ensure_current(source_revision: int, current_revision: int | None) -> None:
