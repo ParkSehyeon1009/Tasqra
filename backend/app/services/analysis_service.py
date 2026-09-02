@@ -2,21 +2,28 @@
 # 다른 파일과의 관계: AnalysisJobService가 잠근 Document와 분석 결과를 넘기면 같은 트랜잭션에 반영한다.
 # Spring 비교: 분석 결과 저장과 자동 분류 정책을 묶는 @Service 계층이다.
 
+import json
+
+from pydantic import ValidationError
+
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
+from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList
 
-DEFAULT_ANALYZER_TYPES = ["summary", "category"]
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule"]
 
 
 class AnalysisService:
-    def __init__(self, db, document_repository, analysis_repository, analyzer_registry):
+    def __init__(self, db, document_repository, analysis_repository, analyzer_registry,
+                 decision_schedule_writer):
         self._db = db
         self._document_repository = document_repository
         self._analysis_repository = analysis_repository
         self._analyzer_registry = analyzer_registry
+        self._decision_schedule_writer = decision_schedule_writer
 
     def validate_types(self, analyzer_types):
         types = list(dict.fromkeys(analyzer_types or DEFAULT_ANALYZER_TYPES))
@@ -51,13 +58,43 @@ class AnalysisService:
 
     def save_results(self, document, revision, results):
         self._apply_ai_document_type(document, results)
-        return [self._analysis_repository.create(Analysis(
-            document_id=document.id, analyzer_type=name, result_json=result.result,
-            provider=result.provider, model_name=result.model_name,
-            prompt_version=result.prompt_version, tokens_in=result.tokens_in,
-            tokens_out=result.tokens_out, latency_ms=result.latency_ms,
-            source_text_revision=revision,
-        )) for name, result in results]
+        rows = []
+        for name, result in results:
+            if "decisions" in result.result:
+                # 분석기가 model_dump(mode="json")로 날짜·Enum을 문자열로
+                # 넘긴다. strict DTO에 파이썬 dict를 바로 넣지 말고 JSON 경계에서
+                # 다시 검증해 서비스가 받은 계약을 유지한다.
+                try:
+                    items = DecisionExtractionList.model_validate_json(
+                        json.dumps(result.result["decisions"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._decision_schedule_writer.write_decisions(
+                    project_id=document.project_id, document_id=document.id,
+                    source_text_revision=revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            if "schedule_items" in result.result:
+                try:
+                    items = ScheduleItemExtractionList.model_validate_json(
+                        json.dumps(result.result["schedule_items"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._decision_schedule_writer.write_schedule_items(
+                    project_id=document.project_id, document_id=document.id,
+                    source_text_revision=revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            rows.append(self._analysis_repository.create(Analysis(
+                document_id=document.id, analyzer_type=name, result_json=result.result,
+                provider=result.provider, model_name=result.model_name,
+                prompt_version=result.prompt_version, tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out, latency_ms=result.latency_ms,
+                source_text_revision=revision,
+            )))
+        return rows
 
     async def analyze_document(self, project_id, document_id, analyzer_types):
         """직접 호출용. HTTP 경로는 AnalysisJobService가 워커에 등록한다."""

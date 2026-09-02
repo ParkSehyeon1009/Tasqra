@@ -9,10 +9,12 @@ import pytest
 from app.ai.client_protocol import AIResult
 from app.ai.fake_client import FakeAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.output_schemas import CategoryOutput
 from app.analyzers.prompt_input import PromptBudget, byte_size, encoded_size, sample_input, split_document
 from app.analyzers.prompts import build_category_prompt, build_summary_prompt
 from app.analyzers.summary_analyzer import SummaryAnalyzer, facts_request
+from app.analyzers.schedule_analyzer import ScheduleAnalyzer
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 
@@ -552,6 +554,16 @@ def test_fake_client_satisfies_strict_contract(config):
     result = asyncio.run(CategoryAnalyzer(client, config).analyze("원문"))
     assert result.result["category"] == "ETC"
     assert "가짜" in result.result["reason"]
+
+
+def test_fake_client_satisfies_decision_and_schedule_contracts(config):
+    client = FakeAIClient()
+    decision = asyncio.run(DecisionAnalyzer(client, config).analyze("승인을 확정함"))
+    schedule = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "제출마감: 2026-09-10"))
+
+    assert decision.result["decisions"] == []
+    assert schedule.result["schedule_items"] == []
 
 
 @pytest.mark.parametrize("module_name,token_key", [("openai_client", "max_completion_tokens"), ("local_client", "max_tokens")])

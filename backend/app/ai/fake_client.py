@@ -39,6 +39,10 @@ class FakeAIClient(AIClientProtocol):
         elif 'facts' in prompt.system:
             quote = data.get("document", "").strip()[:120]
             payload = {"facts": [{"quote": quote, "status": "불명"}] if quote else []}
+        elif prompt.prompt_version.startswith("decision"):
+            payload = {"decisions": []}
+        elif prompt.prompt_version.startswith("schedule"):
+            payload = {"items": []}
         elif prompt.prompt_version.startswith("category"):
             payload = {"category": "ETC", "reason": "테스트용 가짜 분류 결과입니다."}
         elif 'evidence_ids' in prompt.system:

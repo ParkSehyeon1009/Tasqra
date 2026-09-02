@@ -73,6 +73,8 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
     if (job?.status === 'COMPLETED' && completedJob.current !== job.job_id) {
       completedJob.current = job.job_id
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'decision-review'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'schedule-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
       if (previousJob.current === job.job_id) notify('success', '문서 분석 완료', '분석 결과를 생성했습니다.')

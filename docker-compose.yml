@@ -58,6 +58,10 @@ services:
       # 컨테이너의 localhost는 컨테이너 자신이라 호스트의 Ollama에 닿지 않는다.
       AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434/v1}
       AI_MODEL: ${AI_MODEL:-docflow}
+      AI_MODEL_SUMMARY: "${AI_MODEL_SUMMARY:-}"
+      AI_MODEL_CATEGORY: "${AI_MODEL_CATEGORY:-}"
+      AI_MODEL_DECISION: "${AI_MODEL_DECISION:-}"
+      AI_MODEL_SCHEDULE: "${AI_MODEL_SCHEDULE:-}"
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
@@ -112,6 +116,15 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tasqra}
+      USE_FAKE_AI: ${USE_FAKE_AI:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434/v1}
+      AI_MODEL: ${AI_MODEL:-docflow}
+      AI_MODEL_SUMMARY: "${AI_MODEL_SUMMARY:-}"
+      AI_MODEL_CATEGORY: "${AI_MODEL_CATEGORY:-}"
+      AI_MODEL_DECISION: "${AI_MODEL_DECISION:-}"
+      AI_MODEL_SCHEDULE: "${AI_MODEL_SCHEDULE:-}"
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       TZ: Asia/Seoul

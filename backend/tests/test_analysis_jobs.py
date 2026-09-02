@@ -10,6 +10,7 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.services.analysis_job_service import AnalysisJobService
 from app.services.analysis_service import AnalysisService
+from app.services.analysis_service import DEFAULT_ANALYZER_TYPES
 
 
 def setup_job(status="PENDING", revision=3):
@@ -151,7 +152,8 @@ def test_expired_job_cannot_save_late_model_result():
 def test_analysis_service_serializes_calls_and_validates_before_any_call():
     first = SimpleNamespace(analyze=AsyncMock(return_value="summary"))
     second = SimpleNamespace(analyze=AsyncMock(return_value="category"))
-    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {"summary": first, "category": second})
+    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(),
+        {"summary": first, "category": second}, MagicMock())
     with pytest.raises(BusinessError):
         service.validate_types(["summary", "invalid"])
     first.analyze.assert_not_called()
@@ -159,10 +161,81 @@ def test_analysis_service_serializes_calls_and_validates_before_any_call():
     assert results == [("summary", "summary"), ("category", "category")]
 
 
+def test_default_analysis_includes_decisions_and_schedule():
+    assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule"]
+
+
+def test_save_routes_decision_and_schedule_fields_to_writer():
+    repository = MagicMock()
+    writer = MagicMock()
+    decision_analysis = SimpleNamespace(id=31)
+    schedule_analysis = SimpleNamespace(id=32)
+    writer.write_decisions.return_value = (decision_analysis, [SimpleNamespace()])
+    writer.write_schedule_items.return_value = (schedule_analysis, [SimpleNamespace()])
+    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, writer)
+    document = SimpleNamespace(id=2, project_id=1, document_type=None,
+        document_type_source=None)
+    metadata = dict(provider="local", model_name="task-model",
+        prompt_version="v1", tokens_in=1, tokens_out=2, latency_ms=3)
+    decision_result = SimpleNamespace(result={"decisions": [{
+        "title": "승인 확정", "content": None, "status": "DECIDED",
+        "decided_on": "2026-09-02", "confidence": 0.9, "reason": "원문 근거",
+    }]}, **metadata)
+    schedule_result = SimpleNamespace(result={"schedule_items": [{
+        "title": "제출 마감", "kind": "DEADLINE", "starts_on": None,
+        "ends_on": "2026-09-10", "confidence": 0.8, "reason": "원문 근거",
+    }]}, **metadata)
+
+    rows = service.save_results(document, 7, [
+        ("decision", decision_result), ("schedule", schedule_result)])
+
+    assert rows == [decision_analysis, schedule_analysis]
+    repository.create.assert_not_called()
+    decision = writer.write_decisions.call_args.kwargs["extractions"][0]
+    schedule = writer.write_schedule_items.call_args.kwargs["extractions"][0]
+    assert decision.decided_on.isoformat() == "2026-09-02"
+    assert schedule.ends_on.isoformat() == "2026-09-10"
+    assert writer.write_decisions.call_args.kwargs["project_id"] == 1
+    assert writer.write_schedule_items.call_args.kwargs["source_text_revision"] == 7
+
+
+def test_empty_suggestion_fields_still_use_writer_for_single_analysis_row():
+    writer = MagicMock()
+    analysis = SimpleNamespace(id=33)
+    writer.write_schedule_items.return_value = (analysis, [])
+    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer)
+    document = SimpleNamespace(id=2, project_id=1, document_type=None,
+        document_type_source=None)
+    result = SimpleNamespace(result={"schedule_items": []}, provider="local",
+        model_name="schedule-model", prompt_version="schedule-v1", tokens_in=1,
+        tokens_out=2, latency_ms=3)
+
+    assert service.save_results(document, 7, [("schedule", result)]) == [analysis]
+    assert writer.write_schedule_items.call_args.kwargs["extractions"] == []
+
+
+def test_invalid_suggestion_field_is_rejected_before_writer():
+    writer = MagicMock()
+    service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer)
+    document = SimpleNamespace(id=2, project_id=1, document_type=None,
+        document_type_source=None)
+    result = SimpleNamespace(result={"schedule_items": [{
+        "title": "잘못된 일정", "kind": "UNKNOWN", "starts_on": None,
+        "ends_on": "2026-09-10", "confidence": 0.8, "reason": "원문 근거",
+    }]}, provider="local", model_name="schedule-model",
+        prompt_version="schedule-v1", tokens_in=1, tokens_out=2, latency_ms=3)
+
+    with pytest.raises(BusinessError) as exc:
+        service.save_results(document, 7, [("schedule", result)])
+
+    assert exc.value.error_code == ErrorCode.AI_INVALID_RESPONSE
+    writer.write_schedule_items.assert_not_called()
+
+
 def test_save_uses_snapshot_version_not_current_ocr_revision():
     repository = MagicMock()
     repository.create.side_effect = lambda row: row
-    service = AnalysisService(MagicMock(), MagicMock(), repository, {})
+    service = AnalysisService(MagicMock(), MagicMock(), repository, {}, MagicMock())
     result = SimpleNamespace(result={"category": "ETC"}, provider="fake", model_name="fake",
         prompt_version="category-v2", tokens_in=None, tokens_out=None, latency_ms=None)
     document = SimpleNamespace(id=2, document_type=None, document_type_source=None)
