@@ -322,15 +322,12 @@ def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardReposito
 # 한다. Depends(...) 는 기본값이라 함수를 정의하는 순간 평가된다.
 def get_dashboard_service(
     dashboard_repository: DashboardRepository = Depends(get_dashboard_repository),
+    project_repository: ProjectRepository = Depends(get_project_repository),
 ) -> DashboardService:
-    # 세션을 넘기지 않는다. 대시보드는 읽기만 해서 commit 할 것이 없고, 조회는
-    # 전부 리포지토리를 거친다. 쓰지 않을 의존성을 받아 두면 나중에 읽는 사람이
-    # "여기서 직접 쿼리를 날리기도 하나" 를 확인해야 한다.
-    #
-    # ProjectRepository 도 넘기지 않는다. 조회 범위가 현재 프로젝트 하나로
-    # 정해져 있어서 멤버십으로 범위를 계산할 필요가 없다 —
-    # get_amount_precedent_service 가 그것을 받는 이유와 대비된다.
-    return DashboardService(dashboard_repository)
+    # 프로젝트 단건 현황은 기존처럼 전달받은 project_id만 읽는다. 전역 포트폴리오
+    # 현황은 ProjectRepository로 현재 사용자의 멤버십 범위를 한 번 계산한 뒤,
+    # DashboardRepository의 bulk 조회로 모은다.
+    return DashboardService(dashboard_repository, project_repository)
 
 
 def get_auth_service(db: Session = Depends(get_db), users: UserRepository = Depends(get_user_repository)) -> AuthService:

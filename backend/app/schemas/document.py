@@ -18,6 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.enums import DocumentTypeSource, SelectableDocumentType
+
 
 class DocumentUploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -105,6 +107,18 @@ class DocumentListItem(BaseModel):
     created_at: datetime
 
 
+class DocumentTypeUpdateRequest(BaseModel):
+    document_type: SelectableDocumentType
+
+
+class DocumentTypeUpdateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_type: SelectableDocumentType
+    document_type_source: DocumentTypeSource
+
+
 class DocumentDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,6 +127,7 @@ class DocumentDetailResponse(BaseModel):
     filename: str
     file_type: str
     document_type: str | None
+    document_type_source: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str

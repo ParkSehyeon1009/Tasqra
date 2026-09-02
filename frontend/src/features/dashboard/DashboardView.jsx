@@ -47,6 +47,7 @@ export default function DashboardView({ projectId, documents }) {
   })
   const data = dashboardQuery.data
   const counts = data?.documents
+  const extractionCompleted = counts ? (counts.extracted ?? 0) + (counts.completed ?? 0) : undefined
   const goDocuments = () => navigate(`/projects/${projectId}/documents`)
   const goAmounts = () => navigate(`/projects/${projectId}/amounts`)
   const goDocumentsByType = documentType => {
@@ -72,7 +73,7 @@ export default function DashboardView({ projectId, documents }) {
     <section className='dashboard-summary-grid dashboard-summary-grid--compact' aria-label='프로젝트 핵심 현황'>
       <SummaryCard label='전체 문서' value={counts?.total} onOpen={goDocuments}/>
       <SummaryCard label='처리 중' value={counts?.processing} onOpen={goDocuments}/>
-      <SummaryCard label='처리 완료' value={counts?.completed} onOpen={goDocuments}/>
+      <SummaryCard label='추출 완료' value={extractionCompleted} onOpen={goDocuments}/>
       <SummaryCard label='처리 실패' value={counts?.failed} emphasis={counts?.failed > 0} onOpen={goDocuments}/>
       <SummaryCard label='열린 태스크' value={data?.open_tasks} onOpen={() => navigate(`/projects/${projectId}/board`)}/>
     </section>
@@ -110,7 +111,8 @@ function AttentionRow({ kind, title, description, count, action, onOpen }) {
 
 function ProcessingStatusPanel({ counts, loaded, onOpen }) {
   const total = counts?.total ?? 0
-  const rows = [['처리 완료',counts?.completed,'success'],['텍스트 추출 완료',counts?.extracted,'ready'],['처리 중',counts?.processing,'progress'],['처리 실패',counts?.failed,'danger']]
+  const extractionCompleted = (counts?.extracted ?? 0) + (counts?.completed ?? 0)
+  const rows = [['추출 완료',extractionCompleted,'success'],['처리 중',counts?.processing,'progress'],['처리 실패',counts?.failed,'danger']]
   return <section className='panel dashboard-status-panel'><div className='panel-head'><div><h2>처리 상태</h2><p>전체 문서의 처리 단계별 비율입니다.</p></div><span>{formatNumber(counts?.total ?? null)}건</span></div>{loaded ? <div className='dashboard-status-list'>{rows.map(([label,value,tone]) => <button onClick={onOpen} key={label}><span>{label}</span><i><b className={`is-${tone}`} style={{ width:`${total ? (value / total) * 100 : 0}%` }}/></i><strong>{formatNumber(value)}건 · {total ? Math.round((value / total) * 100) : 0}%</strong></button>)}</div> : <div className='dashboard-empty-state'><strong>처리 상태를 불러오는 중입니다.</strong></div>}</section>
 }
 

@@ -42,6 +42,7 @@ import {
 } from '../../api/deliverable'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import PageHeading from '../../components/common/PageHeading'
+import Spinner from '../../components/Spinner'
 import { formatDateTime, formatNumber } from '../../utils/format'
 import './DeliverablesView.css'
 
@@ -128,9 +129,9 @@ export default function DeliverablesView({ projectId, notify }) {
   const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
   // 삭제 확인 대상. null 이면 확인창이 닫혀 있다.
   const [deleteTarget, setDeleteTarget] = useState(null)
-  // 본문 미리보기를 펼쳤는가. **닫혀 있으면 부르지 않는다** — 합계만 보려고 들어온
-  // 사람에게 문서를 조립하는 비용을 물릴 이유가 없다.
-  const [contentOpen, setContentOpen] = useState(false)
+  // 미리보기 영역은 처음부터 보여준다. 담을 내용이 없더라도 영역과 이유가 보여야
+  // 사용자가 화면이 사라진 것으로 오해하지 않는다. 본문 API는 can_generate일 때만 부른다.
+  const [contentOpen, setContentOpen] = useState(true)
   const queryClient = useQueryClient()
 
   const previewQuery = useQuery({
@@ -282,6 +283,10 @@ export default function DeliverablesView({ projectId, notify }) {
       format={format}
       periodFrom={periodFrom}
       periodTo={periodTo}
+      canPreview={Boolean(preview?.can_generate)}
+      blockedReason={preview?.blocked_reason}
+      previewLoading={previewQuery.isFetching}
+      previewError={previewQuery.isError ? previewQuery.error?.message : null}
     />}
 
     <HistoryPanel
@@ -334,10 +339,10 @@ function GeneratePanel({ preview, loading, format, generating, onGenerate, conte
       <h2>산출물 만들기</h2>
       {loading
         ? <p>담길 내용을 확인하는 중입니다.</p>
-        : formatMissing
-          ? <p className='deliverable-blocked'>출력 형식을 선택해야 만들 수 있습니다.</p>
-          : contentBlocked
-            ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
+        : contentBlocked
+          ? <p className='deliverable-blocked'>{preview?.blocked_reason ?? '담길 내용을 확인한 뒤 만들 수 있습니다.'}</p>
+          : formatMissing
+            ? <p className='deliverable-blocked'>출력 형식을 선택해야 만들 수 있습니다.</p>
             : <p>담길 내용이 있습니다. <strong>{format}</strong> 형식으로 만들 수 있습니다.</p>}
       <p className='deliverable-generate-note'>만든 산출물은 아래 <strong>만든 산출물</strong> 목록에 쌓입니다. 개요 문장은 아직 들어가지 않습니다.</p>
     </div>
@@ -348,7 +353,7 @@ function GeneratePanel({ preview, loading, format, generating, onGenerate, conte
         type='button'
         className='deliverable-preview-button'
         aria-expanded={contentOpen}
-        disabled={loading || contentBlocked}
+        disabled={loading}
         onClick={onToggleContent}
       >{contentOpen ? '미리보기 닫기' : '미리보기'}</button>
       <button
@@ -390,22 +395,29 @@ const PREVIEW_VIEWS = [
 //   PDF  — 같은 iframe 에 blob URL 을 넣으면 브라우저가 그려 준다
 //   XLSX — 브라우저가 못 그린다. 그런데 **HTML 렌더로 대신할 수 있다** — 두 형식이
 //          같은 build_document 에서 나오므로 담긴 내용이 같다
-function ContentPreview({ projectId, kind, format, periodFrom, periodTo }) {
+function ContentPreview({ projectId, kind, format, periodFrom, periodTo, canPreview, blockedReason, previewLoading, previewError }) {
   // 만들 형식을 골라 뒀으면 그것으로 시작한다. 안 골랐으면 눈으로 보기 좋은 HTML.
   const [view, setView] = useState(format === 'MD' ? 'MD' : 'HTML')
   const [tall, setTall] = useState(false)
   const contentQuery = useQuery({
     queryKey: ['projects', projectId, 'deliverable-content', kind, view, periodFrom, periodTo],
     queryFn: () => getDeliverableContent(projectId, { kind, format: view, periodFrom, periodTo }),
-    enabled: Boolean(periodFrom && periodTo),
+    enabled: Boolean(canPreview && periodFrom && periodTo),
+    // 본문 조립은 LLM 개요 생성 때문에 오래 걸릴 수 있다. 창에 다시 들어왔다는
+    // 이유만으로 같은 LLM 요청을 반복하지 않는다.
+    refetchOnWindowFocus: false,
     retry: false,
   })
   const data = contentQuery.data
+  const contentLoading = contentQuery.isFetching && !data
+  const hasPeriod = Boolean(periodFrom && periodTo)
 
-  return <section className='panel deliverable-content' aria-label='산출물 미리보기'>
+  return <section className='panel deliverable-content' aria-label='산출물 미리보기' aria-busy={previewLoading || contentQuery.isFetching}>
     <div className='deliverable-content-heading'>
       <h2>{data?.title ?? '미리보기'}</h2>
-      <span>아직 만들지 않았습니다. 이력에도 남지 않습니다.</span>
+      {contentQuery.isFetching && data
+        ? <Spinner inline label='미리보기 갱신 중'/>
+        : <span>아직 만들지 않았습니다. 이력에도 남지 않습니다.</span>}
     </div>
 
     <div className='deliverable-content-tools'>
@@ -415,6 +427,7 @@ function ContentPreview({ projectId, kind, format, periodFrom, periodTo }) {
           type='button'
           key={value}
           aria-pressed={value === view}
+          disabled={contentQuery.isFetching}
           onClick={() => setView(value)}
         >{label}</button>)}
       </div>
@@ -423,20 +436,34 @@ function ContentPreview({ projectId, kind, format, periodFrom, periodTo }) {
       </button>
     </div>
 
-    {contentQuery.isPending
-      ? <p className='deliverable-content-empty'>본문을 만드는 중입니다.</p>
-      : contentQuery.isError
-        ? <p className='deliverable-content-empty'>미리보기를 만들지 못했습니다. {contentQuery.error?.message}</p>
-        : view === 'HTML'
-          // sandbox 를 빈 값으로 둔다 = 가장 강한 제한(스크립트·폼·팝업·부모 접근 모두 차단).
-          // 허용 항목을 하나라도 더하면 그만큼 열리므로, 필요해질 때까지 비워 둔다.
-          ? <iframe
-            className={'deliverable-content-frame' + (tall ? ' is-tall' : '')}
-            sandbox=''
-            srcDoc={data.body}
-            title={`${data.title} 미리보기`}
-          />
-          : <pre className={'deliverable-content-body' + (tall ? ' is-tall' : '')}>{data.body}</pre>}
+    {previewLoading
+      ? <div className='deliverable-content-loading'><Spinner label='담길 내용을 확인하는 중입니다.'/></div>
+      : previewError
+        ? <p className='deliverable-content-empty'>담길 내용을 불러오지 못했습니다. {previewError}</p>
+        : !hasPeriod
+          ? <p className='deliverable-content-empty'>시작일과 종료일을 선택하면 미리보기를 만들 수 있습니다.</p>
+          : !canPreview
+            ? <p className='deliverable-content-empty'>{blockedReason ?? '담길 내용이 생기면 이곳에서 산출물 본문을 미리 볼 수 있습니다.'}</p>
+            : contentLoading
+              ? <div className='deliverable-content-loading'>
+                <Spinner label='산출물 본문을 만드는 중입니다.'/>
+                <p>AI가 개요를 생성하고 본문을 조립하고 있습니다. 최대 1분 정도 걸릴 수 있습니다.</p>
+              </div>
+              : contentQuery.isError
+                ? <div className='deliverable-content-error'>
+                  <p>미리보기를 만들지 못했습니다. {contentQuery.error?.message}</p>
+                  <button type='button' onClick={() => contentQuery.refetch()}>다시 시도</button>
+                </div>
+                : view === 'HTML'
+                  // sandbox 를 빈 값으로 둔다 = 가장 강한 제한(스크립트·폼·팝업·부모 접근 모두 차단).
+                  // 허용 항목을 하나라도 더하면 그만큼 열리므로, 필요해질 때까지 비워 둔다.
+                  ? <iframe
+                    className={'deliverable-content-frame' + (tall ? ' is-tall' : '')}
+                    sandbox=''
+                    srcDoc={data.body}
+                    title={`${data.title} 미리보기`}
+                  />
+                  : <pre className={'deliverable-content-body' + (tall ? ' is-tall' : '')}>{data.body}</pre>}
 
     <p className='deliverable-content-note'>
       <strong>담길 내용은 형식과 무관하게 같습니다</strong> — 절을 고르는 규칙이 하나입니다.

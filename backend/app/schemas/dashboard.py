@@ -1,6 +1,6 @@
 # =============================================================================
-# 이 파일의 책임: 프로젝트 핵심 현황(DSH-001)과 프로젝트 캘린더 응답 계약이다.
-#   대시보드 지표, 최근 문서, 태스크 마감·승인 일정 항목의 모양을 정한다.
+# 이 파일의 책임: 프로젝트 단건·전역 포트폴리오 현황(DSH-001)과 프로젝트
+#   캘린더 응답 계약이다. 대시보드 지표와 최근 활동 항목의 모양을 정한다.
 # 다른 파일과의 관계: services/dashboard_service.py 가 이 모델을 채워 돌려주고
 #   api/routes/dashboard_router.py 가 response_model 로 쓴다. 최근 문서 항목은
 #   models/document.py 의 Document 에서 그대로 만든다(from_attributes).
@@ -111,3 +111,29 @@ class DashboardResponse(BaseModel):
     open_tasks: int
     document_types: list[DashboardDocumentTypeCount] = Field(default_factory=list)
     recent_documents: list[DashboardRecentDocument] = Field(default_factory=list)
+
+
+
+class PortfolioProjectDashboard(BaseModel):
+    """전역 화면에서 프로젝트 하나의 집계와 최근 문서를 묶은 읽기 모델."""
+
+    project_id: int
+    dashboard: DashboardResponse
+
+
+class PortfolioTaskActivity(BaseModel):
+    """접근 가능한 프로젝트 전체에서 가져온 최근 태스크 활동 한 줄."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    task_id: int | None
+    task_title: str
+    event_type: str
+    created_at: datetime
+
+
+class PortfolioDashboardResponse(BaseModel):
+    projects: list[PortfolioProjectDashboard] = Field(default_factory=list)
+    recent_task_activity: list[PortfolioTaskActivity] = Field(default_factory=list)

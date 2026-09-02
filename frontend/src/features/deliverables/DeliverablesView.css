@@ -147,6 +147,12 @@
 .deliverable-content-heading h2 { margin: 0; }
 .deliverable-content-heading span { color: var(--c-text-muted); font-size: 12px; font-weight: 700; }
 .deliverable-content-empty { margin: 0; color: var(--c-text-muted); font-size: 13px; }
+.deliverable-content-loading { display: grid; min-height: 210px; place-items: center; align-content: center; gap: 0; border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-bg-subtle); text-align: center; }
+.deliverable-content-loading .spinner-wrap { padding: 28px 16px 10px; }
+.deliverable-content-loading > p { max-width: 460px; margin: 0 18px 28px; color: var(--c-text-muted); font-size: 12px; line-height: 1.6; }
+.deliverable-content-error { display: grid; min-height: 150px; place-items: center; align-content: center; gap: 12px; border: 1px solid var(--c-danger); border-radius: 10px; background: var(--c-danger-bg); text-align: center; }
+.deliverable-content-error p { margin: 0; color: var(--c-danger); font-size: 13px; }
+.deliverable-content-error button { min-height: 34px; padding: 7px 13px; border: 1px solid var(--c-danger); border-radius: 8px; background: var(--c-bg); color: var(--c-danger); font: inherit; font-weight: 700; cursor: pointer; }
 
 /* 본문은 길다. **높이를 제한하고 안에서 스크롤**한다 — 안 하면 페이지가 화면 몇
    개 길이가 되어 아래의 이력 목록이 사라진 것처럼 보인다.

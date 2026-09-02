@@ -5,7 +5,7 @@ const documentStatuses = {
   EXTRACTING: { label: '텍스트 추출 중', description: '문서에서 읽을 수 있는 텍스트를 추출하고 있습니다.', tone: 'progress' },
   EXTRACTED: { label: '추출 완료', description: '텍스트 추출이 완료되었습니다. 검수 상태를 확인해 주세요.', tone: 'ready' },
   ANALYZING: { label: '분석 중', description: '추출된 텍스트를 분석하고 있습니다.', tone: 'progress' },
-  COMPLETED: { label: '처리 완료', description: '문서 처리와 현재 요청된 작업이 완료되었습니다.', tone: 'success' },
+  COMPLETED: { label: '추출 완료', description: '텍스트 추출이 완료되었습니다. 검수 상태를 확인해 주세요.', tone: 'success' },
   FAILED: { label: '처리 실패', description: '처리 중 오류가 발생했습니다. 문서 상세에서 안내를 확인해 주세요.', tone: 'danger' },
 }
 

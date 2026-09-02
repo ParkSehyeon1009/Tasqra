@@ -193,6 +193,10 @@ class DocumentRepository:
             # URL에서만 쓰는 필터 값이다. 저장된 문서 유형이 아니며, 유형이 아직
             # 정해지지 않은 NULL 행을 대시보드 분포에서 그대로 열기 위해 번역한다.
             query = query.filter(Document.document_type.is_(None))
+        elif document_type == "ETC":
+            # BILLING은 과거 저장값이다. 화면에서는 ETC에 편입되므로 ETC 필터가
+            # 신규 ETC와 레거시 BILLING을 함께 반환해야 목록·통계 의미가 맞는다.
+            query = query.filter(Document.document_type.in_(("ETC", "BILLING")))
         elif document_type:
             query = query.filter(Document.document_type == document_type)
 
