@@ -6,6 +6,9 @@
 
 .landing{min-width:320px;min-height:100vh;overflow-x:clip;background:#fff;color:#475569;font-family:"Pretendard Variable",Pretendard,"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 .landing .app-header{position:sticky;top:0;height:74px;padding-inline:max(24px,calc((100vw - 1192px)/2));border-color:#edf1f7;background:rgba(255,255,255,.96);backdrop-filter:blur(12px)}
+.landing .app-header__brand .logo{gap:0}
+.landing .app-header__brand .logo-mark{width:44px;height:44px}
+.landing .app-header__brand .logo strong{font-size:20px;letter-spacing:-.01em}
 .landing-page{width:min(1320px,100%);margin:0 auto;overflow:hidden;background:#fff}
 .landing-hero{position:relative;display:grid;min-height:570px;grid-template-columns:minmax(390px,.9fr) minmax(0,1.1fr);column-gap:clamp(40px,4.5vw,64px);align-items:center;padding:34px clamp(24px,4vw,64px) 26px;background:#fff;isolation:isolate}
 .landing-hero__copy{position:relative;z-index:3;width:min(450px,100%);justify-self:end;animation:landing-copy-enter .65s cubic-bezier(.2,.8,.2,1) both}
