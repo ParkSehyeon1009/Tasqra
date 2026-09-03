@@ -28,7 +28,7 @@
 #   CHECK 는 순서만 본다(starts_on <= ends_on).
 # =============================================================================
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -42,6 +42,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -96,6 +97,9 @@ class ScheduleItem(Base):
     # 문서에 없으면 NULL 이다. 만들어 채우지 않는다.
     starts_on: Mapped[date | None] = mapped_column(Date)
     ends_on: Mapped[date | None] = mapped_column(Date)
+    starts_time: Mapped[time | None] = mapped_column(Time)
+    ends_time: Mapped[time | None] = mapped_column(Time)
+    relative_expression: Mapped[str | None] = mapped_column(String(300))
 
     # --- AI 제안 공통 컬럼 (amount_items · decisions 와 같은 모양) ------------
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))

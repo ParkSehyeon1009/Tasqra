@@ -97,7 +97,8 @@ class DecisionScheduleReviewService:
             if starts_on and ends_on and starts_on > ends_on:
                 raise BusinessError(ErrorCode.INVALID_SCHEDULE_DATES)
             self._ensure_current(item.source_text_revision, current_revision)
-            for field in ("title", "kind", "starts_on", "ends_on"):
+            for field in ("title", "kind", "starts_on", "ends_on", "starts_time",
+                          "ends_time", "relative_expression"):
                 if field in values:
                     setattr(item, field, values[field])
             self._mark(item, "EDITED", user_id)
@@ -265,6 +266,9 @@ class DecisionScheduleReviewService:
             kind=item.kind,
             starts_on=item.starts_on,
             ends_on=item.ends_on,
+            starts_time=item.starts_time,
+            ends_time=item.ends_time,
+            relative_expression=item.relative_expression,
             confidence=item.confidence,
             reason=item.reason,
             decision=item.decision,

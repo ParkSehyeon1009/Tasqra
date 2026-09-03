@@ -2,7 +2,7 @@
 # ② 관계: analyzers/extraction_parser.py가 이 DTO를 사용하며, DB 저장·승인 상태는 다루지 않는다.
 # ③ Spring 비교: Pydantic DTO는 Jackson 역직렬화 뒤 Bean Validation을 적용하는 Request/Response DTO다.
 
-from datetime import date
+from datetime import date, time
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
@@ -49,6 +49,9 @@ class ScheduleItemExtraction(BaseModel):
     kind: ScheduleKind
     starts_on: date | None = None
     ends_on: date | None = None
+    starts_time: time | None = None
+    ends_time: time | None = None
+    relative_expression: str | None = Field(default=None, max_length=300)
     confidence: float | None = Field(default=None, ge=0, le=1)
     reason: str = Field(min_length=1)
 

@@ -92,7 +92,8 @@ def test_decision_columns_match_migration():
 
 
 def test_schedule_columns_match_migration():
-    assert model_columns(ScheduleItem) == migration_columns("schedule_items") | {"evidence_text"}
+    assert model_columns(ScheduleItem) == migration_columns("schedule_items") | {
+        "evidence_text", "starts_time", "ends_time", "relative_expression"}
 
 
 def test_deliverable_columns_match_migration():

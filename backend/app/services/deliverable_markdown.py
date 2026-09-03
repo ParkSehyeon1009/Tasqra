@@ -161,6 +161,13 @@ def day(value: date | None) -> str:
     return value.isoformat() if value else EMPTY
 
 
+def schedule_moment(day_value, time_value=None, relative=None) -> str:
+    if day_value:
+        suffix = f" {time_value.strftime('%H:%M')}" if time_value else ""
+        return f"{day_value.isoformat()}{suffix}"
+    return clean(relative)
+
+
 def build_title(kind: str, period_from: date | None, period_to: date | None) -> str:
     """제목. 기간이 있으면 붙인다.
 
@@ -245,8 +252,11 @@ def build_document(
                 title="일정·기한",
                 header=["제목", "종류", "시작", "종료"],
                 rows=[
-                    [clean(item.title), clean(item.kind), day(item.starts_on),
-                     day(item.ends_on)]
+                    [clean(item.title), clean(item.kind),
+                     schedule_moment(item.starts_on, getattr(item, "starts_time", None),
+                                     getattr(item, "relative_expression", None) if item.kind != "DEADLINE" else None),
+                     schedule_moment(item.ends_on, getattr(item, "ends_time", None),
+                                     getattr(item, "relative_expression", None) if item.kind == "DEADLINE" else None)]
                     for item in materials.schedule_items
                 ],
                 note="이 기간에 걸리는 일정이 없습니다.",

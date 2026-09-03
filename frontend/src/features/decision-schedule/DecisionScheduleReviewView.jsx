@@ -286,17 +286,21 @@ function itemTypeLabel(item) {
 function EditForm({ type, row, saving, notify, onClose, onSave }) {
   const [form, setForm] = useState(type === 'decision'
     ? { title: row.title, content: row.content ?? '', status: row.status, decided_on: row.decided_on ?? '' }
-    : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '' })
+    : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '',
+        starts_time: row.starts_time?.slice(0, 5) ?? '', ends_time: row.ends_time?.slice(0, 5) ?? '',
+        relative_expression: row.relative_expression ?? '' })
   const set = (field, value) => setForm(current => ({ ...current, [field]: value }))
   const submit = event => {
     event.preventDefault()
     const initial = type === 'decision'
       ? { title: row.title, content: row.content ?? '', status: row.status, decided_on: row.decided_on ?? '' }
-      : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '' }
+      : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '',
+          starts_time: row.starts_time?.slice(0, 5) ?? '', ends_time: row.ends_time?.slice(0, 5) ?? '',
+          relative_expression: row.relative_expression ?? '' }
     const changes = {}
     for (const [field, value] of Object.entries(form)) {
       if (value === initial[field]) continue
-      changes[field] = ['content', 'decided_on', 'starts_on', 'ends_on'].includes(field) && value === '' ? null : value
+      changes[field] = ['content', 'decided_on', 'starts_on', 'ends_on', 'starts_time', 'ends_time', 'relative_expression'].includes(field) && value === '' ? null : value
     }
     if (Object.keys(changes).length === 0) {
       notify?.('info', '바뀐 값이 없습니다', '고칠 값을 하나 이상 바꿔 주세요.')
@@ -318,7 +322,10 @@ function EditForm({ type, row, saving, notify, onClose, onSave }) {
         {Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select></label>
       <label><span>시작일</span><input type='date' value={form.starts_on} onChange={event => set('starts_on', event.target.value)}/></label>
+      <label><span>시작 시각</span><input type='time' value={form.starts_time} onChange={event => set('starts_time', event.target.value)}/></label>
       <label><span>종료일</span><input type='date' value={form.ends_on} onChange={event => set('ends_on', event.target.value)}/></label>
+      <label><span>종료 시각</span><input type='time' value={form.ends_time} onChange={event => set('ends_time', event.target.value)}/></label>
+      <label><span>상대 기한</span><input maxLength={300} placeholder='예: 통보일로부터 7일 이내' value={form.relative_expression} onChange={event => set('relative_expression', event.target.value)}/></label>
     </>}
     <p>저장하면 사람이 확인한 값(EDITED)으로 남고 기존 산출물 count/list에 반영됩니다.</p>
     <div><button type='submit' className='is-primary' disabled={saving}>{saving ? '저장 중…' : '수정 승인'}</button><button type='button' disabled={saving} onClick={onClose}>닫기</button></div>
@@ -326,7 +333,9 @@ function EditForm({ type, row, saving, notify, onClose, onSave }) {
 }
 
 function scheduleDates(row) {
-  if (!row.starts_on && !row.ends_on) return null
-  if (row.starts_on && row.ends_on) return `${row.starts_on} ~ ${row.ends_on}`
-  return row.starts_on ? `시작 ${row.starts_on}` : `종료 ${row.ends_on}`
+  const start = row.starts_on ? `${row.starts_on}${row.starts_time ? ` ${row.starts_time.slice(0, 5)}` : ''}` : null
+  const end = row.ends_on ? `${row.ends_on}${row.ends_time ? ` ${row.ends_time.slice(0, 5)}` : ''}` : null
+  if (start && end) return `${start} ~ ${end}`
+  if (start || end) return start ? `시작 ${start}` : `종료 ${end}`
+  return row.relative_expression || null
 }

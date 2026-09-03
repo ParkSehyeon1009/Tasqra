@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, time
 
 # 공공 문서에 실제로 나오는 형태. 추출기가 공백을 여러 칸 뱉으므로 사이를 허용한다.
 _PATTERNS = (
@@ -30,6 +30,9 @@ _ABBREVIATED_RANGE = re.compile(
     + r"\s*(?:~|～|−|–|—|부터)\s*"
     + r"(?!\d{4}\s*[./\-])"
     + r"(?:(?P<end_month>\d{1,2})\s*[./\-]\s*)?(?P<end_day>\d{1,2})(?:\s*일)?"
+)
+_TIME_AFTER_DATE = re.compile(
+    r"^[\s.,]*(?:\([^)]{0,10}\)\s*)?(?:(오전|오후)\s*)?(\d{1,2})(?:\s*[:시]\s*(\d{1,2}))?\s*(?:분)?"
 )
 # 앞쪽을 넉넉히 본다 — 「제안서평가일시: 2026/07/20」처럼 **날짜 앞에** 무슨
 # 날짜인지가 적히기 때문이다. 뒤쪽은 시각과 「~까지」 정도만 필요하다.
@@ -82,13 +85,16 @@ class FoundDate:
     label: str | None = None   # 콜론 앞에서 잡은 이름. 없으면 모델이 정한다
     context_type: str = "body"  # 예시·이력은 삭제하지 않고 판단 힌트만 준다
     range_key: int | None = None  # 원문에서 ~·부터/까지로 연결된 같은 기간
+    time_value: time | None = None
 
     def as_prompt_record(self) -> dict:
         # ⚠️ label 은 **모델에게 보내지 않는다.** 힌트로 줘 봤더니 오히려 나빠졌다
         #   (제목에 날짜를 넣거나, 한 가지 이름으로 무너졌다). 모델은 context 만
         #   보고 판단하게 두고, label 이 있으면 파이썬이 결과를 덮어쓴다.
         #   schedule_analyzer._build() 를 보라.
-        return {"id": self.id, "date": self.value.isoformat(), "context": self.context,
+        return {"id": self.id, "date": self.value.isoformat(),
+                "time": self.time_value.isoformat(timespec="minutes") if self.time_value else None,
+                "context": self.context,
                 "context_type": self.context_type,
                 "range_id": f"r{self.range_key}" if self.range_key is not None else None}
 
@@ -138,9 +144,10 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         last_end = end
         context_start = max(0, start - BEFORE)
         context = text[context_start:end + AFTER].replace("\n", " ")
+        time_value = _time_after(text[end:end + AFTER])
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
                                _label_before(context, raw, start - context_start),
-                               _context_type(context)))
+                               _context_type(context), time_value=time_value))
         if len(dates) >= limit:
             break
     for index in range(1, len(dates)):
@@ -152,3 +159,18 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
             dates[index - 1] = replace(previous, range_key=key)
             dates[index] = replace(current, label=label, range_key=key)
     return dates
+
+
+def _time_after(value: str) -> time | None:
+    found = _TIME_AFTER_DATE.match(value)
+    if not found:
+        return None
+    meridiem, hour_text, minute_text = found.groups()
+    hour, minute = int(hour_text), int(minute_text or 0)
+    if meridiem:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if meridiem == "오후" else 0)
+    if hour > 23 or minute > 59:
+        return None
+    return time(hour, minute)

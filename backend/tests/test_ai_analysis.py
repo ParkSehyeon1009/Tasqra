@@ -369,6 +369,37 @@ def test_찾은_날짜는_앞뒤_문맥을_함께_준다():
     found = find_dates("○제안서평가일시: 2026/07/20   09:30 ○제안서평가장소: 나라장터")[0]
     assert "제안서평가일시" in found.context
     assert found.as_prompt_record()["date"] == "2026-07-20"
+    assert found.as_prompt_record()["time"] == "09:30"
+
+
+def test_일정_시각을_날짜와_함께_보존한다(config):
+    client = ScriptedAI(lambda *_: {"items": [_item(["d1"], "평가", "MEETING")]})
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "○ 제안서평가일시: 2026/07/20 오후 2시 30분"))
+
+    item = result.result["schedule_items"][0]
+    assert item["starts_on"] == "2026-07-20"
+    assert item["starts_time"] == "14:30:00"
+
+
+def test_절대날짜가_없는_상대기한도_보존한다(config):
+    client = ScriptedAI(lambda *_: pytest.fail("상대 기한만 있으면 모델을 부르지 않는다"))
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "선정 결과 통보일로부터 7일 이내에 협약서를 제출한다."))
+
+    item = result.result["schedule_items"][0]
+    assert item["kind"] == "DEADLINE"
+    assert item["ends_on"] is None
+    assert "통보일로부터 7일 이내" in item["relative_expression"]
+
+
+def test_절대일정과_상대기한을_함께_정렬한다(config):
+    client = ScriptedAI(lambda *_: {"items": [_item(["d1"], "설명회", "MEETING")]})
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "설명회는 2026/07/20에 연다. 결과 통보 후 3일 이내 서류를 제출한다."))
+
+    assert len(result.result["schedule_items"]) == 2
+    assert result.result["schedule_items"][1]["relative_expression"]
 
 
 @pytest.mark.parametrize("본문,기대", [

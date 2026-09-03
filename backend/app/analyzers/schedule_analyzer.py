@@ -14,6 +14,7 @@
 """
 import re
 import logging
+from datetime import date, time
 
 from app.analyzers.date_finder import find_dates
 from app.analyzers.output_schemas import DatedItemsOutput
@@ -27,6 +28,11 @@ from app.schemas.extraction import ScheduleItemExtraction, ScheduleKind
 
 logger = logging.getLogger(__name__)
 MAX_DATES_PER_GROUP = 12
+_RELATIVE_DEADLINE = re.compile(
+    r"(?P<expression>(?P<reference>[가-힣A-Za-z0-9·\s]{2,40}?)"
+    r"(?:일|시점)?(?:로부터|부터|후)\s*(?P<amount>\d{1,3})\s*"
+    r"(?P<unit>영업일|일|주|개월|달)\s*(?:이내|안에|까지))"
+)
 
 
 # 이름에서 종류를 읽는 규칙. **순서가 곧 우선순위다.**
@@ -70,19 +76,21 @@ class ScheduleAnalyzer:
         runner = Runner(self._ai_client, self._settings, budget, progress)
         dates = find_dates(text)
         total_date_count = len(dates)
+        relative_items = self._extract_relative_deadlines(text)
 
         if not dates:
             # 날짜가 없는 문서다. 모델을 부를 이유가 없다 — 부르면 없는 일정을
             # 지어낼 기회만 준다. 호출 0회로 끝내되 그 사실을 남긴다.
             return AnalyzeResult(
-                result={"schedule_items": [], "date_count": 0, "labeled_count": 0,
+                result={"schedule_items": [item.model_dump(mode="json") for item in relative_items],
+                        "date_count": 0, "labeled_count": len(relative_items),
                         "call_count": 0},
                 provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
                 model_name=self._ai_client.model_name, latency_ms=0)
 
         periods, dates = self._extract_clear_periods(dates)
         groups = self._split_by_budget(dates, budget)
-        items: list[ScheduleItemExtraction] = list(periods)
+        items: list[ScheduleItemExtraction] = [*periods, *relative_items]
         labeled = len(periods) * 2
         failed_groups: list[int] = []
         if not groups:
@@ -129,7 +137,7 @@ class ScheduleAnalyzer:
 
         # 원문 순서가 아니라 **날짜 순서**로 준다. 화면에서 그대로 일정이 된다.
         items = self._deduplicate(items)
-        items.sort(key=lambda item: (item.starts_on or item.ends_on, item.title))
+        items.sort(key=lambda item: (item.starts_on or item.ends_on or date.max, item.title))
         return AnalyzeResult(
             result={"schedule_items": [item.model_dump(mode="json") for item in items],
                     # 찾은 날짜 중 몇 개가 일정이 됐는지. 이 비율이 낮으면
@@ -168,13 +176,14 @@ class ScheduleAnalyzer:
             label = grouped[0].label or grouped[1].label
             if kind_from_label(label) is not ScheduleKind.PERIOD:
                 continue
-            picked = sorted(item.value for item in grouped)
-            if picked[0] == picked[1]:
+            picked = sorted(grouped, key=lambda item: (item.value, item.time_value or time.min))
+            if picked[0].value == picked[1].value and picked[0].time_value == picked[1].time_value:
                 continue
             consumed.update(item.id for item in grouped)
             periods.append(ScheduleItemExtraction(
                 title=(label or "기간")[:70], evidence_text=grouped[0].context.strip(),
-                kind=ScheduleKind.PERIOD, starts_on=picked[0], ends_on=picked[1],
+                kind=ScheduleKind.PERIOD, starts_on=picked[0].value, ends_on=picked[1].value,
+                starts_time=picked[0].time_value, ends_time=picked[1].time_value,
                 confidence=1.0, reason="원문에서 시작일과 종료일이 하나의 기간으로 연결됨"))
         return periods, [found for found in dates if found.id not in consumed]
 
@@ -184,7 +193,8 @@ class ScheduleAnalyzer:
         unique, seen = [], set()
         for item in items:
             title = re.sub(r"[^0-9A-Za-z가-힣]", "", item.title).lower()
-            key = (title, item.kind, item.starts_on, item.ends_on)
+            key = (title, item.kind, item.starts_on, item.ends_on, item.starts_time,
+                   item.ends_time, item.relative_expression)
             if key not in seen:
                 seen.add(key)
                 unique.append(item)
@@ -216,6 +226,8 @@ class ScheduleAnalyzer:
                 kind=kind,
                 starts_on=picked[0] if kind is not ScheduleKind.DEADLINE else None,
                 ends_on=picked[-1] if kind in (ScheduleKind.DEADLINE, ScheduleKind.PERIOD) else None,
+                starts_time=chosen[0].time_value if kind is not ScheduleKind.DEADLINE else None,
+                ends_time=chosen[-1].time_value if kind in (ScheduleKind.DEADLINE, ScheduleKind.PERIOD) else None,
                 confidence=1.0, reason="원문 일정 라벨과 날짜를 규칙으로 확인함"))
         return recovered
 
@@ -256,9 +268,11 @@ class ScheduleAnalyzer:
             kind = ScheduleKind.DEADLINE
 
         if kind is ScheduleKind.PERIOD:
+            ordered = sorted(chosen, key=lambda found: (found.value, found.time_value or time.min))
             return ScheduleItemExtraction(
                 title=title, evidence_text=chosen[0].context.strip(),
                 kind=kind, starts_on=picked[0], ends_on=picked[-1],
+                starts_time=ordered[0].time_value, ends_time=ordered[-1].time_value,
                 confidence=item.confidence, reason=item.reason)
 
         # ⚠️ 한 시점을 **kind 가 지정하는 컬럼**에 담아야 한다. models/schedule.py
@@ -272,11 +286,29 @@ class ScheduleAnalyzer:
         #   반대로 양쪽에 같은 날짜를 넣어 안전하게 가는 것도 안 된다. CHECK 는
         #   통과하지만 「하루짜리 기간」이라는 없던 뜻이 생긴다.
         when = picked[-1]        # 둘을 골랐으면 늦은 쪽을 그 시점으로 본다
+        selected = max(chosen, key=lambda found: (found.value, found.time_value or time.min))
         if kind is ScheduleKind.DEADLINE:
-            starts_on, ends_on = None, when
+            starts_on, ends_on, starts_time, ends_time = None, when, None, selected.time_value
         else:
-            starts_on, ends_on = when, None
+            starts_on, ends_on, starts_time, ends_time = when, None, selected.time_value, None
         return ScheduleItemExtraction(
             title=title, evidence_text=chosen[-1].context.strip(),
             kind=kind, starts_on=starts_on, ends_on=ends_on,
+            starts_time=starts_time, ends_time=ends_time,
             confidence=item.confidence, reason=item.reason)
+
+    @staticmethod
+    def _extract_relative_deadlines(text: str) -> list[ScheduleItemExtraction]:
+        """기준일을 아직 모르는 상대 기한은 계산하지 않고 원문 표현으로 보존한다."""
+        items = []
+        for found in _RELATIVE_DEADLINE.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            reference = re.sub(r"\s+", " ", found.group("reference")).strip(" ·,-")
+            if not reference or len(expression) > 300:
+                continue
+            start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            items.append(ScheduleItemExtraction(
+                title=f"{reference} 후 기한"[:70], evidence_text=text[start:end].strip(),
+                kind=ScheduleKind.DEADLINE, relative_expression=expression,
+                confidence=1.0, reason="원문에 기준 시점과 상대 기한이 명시됨"))
+        return items
