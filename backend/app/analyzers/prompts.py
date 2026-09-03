@@ -3,22 +3,21 @@ import json
 from app.ai.client_protocol import AIRequest
 
 SUMMARY_PROMPT_VERSION = "summary-v2"
-CATEGORY_PROMPT_VERSION = "category-v2"
+CATEGORY_PROMPT_VERSION = "category-v3-seven-types"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
 DECISION_PROMPT_VERSION = "decision-v2-grounded"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
 ACTION_TASK_PROMPT_VERSION = "action-task-v1"
 
-# AI 분류 정책 8종. 기존 document_type의 BILLING 데이터는 덮어쓰지 않는다.
+# AI 분류 정책 7종. 과거 COST_SHEET·BILLING은 ETC로 읽는다.
 CATEGORY_DESCRIPTIONS = {
     "RFP": "제안요청서 · 입찰공고",
     "PROPOSAL": "제안서 · 기술제안서",
-    "COST_SHEET": "산출내역서 · 견적서 · 원가계산서",
     "CONTRACT": "계약서 · 과업지시서 · 착수신고서",
     "CONTRACT_CHANGE": "변경계약서 · 과업변경합의서",
     "REPORT": "착수 · 주간 · 월간 · 완료보고서 · 검사조서",
     "MEETING_NOTES": "회의록",
-    "ETC": "대가지급청구서 · 세금계산서 · 그 외",
+    "ETC": "산출내역서 · 견적서 · 원가계산서 · 대가지급청구서 · 세금계산서 · 그 외",
 }
 CATEGORY_CANDIDATES = tuple(CATEGORY_DESCRIPTIONS)
 
@@ -45,12 +44,13 @@ CATEGORY_SYSTEM_PROMPT = COMMON + "분류 정책: " + json.dumps(CATEGORY_DESCRI
 세금계산서·대가지급청구서는 ETC이며 BILLING은 금지합니다.
 착수신고서=CONTRACT, 착수보고서=REPORT, 검사조서=REPORT입니다.
 과업지시서=CONTRACT, 과업변경합의서=CONTRACT_CHANGE입니다.
-금액의 등장만으로 COST_SHEET, 변경의 언급만으로 CONTRACT_CHANGE를 선택하지 마세요.
+산출내역서·견적서·원가계산서는 ETC입니다. 금액의 등장만으로 유형을 바꾸지 마세요.
+변경의 언급만으로 CONTRACT_CHANGE를 선택하지 마세요.
 다른 문서의 인용·첨부 목록과 주된 문서의 목적을 구분하세요.
 일부 입력도 근거가 충분하면 분류하고, 주된 유형 판단 근거가 부족하면 ETC입니다.
 reason은 원문 특징을 근거로 한국어 한 문장입니다. ETC는 정책상 기타인지,
 그 외 유형인지, 판단 근거 부족인지 구분하세요.
-출력: {"category":"위 8개 코드 중 하나","reason":"분류 근거"}
+출력: {"category":"위 7개 코드 중 하나","reason":"분류 근거"}
 """
 
 FACTS_SYSTEM_PROMPT = COMMON + """

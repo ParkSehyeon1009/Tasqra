@@ -9,6 +9,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getAnalysisCategoryLabel } from '../../utils/analysisCategory'
 
+const TRAIT_LABELS = {
+  COST_DETAILS: '금액 내역 포함',
+  SCHEDULE: '일정 포함',
+  CONTRACT_TERMS: '계약 조건 포함',
+  DECISION_RECORD: '결정 기록 포함',
+  ACTION_ITEMS: '후속 업무 포함',
+}
+
 export default function DocumentAnalysisTab({ document, canAnalyze, analyzing, onAnalyze, downloading, onDownload }) {
   const [historyType, setHistoryType] = useState(null)
   const grouped = useMemo(() => groupAnalyses(document.analyses ?? []), [document.analyses])
@@ -49,7 +57,7 @@ function AnalysisHistory({ analyses, type, textVersion }) { return <section clas
 function AnalysisBody({ analysis, collapsed = false, contentRef }) {
   const result = analysis.result ?? {}
   if (analysis.analyzer_type === 'summary') return <p ref={contentRef} className={`analysis-copy${collapsed ? ' is-collapsed' : ''}`}>{result.summary ?? '요약 내용이 없습니다.'}</p>
-  if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>분류</dt><dd>{getAnalysisCategoryLabel(result.category)}</dd><dt>근거</dt><dd ref={contentRef} className={collapsed ? 'analysis-reason is-collapsed' : 'analysis-reason'}>{result.reason ?? '-'}</dd></dl>
+  if (analysis.analyzer_type === 'category') return <dl className="category-result"><dt>주 분류</dt><dd>{getAnalysisCategoryLabel(result.category)}</dd>{result.traits?.length > 0 && <><dt>함께 포함된 성격</dt><dd>{result.traits.map(value => TRAIT_LABELS[value] ?? value).join(' · ')}</dd></>}<dt>근거</dt><dd ref={contentRef} className={collapsed ? 'analysis-reason is-collapsed' : 'analysis-reason'}>{result.reason ?? '-'}</dd></dl>
   return <pre>{JSON.stringify(result, null, 2)}</pre>
 }
 function groupAnalyses(analyses) { return analyses.reduce((result, item) => { (result[item.analyzer_type] ??= []).push(item); result[item.analyzer_type].sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id); return result }, {}) }

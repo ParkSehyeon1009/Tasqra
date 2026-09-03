@@ -146,7 +146,7 @@ def document_type_label(value: Any) -> str:
     if value is None or value == "":
         return "미분류"
     code = getattr(value, "value", value)
-    code = "ETC" if code == "BILLING" else str(code)
+    code = "ETC" if code in ("BILLING", "COST_SHEET") else str(code)
     return DOCUMENT_TYPE_LABELS.get(code, code)
 
 

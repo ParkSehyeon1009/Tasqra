@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     #   환경변수로 이름을 받는다.
     #
     #     AI_MODEL_SUMMARY   Tasqra-summation       요약 (2~3문장 200자)
-    #     AI_MODEL_CATEGORY  Tasqra-classification  분류 (8종 코드)
+    #     AI_MODEL_CATEGORY  Tasqra-classification  분류 (7종, 구형 COST_SHEET 출력 호환)
     #
     #   비워 두면 AI_MODEL 을 쓴다. 개발 중 하나만 올려놓고 돌릴 때를 위해서다.
     #   ⚠️ 다만 그 경우 타 태스크용 모델이 처리해 성능이 떨어질 수

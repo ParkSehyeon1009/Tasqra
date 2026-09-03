@@ -259,7 +259,7 @@ class ExtractionService:
             document_type = DocumentType(value.strip().upper())
         except ValueError as exc:
             raise BusinessError(ErrorCode.INVALID_DOCUMENT_TYPE) from exc
-        if document_type is DocumentType.BILLING:
+        if document_type in (DocumentType.BILLING, DocumentType.COST_SHEET):
             raise BusinessError(ErrorCode.INVALID_DOCUMENT_TYPE)
         return document_type
 

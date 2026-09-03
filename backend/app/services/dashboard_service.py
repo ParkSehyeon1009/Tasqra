@@ -266,14 +266,14 @@ def _sum_of(counts: dict[str, int], keys: tuple[str, ...]) -> int:
 def merge_legacy_document_types(
     rows: list[tuple[str | None, int]],
 ) -> list[tuple[str | None, int]]:
-    """레거시 BILLING 건수를 ETC에 합쳐 사용자에게 8종 분포로 보여준다.
+    """레거시 BILLING·COST_SHEET 건수를 ETC에 합쳐 7종 분포로 보여준다.
 
     DB 값은 마이그레이션 없이 보존한다. 읽기 모델에서만 합치므로 기존 문서도
     사라지지 않고, ETC 필터의 Repository 호환 규칙과 같은 의미가 된다.
     """
     merged: dict[str | None, int] = {}
     for document_type, count in rows:
-        canonical = "ETC" if document_type == "BILLING" else document_type
+        canonical = "ETC" if document_type in ("BILLING", "COST_SHEET") else document_type
         merged[canonical] = merged.get(canonical, 0) + count
     return list(merged.items())
 

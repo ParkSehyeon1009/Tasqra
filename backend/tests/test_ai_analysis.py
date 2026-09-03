@@ -560,11 +560,27 @@ def test_모델_응답이_깨져도_명확한_마감일은_복구한다(config):
     assert result.result["failed_groups"] == [1]
 
 
-@pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
-def test_eight_category_codes_are_accepted(config, category):
+@pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
+def test_seven_category_codes_are_accepted(config, category):
     client = ScriptedAI(lambda *_: {"category": category, "reason": "문서에 근거한 분류입니다."})
     result = asyncio.run(CategoryAnalyzer(client, config).analyze("분류 대상"))
     assert result.result["category"] == category
+
+
+def test_legacy_cost_sheet_model_output_is_normalized_to_etc(config):
+    client = ScriptedAI(lambda *_: {"category": "COST_SHEET", "reason": "산출 내역 중심"})
+    result = asyncio.run(CategoryAnalyzer(client, config).analyze("산출내역서 수량 단가 금액"))
+    assert result.result["category"] == "ETC"
+    assert "COST_DETAILS" in result.result["traits"]
+
+
+def test_new_document_classification_contract_has_seven_types():
+    from app.analyzers.prompts import CATEGORY_CANDIDATES
+    from app.models.enums import SelectableDocumentType
+
+    assert len(CATEGORY_CANDIDATES) == 7
+    assert len(SelectableDocumentType) == 7
+    assert "COST_SHEET" not in CATEGORY_CANDIDATES
 
 
 @pytest.mark.parametrize("value", ["BILLING", "계약서", "기타", None, []])

@@ -23,7 +23,7 @@ import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionS
 import TaskSuggestionReviewPanel from '../features/decision-schedule/TaskSuggestionReviewView'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
-import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
+import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, LEGACY_COST_SHEET_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
 import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
@@ -112,7 +112,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
-      {canEdit && (['AI', 'USER_CORRECTED'].includes(document.document_type_source) || document.document_type === LEGACY_BILLING_DOCUMENT_TYPE) && <DocumentTypeCorrection document={document} pending={documentTypeMutation.isPending} onSave={documentType => documentTypeMutation.mutate(documentType)}/>}
+      {canEdit && (['AI', 'USER_CORRECTED'].includes(document.document_type_source) || [LEGACY_BILLING_DOCUMENT_TYPE, LEGACY_COST_SHEET_DOCUMENT_TYPE].includes(document.document_type)) && <DocumentTypeCorrection document={document} pending={documentTypeMutation.isPending} onSave={documentType => documentTypeMutation.mutate(documentType)}/>}
       <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}</button>)}</nav>
       <main className="document-tab-body">
         {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
