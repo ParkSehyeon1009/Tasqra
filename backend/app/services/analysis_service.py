@@ -41,6 +41,24 @@ class AnalysisService:
             results.append((name, result))
         return results
 
+    async def analyze_text_isolated(self, content, types, progress=None):
+        """분석기 하나의 국소 오류가 다른 분석 결과를 폐기하지 않게 한다."""
+        results, errors = [], []
+        for name in types:
+            analyzer = self._analyzer_registry[name]
+            try:
+                result = await analyzer.analyze(content, progress=progress)
+            except BusinessError as exc:
+                errors.append({"analyzer": name, "code": exc.error_code.code,
+                    "message": exc.detail or exc.error_code.message})
+                continue
+            results.append((name, result))
+            failed_units = result.result.get("failed_groups") or result.result.get("failed_chunks")
+            if failed_units:
+                errors.append({"analyzer": name, "code": "AI_PARTIAL_RESULT",
+                    "message": f"일부 구간을 처리하지 못했습니다: {failed_units}"})
+        return results, errors
+
     @staticmethod
     def _apply_ai_document_type(document, results):
         category_result = next((result for name, result in results if name == "category"), None)

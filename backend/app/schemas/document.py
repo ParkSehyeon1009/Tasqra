@@ -84,6 +84,7 @@ class AnalysisJobResponse(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     analyses: list[AnalysisResponse] = Field(default_factory=list)
+    analyzer_errors: list[dict] = Field(default_factory=list)
 
 
 class DocumentListItem(BaseModel):

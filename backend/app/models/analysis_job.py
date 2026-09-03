@@ -11,7 +11,7 @@ from app.db.base import Base
 class AnalysisJob(Base):
     __tablename__ = "analysis_jobs"
     __table_args__ = (
-        CheckConstraint("status IN ('PENDING','RUNNING','COMPLETED','FAILED')", name="ck_analysis_job_status"),
+        CheckConstraint("status IN ('PENDING','RUNNING','COMPLETED','PARTIAL','FAILED')", name="ck_analysis_job_status"),
         Index("ix_analysis_job_document", "document_id", "created_at"),
         Index("uq_analysis_job_active", "document_id", unique=True,
               postgresql_where=text("status IN ('PENDING','RUNNING')")),
@@ -29,5 +29,6 @@ class AnalysisJob(Base):
     error_code: Mapped[str | None] = mapped_column(String(50))
     error_message: Mapped[str | None] = mapped_column(String(300))
     analysis_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    analyzer_errors: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

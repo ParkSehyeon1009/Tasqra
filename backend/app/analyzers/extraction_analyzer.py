@@ -13,6 +13,7 @@ PENDING 제안으로만 남는다(DecisionScheduleWriter). 승인 화면이 곧 
    날짜 필드를 못 채워서 날짜 찾기를 파이썬으로 옮겼다.
 """
 import re
+import logging
 from difflib import SequenceMatcher
 
 from app.analyzers.output_schemas import DecisionsOutput
@@ -22,6 +23,10 @@ from app.analyzers.prompts import DECISION_PROMPT_VERSION, build_decision_prompt
 from app.analyzers.protocol import AnalyzeResult
 from app.analyzers.runner import Runner
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
+
+logger = logging.getLogger(__name__)
 
 
 class DecisionAnalyzer:
@@ -39,13 +44,21 @@ class DecisionAnalyzer:
         chunks = split_document(text, budget, build_decision_prompt,
             overlap=self._settings.AI_CHUNK_OVERLAP_CHARS, max_chunks=self._settings.AI_MAX_CHUNKS)
 
-        found, seen, empty_chunks = [], {}, []
+        found, seen, empty_chunks, failed_chunks = [], {}, [], []
         for i, chunk in enumerate(chunks):
             stage = f"{self.stage_label} {i + 1}/{len(chunks)}"
             runner.progress(stage, i, len(chunks))
-            parsed = await runner.call(
-                build_decision_prompt(chunk.text, chunk.start, chunk.end),
-                DecisionsOutput, stage=stage)
+            try:
+                parsed = await runner.call(
+                    build_decision_prompt(chunk.text, chunk.start, chunk.end),
+                    DecisionsOutput, stage=stage)
+            except BusinessError as exc:
+                if exc.error_code is not ErrorCode.AI_INVALID_RESPONSE:
+                    raise
+                failed_chunks.append(i + 1)
+                logger.warning("결정사항 구간 제외 stage=%s", stage)
+                runner.progress(stage, i + 1, len(chunks))
+                continue
             if not parsed.decisions:
                 empty_chunks.append(i + 1)
             for item in parsed.decisions:
@@ -69,6 +82,7 @@ class DecisionAnalyzer:
         return AnalyzeResult(
             result={self.field: [item.model_dump(mode="json") for item in found],
                     "chunk_count": len(chunks), "empty_chunks": empty_chunks,
+                    "failed_chunks": failed_chunks,
                     "call_count": runner.calls},
             provider=self._ai_client.provider, prompt_version=self.prompt_version,
             **runner.metadata())

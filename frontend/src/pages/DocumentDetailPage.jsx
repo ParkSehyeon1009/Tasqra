@@ -28,6 +28,7 @@ import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
 const TABS = [['content', '문서 내용'], ['review', 'OCR 검수'], ['analysis', '분석 결과'], ['history', '변경 이력']]
+const ANALYZER_LABELS = { summary: '요약', category: '문서 분류', decision: '결정사항', schedule: '일정', action_task: '액션 태스크' }
 
 function getDocumentListUrl(projectId, candidate) {
   const fallback = `/projects/${projectId}/documents`
@@ -71,7 +72,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const previousJob = useRef(null)
   const completedJob = useRef(null)
   useEffect(() => {
-    if (job?.status === 'COMPLETED' && completedJob.current !== job.job_id) {
+    if (['COMPLETED', 'PARTIAL'].includes(job?.status) && completedJob.current !== job.job_id) {
       completedJob.current = job.job_id
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'decision-review'] })
@@ -79,7 +80,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'task-suggestion-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
-      if (previousJob.current === job.job_id) notify('success', '문서 분석 완료', '분석 결과를 생성했습니다.')
+      if (previousJob.current === job.job_id) notify(job.status === 'PARTIAL' ? 'warning' : 'success', job.status === 'PARTIAL' ? '문서 일부 분석 완료' : '문서 분석 완료', job.status === 'PARTIAL' ? '일부 단계는 처리하지 못했지만 정상 결과는 저장했습니다.' : '분석 결과를 생성했습니다.')
     }
     previousJob.current = ['PENDING', 'RUNNING'].includes(job?.status) ? job.job_id : null
   }, [job?.status, job?.job_id, projectId, documentId, queryClient, notify])
@@ -116,6 +117,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
       <main className="document-tab-body">
         {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
         {job?.status === 'FAILED' && <section className="detail-card" role="alert"><strong>AI 분석 실패: {job.stage}</strong><p>{job.error_message}</p></section>}
+        {job?.status === 'PARTIAL' && <section className="detail-card" role="status"><strong>AI 분석 일부 완료</strong><p>정상적으로 처리된 결과는 저장했습니다. 아래 항목은 다시 분석할 수 있습니다.</p><ul>{(job.analyzer_errors ?? []).map((error, index) => <li key={`${error.analyzer}-${index}`}>{ANALYZER_LABELS[error.analyzer] ?? error.analyzer}: {error.message}</li>)}</ul></section>}
         {jobQuery.error && <p role="alert">분석 상태 조회 실패: {jobQuery.error.message}</p>}
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
