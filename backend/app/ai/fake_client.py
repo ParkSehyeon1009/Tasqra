@@ -33,6 +33,20 @@ class FakeAIClient(AIClientProtocol):
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
         # 실제 분석으로 오인하지 않도록 fake임을 문장에도 표시한다.
+        if prompt.prompt_version.startswith("chat"):
+            payload = {
+                "answer": "테스트용 가짜 답변입니다.",
+                "answerable": True,
+                "evidence_ids": [1],
+            }
+            return AIResult(
+                text=json.dumps(payload, ensure_ascii=False),
+                model_name=FAKE_MODEL_NAME,
+                tokens_in=len((prompt.system + prompt.user).split()),
+                tokens_out=10,
+                latency_ms=elapsed_ms,
+            )
+
         data = json.loads(prompt.user)
         if prompt.prompt_version.startswith("decision"):
             payload = {"decisions": []}
