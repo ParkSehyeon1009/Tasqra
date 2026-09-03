@@ -13,6 +13,7 @@
 만들 수 없다.** 요약의 evidence_ids 와 같은 방식이다.
 """
 import re
+import logging
 
 from app.analyzers.date_finder import find_dates
 from app.analyzers.output_schemas import DatedItemsOutput
@@ -21,7 +22,11 @@ from app.analyzers.prompts import SCHEDULE_PROMPT_VERSION, build_schedule_prompt
 from app.analyzers.protocol import AnalyzeResult
 from app.analyzers.runner import Runner
 from app.core.config import settings
+from app.core.exceptions import BusinessError
 from app.schemas.extraction import ScheduleItemExtraction, ScheduleKind
+
+logger = logging.getLogger(__name__)
+MAX_DATES_PER_GROUP = 12
 
 
 # 이름에서 종류를 읽는 규칙. **순서가 곧 우선순위다.**
@@ -77,6 +82,7 @@ class ScheduleAnalyzer:
         groups = self._split_by_budget(dates, budget)
         items: list[ScheduleItemExtraction] = []
         labeled = 0
+        failed_groups: list[int] = []
         for i, group in enumerate(groups):
             stage = f"일정 라벨링 {i + 1}/{len(groups)}" if len(groups) > 1 else "일정 라벨링"
             runner.progress(stage, i, len(groups))
@@ -89,9 +95,22 @@ class ScheduleAnalyzer:
                     if len(set(item.date_ids)) != len(item.date_ids):
                         raise ValueError("duplicated date id")
 
-            parsed = await runner.call(
-                build_schedule_prompt([found.as_prompt_record() for found in group]),
-                DatedItemsOutput, validate=verify, stage=stage)
+            try:
+                parsed = await runner.call(
+                    build_schedule_prompt([found.as_prompt_record() for found in group]),
+                    DatedItemsOutput, validate=verify, stage=stage)
+            except BusinessError:
+                # 명확한 원문 라벨까지 모델 형식 오류 때문에 함께 버리지 않는다.
+                # 모호한 날짜는 추측하지 않고 제외한다.
+                failed_groups.append(i + 1)
+                logger.warning("일정 라벨링 실패, 명확한 원문 라벨만 복구 stage=%s", stage)
+                recovered = self._recover_labeled(group)
+                if not recovered:
+                    raise
+                items.extend(recovered)
+                labeled += sum(2 if item.kind is ScheduleKind.PERIOD else 1 for item in recovered)
+                runner.progress(stage, i + 1, len(groups))
+                continue
             for item in parsed.items:
                 built = self._build(item, allowed)
                 if built is not None:
@@ -106,7 +125,7 @@ class ScheduleAnalyzer:
                     # 찾은 날짜 중 몇 개가 일정이 됐는지. 이 비율이 낮으면
                     # 프롬프트가 문맥을 못 읽고 있다는 신호다.
                     "date_count": len(dates), "labeled_count": labeled,
-                    "call_count": runner.calls},
+                    "call_count": runner.calls, "failed_groups": failed_groups},
             provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
             **runner.metadata())
 
@@ -115,8 +134,8 @@ class ScheduleAnalyzer:
         groups, group = [], []
         for found in dates:
             candidate = group + [found]
-            if group and not budget.fits(
-                    build_schedule_prompt([f.as_prompt_record() for f in candidate])):
+            if group and (len(candidate) > MAX_DATES_PER_GROUP or not budget.fits(
+                    build_schedule_prompt([f.as_prompt_record() for f in candidate]))):
                 groups.append(group)
                 group = [found]
             else:
@@ -124,6 +143,35 @@ class ScheduleAnalyzer:
         if group:
             groups.append(group)
         return groups
+
+    @staticmethod
+    def _recover_labeled(dates) -> list[ScheduleItemExtraction]:
+        """모델 실패 시 의미가 이름에 명시된 날짜만 보수적으로 복구한다."""
+        recovered, used = [], set()
+        for index, found in enumerate(dates):
+            if index in used:
+                continue
+            kind = kind_from_label(found.label)
+            if kind is None:
+                continue
+            chosen = [found]
+            if kind is ScheduleKind.PERIOD:
+                for other_index in range(index + 1, min(index + 3, len(dates))):
+                    other = dates[other_index]
+                    if other.label == found.label and other.value != found.value:
+                        chosen.append(other)
+                        used.add(other_index)
+                        break
+                if len(chosen) != 2:
+                    continue
+            picked = sorted(item.value for item in chosen)
+            recovered.append(ScheduleItemExtraction(
+                title=(found.label or "일정")[:70], evidence_text=found.context.strip(),
+                kind=kind,
+                starts_on=picked[0] if kind is not ScheduleKind.DEADLINE else None,
+                ends_on=picked[-1] if kind in (ScheduleKind.DEADLINE, ScheduleKind.PERIOD) else None,
+                confidence=1.0, reason="원문 일정 라벨과 날짜를 규칙으로 확인함"))
+        return recovered
 
     @staticmethod
     def _title(item, picked_dates) -> str:

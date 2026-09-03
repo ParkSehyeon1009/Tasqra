@@ -72,7 +72,8 @@ class AnalysisService:
                     raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
                 analysis, _ = self._decision_schedule_writer.write_decisions(
                     project_id=document.project_id, document_id=document.id,
-                    source_text_revision=revision, analyzer_type=name,
+                    source_text_revision=revision,
+                    source_ocr_revision=document.ocr_revision, analyzer_type=name,
                     result=result, extractions=items)
                 rows.append(analysis)
                 continue
@@ -84,7 +85,8 @@ class AnalysisService:
                     raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
                 analysis, _ = self._decision_schedule_writer.write_schedule_items(
                     project_id=document.project_id, document_id=document.id,
-                    source_text_revision=revision, analyzer_type=name,
+                    source_text_revision=revision,
+                    source_ocr_revision=document.ocr_revision, analyzer_type=name,
                     result=result, extractions=items)
                 rows.append(analysis)
                 continue

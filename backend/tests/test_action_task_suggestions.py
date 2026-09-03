@@ -92,3 +92,10 @@ def test_reanalysis_approval_reuses_task_with_same_evidence():
     row = TaskSuggestionService(DB(), Suggestions(), Tasks()).approve(5, 12, 1)
     assert row.created_task_id == 99
     assert row.decision == "APPROVED"
+def test_정중한_송부_요청도_액션_후보로_잡는다():
+    candidates = find_action_candidates(
+        "협력업체에서는 계약서에 특이사항을 기입하시고 2부를 작성하여 우편으로 송부하여 주시면 됩니다.")
+
+    assert candidates
+    assert any("송부" in item.text for item in candidates)
+    assert candidates[0].actor == "협력업체"

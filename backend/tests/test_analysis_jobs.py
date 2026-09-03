@@ -173,7 +173,7 @@ def test_save_routes_decision_and_schedule_fields_to_writer():
     writer.write_decisions.return_value = (decision_analysis, [SimpleNamespace()])
     writer.write_schedule_items.return_value = (schedule_analysis, [SimpleNamespace()])
     service = AnalysisService(MagicMock(), MagicMock(), repository, {}, writer, MagicMock())
-    document = SimpleNamespace(id=2, project_id=1, document_type=None,
+    document = SimpleNamespace(id=2, project_id=1, ocr_revision=11, document_type=None,
         document_type_source=None)
     metadata = dict(provider="local", model_name="task-model",
         prompt_version="v1", tokens_in=1, tokens_out=2, latency_ms=3)
@@ -196,7 +196,9 @@ def test_save_routes_decision_and_schedule_fields_to_writer():
     assert decision.decided_on.isoformat() == "2026-09-02"
     assert schedule.ends_on.isoformat() == "2026-09-10"
     assert writer.write_decisions.call_args.kwargs["project_id"] == 1
+    assert writer.write_decisions.call_args.kwargs["source_ocr_revision"] == 11
     assert writer.write_schedule_items.call_args.kwargs["source_text_revision"] == 7
+    assert writer.write_schedule_items.call_args.kwargs["source_ocr_revision"] == 11
 
 
 def test_empty_suggestion_fields_still_use_writer_for_single_analysis_row():
@@ -204,7 +206,7 @@ def test_empty_suggestion_fields_still_use_writer_for_single_analysis_row():
     analysis = SimpleNamespace(id=33)
     writer.write_schedule_items.return_value = (analysis, [])
     service = AnalysisService(MagicMock(), MagicMock(), MagicMock(), {}, writer, MagicMock())
-    document = SimpleNamespace(id=2, project_id=1, document_type=None,
+    document = SimpleNamespace(id=2, project_id=1, ocr_revision=11, document_type=None,
         document_type_source=None)
     result = SimpleNamespace(result={"schedule_items": []}, provider="local",
         model_name="schedule-model", prompt_version="schedule-v1", tokens_in=1,

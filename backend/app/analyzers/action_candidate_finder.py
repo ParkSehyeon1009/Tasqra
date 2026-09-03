@@ -6,11 +6,12 @@ from datetime import date
 from app.analyzers.date_finder import find_dates
 
 _ACTION = re.compile(r"(제출|작성|준비|신청|등록|첨부|확인|검토|보고|납품|제작|보완|회신|송부|기재|발급|예약|참석)")
-_OBLIGATION = re.compile(r"(하여야|해야|할\s*것|바람|필수|기한|마감|이내|까지)")
+_OBLIGATION = re.compile(r"(하여야|해야|할\s*것|바람|바랍니다|주시|요청|필수|기한|마감|이내|까지)")
 _EXCLUDE = re.compile(r"(법\s*제\d+조|조례\s*제\d+조|선정기준|심사기준|자격요건|자격조건|평가기준|제출서류\s*:)")
 _AUTHORITY = re.compile(r"^\s*(화성시|시장|심사위원|위원회|발주처|감독관)")
 _BROKEN = re.compile(r"^\s*(사용하고|하고|하며|하여|제출하고)")
 _BULLET = re.compile(r"^[\s○●■□▶·ㆍ※\-\d.)(①-⑳]+")
+_ACTOR = re.compile(r"(?:^|[\s(])(신청인|신청자|입찰참가자|입찰자|낙찰자|협력업체|계약자|수급인|제안사|담당자)(?:은|는|이|가|에게|에서)?")
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,14 @@ def _title(text: str) -> str:
         return "제출서류 PDF 스캔 및 담당자 이메일 제출"
     value = re.sub(r"[.:]​?\s*$", "", value)
     value = re.sub(r"(하여야\s*합니다|해야\s*합니다|하여야\s*한다|해야\s*한다|하여야\s*함|해야\s*함|할\s*것입니다|할\s*것|바랍니다)\.?$", "", value)
-    return value[:300].strip()
+    # 카드 제목은 한눈에 읽히는 실행명이어야 한다. 조건·근거 전문은 별도 필드에 둔다.
+    value = re.split(r"(?:하여야|해야|바랍니다|주시기|주시면|할\s*것)", value, maxsplit=1)[0].strip()
+    return value[:90].rstrip(" ,·;:").strip()
+
+
+def _actor(text: str) -> str | None:
+    found = _ACTOR.search(text)
+    return found.group(1) if found else None
 
 
 def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
@@ -93,7 +101,7 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
             score -= 0.2
         elif section_type == "example":
             score -= 0.35
-        found.append(ActionCandidate(f"a{len(found)+1}", value, title, due, None,
+        found.append(ActionCandidate(f"a{len(found)+1}", value, title, due, _actor(value),
                                      max(0.1, min(score, 1.0)), section_type))
         if len(found) >= limit:
             break

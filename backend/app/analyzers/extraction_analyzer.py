@@ -95,9 +95,35 @@ def _ground_decision(item, source: str) -> DecisionExtraction | None:
     content = item.content.strip() if item.content else None
     if not content:
         content = original_title if original_title != short_title else best
+    if not _is_actual_decision(item, short_title, content, best):
+        return None
     return DecisionExtraction(title=short_title, content=content,
         evidence_text=best, status=item.status, decided_on=item.decided_on,
         confidence=item.confidence, reason=item.reason)
+
+
+_NEGATIVE_REASON = re.compile(r"결정사항이?\s*아니|결정사항을\s*포함하지|추론하지|추가\s*정보")
+_PLACEHOLDER = re.compile(r"^(?:\.{2,}|-|없음|해당\s*없음)$")
+_DECIDED_RESULT = re.compile(
+    r"(하기로\s*(?:결정|확정|합의)|(?:선정|승인|확정|의결|채택|지정|취소)(?:하였|했|됨|되었|함|한다는\s*결정)|"
+    r"(?:낙찰자|담당자|업체|대상자)(?:로|으로)\s*(?:선정|확정))")
+_PENDING_RESULT = re.compile(r"(?:결정|선정|승인|확정|합의)\s*(?:예정|검토\s*중|협의\s*중)")
+_RULE_TEXT = re.compile(r"제\s*\d+\s*조|세부\s*기준|평가\s*기준|하여야\s*한다|할\s*수\s*있다|으로\s*정한다")
+
+
+def _is_actual_decision(item, title: str, content: str, evidence: str) -> bool:
+    """원문에 있는 규정과 실제로 내려진 결정을 구분한다."""
+    reason = item.reason or ""
+    if _NEGATIVE_REASON.search(reason) or _PLACEHOLDER.fullmatch(title.strip()):
+        return False
+    combined = " ".join((title, content, evidence))
+    if item.status.value == "PENDING":
+        return bool(_PENDING_RESULT.search(combined))
+    if item.status.value == "REVERSED":
+        return bool(re.search(r"(?:결정|승인|선정).{0,30}(?:취소|철회|번복)|(?:취소|철회|번복)(?:하였|했|됨|함)", combined))
+    if _RULE_TEXT.search(evidence) and not _DECIDED_RESULT.search(evidence):
+        return False
+    return bool(_DECIDED_RESULT.search(combined))
 
 
 def _compact_title(title: str) -> str:

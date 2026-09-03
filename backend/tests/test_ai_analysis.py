@@ -475,6 +475,40 @@ def test_결정사항도_같은_구조로_동작한다(config):
     assert result.prompt_version == "decision-v2-grounded"
 
 
+@pytest.mark.parametrize("item", [
+    {"title": "...", "content": "판매로 정한다.", "status": "PENDING",
+     "decided_on": None, "confidence": 0.9,
+     "reason": "문서는 결정사항을 포함하고 있지 않습니다.", "evidence_text": "판매로 정한다."},
+    {"title": "낙찰자 결정", "content": "가격점수와 기술점수를 합산한다.",
+     "status": "DECIDED", "decided_on": None, "confidence": 0.9,
+     "reason": "낙찰자 결정 기준이다.",
+     "evidence_text": "제12조(낙찰자 결정방법) 점수를 합산하여 낙찰자로 결정한다."},
+])
+def test_규정이나_결정이_아니라는_응답은_버린다(config, item):
+    client = ScriptedAI(lambda *_: {"decisions": [item]})
+    source = item["evidence_text"]
+    result = asyncio.run(DecisionAnalyzer(client, config).analyze(source))
+    assert result.result["decisions"] == []
+
+
+def test_생략된_연월이_있는_기간을_복원한다():
+    from app.analyzers.date_finder import find_dates
+
+    found = find_dates("접수기간: 2026. 8. 13. ~ 8. 31.")
+    assert [item.value.isoformat() for item in found] == ["2026-08-13", "2026-08-31"]
+
+
+def test_모델_응답이_깨져도_명확한_마감일은_복구한다(config):
+    client = ScriptedAI(lambda *_: {"items": [{"date_ids": ["없는-id"],
+        "title": "오류", "kind": "DEADLINE", "confidence": 0.1, "reason": "오류"}]})
+
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "제안서 제출마감일시: 2026/07/15 10:00"))
+
+    assert result.result["schedule_items"][0]["ends_on"] == "2026-07-15"
+    assert result.result["failed_groups"] == [1]
+
+
 @pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
 def test_eight_category_codes_are_accepted(config, category):
     client = ScriptedAI(lambda *_: {"category": category, "reason": "문서에 근거한 분류입니다."})

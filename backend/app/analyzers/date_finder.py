@@ -23,6 +23,14 @@ _PATTERNS = (
     re.compile(r"(\d{4})\s*[./\-]\s*(\d{1,2})\s*[./\-]\s*(\d{1,2})"),
     re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일"),
 )
+# 기간의 뒤쪽에서 연도(또는 연도·월)를 생략하는 공공문서 표기를 보완한다.
+# 예: 2026. 8. 3. ~ 8. 31. / 2026. 7. 13. ~ 15.
+_ABBREVIATED_RANGE = re.compile(
+    r"(?P<year>\d{4})\s*[./\-]\s*(?P<month>\d{1,2})\s*[./\-]\s*(?P<day>\d{1,2})\s*\.?"
+    + r"\s*(?:~|～|−|–|—|부터)\s*"
+    + r"(?!\d{4}\s*[./\-])"
+    + r"(?:(?P<end_month>\d{1,2})\s*[./\-]\s*)?(?P<end_day>\d{1,2})(?:\s*일)?"
+)
 # 앞쪽을 넉넉히 본다 — 「제안서평가일시: 2026/07/20」처럼 **날짜 앞에** 무슨
 # 날짜인지가 적히기 때문이다. 뒤쪽은 시각과 「~까지」 정도만 필요하다.
 BEFORE, AFTER = 120, 40
@@ -66,13 +74,23 @@ class FoundDate:
     value: date
     context: str     # 앞뒤를 잘라낸 문맥
     label: str | None = None   # 콜론 앞에서 잡은 이름. 없으면 모델이 정한다
+    context_type: str = "body"  # 예시·이력은 삭제하지 않고 판단 힌트만 준다
 
     def as_prompt_record(self) -> dict:
         # ⚠️ label 은 **모델에게 보내지 않는다.** 힌트로 줘 봤더니 오히려 나빠졌다
         #   (제목에 날짜를 넣거나, 한 가지 이름으로 무너졌다). 모델은 context 만
         #   보고 판단하게 두고, label 이 있으면 파이썬이 결과를 덮어쓴다.
         #   schedule_analyzer._build() 를 보라.
-        return {"id": self.id, "date": self.value.isoformat(), "context": self.context}
+        return {"id": self.id, "date": self.value.isoformat(), "context": self.context,
+                "context_type": self.context_type}
+
+
+def _context_type(context: str) -> str:
+    if re.search(r"홍\s*길\s*동|작성\s*예시|기재\s*예시|예\s*\)", context, re.I):
+        return "example"
+    if re.search(r"경력|이력|과거|발급일자|심사위원\s*참여", context):
+        return "history_or_form"
+    return "body"
 
 
 def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
@@ -92,6 +110,17 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
                 continue          # 2026/13/45 같은 것은 날짜가 아니다
             matches.append((found.start(), found.end(), found.group(0), value))
 
+    for found in _ABBREVIATED_RANGE.finditer(text):
+        year = int(found.group("year"))
+        month = int(found.group("end_month") or found.group("month"))
+        day = int(found.group("end_day"))
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            continue
+        start, end = found.span("end_day")
+        matches.append((start, end, text[start:end], value))
+
     matches.sort()
     dates: list[FoundDate] = []
     last_end = -1
@@ -101,7 +130,7 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         last_end = end
         context = text[max(0, start - BEFORE):end + AFTER].replace("\n", " ")
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
-                               _label_before(context, raw)))
+                               _label_before(context, raw), _context_type(context)))
         if len(dates) >= limit:
             break
     return dates
