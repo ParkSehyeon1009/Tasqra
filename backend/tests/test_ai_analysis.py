@@ -471,14 +471,18 @@ def test_결정사항도_같은_구조로_동작한다(config):
     assert result.prompt_version == "decision-v1"
 
 
-@pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
-def test_eight_category_codes_are_accepted(config, category):
+@pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
+def test_seven_category_codes_are_accepted(config, category):
     client = ScriptedAI(lambda *_: {"category": category, "reason": "문서에 근거한 분류입니다."})
     result = asyncio.run(CategoryAnalyzer(client, config).analyze("분류 대상"))
     assert result.result["category"] == category
 
 
-@pytest.mark.parametrize("value", ["BILLING", "계약서", "기타", None, []])
+# ⚠️ COST_SHEET 은 **모델 선택지에서 빠졌지만 enums.DocumentType 에는 남아 있다.**
+#   사람이 직접 지정할 수 있어야 하기 때문이다(BILLING 과 같은 처리).
+#   그래서 모델이 이 값을 뱉으면 거부하는 것이 맞다 — 조용히 통과시키면
+#   「모델이 고를 수 있는 값」과 「저장 가능한 값」의 경계가 무너진다.
+@pytest.mark.parametrize("value", ["BILLING", "COST_SHEET", "계약서", "기타", None, []])
 def test_invalid_category_is_not_silently_converted_to_etc(config, value):
     client = ScriptedAI(lambda *_: {"category": value, "reason": "근거"})
     with pytest.raises(BusinessError) as exc:

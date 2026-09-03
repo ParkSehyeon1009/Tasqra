@@ -6,7 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.schemas.extraction import DecisionExtraction, ScheduleKind
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-CategoryCode = Literal["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"]
+# ⚠️ models/enums.py 의 DocumentType 은 9종이다. 여기는 **모델이 고를 수 있는
+#   값**이라 더 좁다(BILLING·COST_SHEET 제외). prompts.CATEGORY_DESCRIPTIONS 의
+#   주석 참고 — enum 이 프롬프트의 상위집합인 구조는 의도된 것이다.
+CategoryCode = Literal["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"]
 
 
 class StrictOutput(BaseModel):

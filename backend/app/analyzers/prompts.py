@@ -8,16 +8,31 @@ OVERVIEW_PROMPT_VERSION = "overview-v2"
 DECISION_PROMPT_VERSION = "decision-v1"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
 
-# AI 분류 정책 8종. 기존 document_type의 BILLING 데이터는 덮어쓰지 않는다.
+# AI 분류 정책 7종. 기존 document_type 의 BILLING·COST_SHEET 데이터는 덮어쓰지 않는다.
+#
+# ⚠️ models/enums.py 의 DocumentType 은 **9종**이다. 여기가 둘 적은 것은 어긋난
+#   상태가 아니라 의도한 것이다 — 「enum(저장 가능한 값)이 프롬프트(모델이 고를
+#   수 있는 값)의 상위집합」인 구조다. 사람이 직접 지정할 수 있어야 하고,
+#   문서가 모이면 되살릴 자리가 필요하다.
+#
+#   BILLING     학습·평가 데이터를 구할 수 없다(기업 재무정보라 공개본이 없다).
+#   COST_SHEET  2026-09-02 제외. 학습 문서 146건 중 4건이었는데 그중 2건이
+#               오라벨이었다(설계서·기본설계서는 목차가 「설계설명서·과업지시서」다).
+#               진짜 산출내역서는 2건뿐이라 학습도 평가도 성립하지 않는다.
+#   둘 다 ETC 로 간다.
+#
+# ⚠️ 이 파일은 AgentLearning/src/prompts.py 와 **문자 단위로 같아야 한다.**
+#   학습 프롬프트와 서비스 프롬프트가 다르면 파인튜닝 효과가 대부분 사라진다.
+#   실측: 2026-09-02 에 이 불일치로 분류 정확도가 88.5% → 73.1% 였다.
+#   AgentLearning/src/check_prompts.py 가 두 파일을 비교한다.
 CATEGORY_DESCRIPTIONS = {
-    "RFP": "제안요청서 · 입찰공고",
+    "RFP": "제안요청서 · 입찰공고 · 입찰지침서 · 평가기준 · 적격심사표 · 제출 서식",
     "PROPOSAL": "제안서 · 기술제안서",
-    "COST_SHEET": "산출내역서 · 견적서 · 원가계산서",
-    "CONTRACT": "계약서 · 과업지시서 · 착수신고서",
+    "CONTRACT": "계약서 · 과업지시서 · 과업내용서 · 용역설명서 · 규격서 · 설계서 · 계약특수조건",
     "CONTRACT_CHANGE": "변경계약서 · 과업변경합의서",
-    "REPORT": "착수 · 주간 · 월간 · 완료보고서 · 검사조서",
+    "REPORT": "착수 · 주간 · 월간 · 완료보고서 · 검사조서 · 정책연구 결과보고서",
     "MEETING_NOTES": "회의록",
-    "ETC": "대가지급청구서 · 세금계산서 · 그 외",
+    "ETC": "대가지급청구서 · 세금계산서 · 산출내역서 · 내부 결재 서식 · 그 외",
 }
 CATEGORY_CANDIDATES = tuple(CATEGORY_DESCRIPTIONS)
 
@@ -39,15 +54,24 @@ SUMMARY_SYSTEM_PROMPT = COMMON + SUMMARY_RULES + '\n출력: {"summary":"요약 �
 
 CATEGORY_SYSTEM_PROMPT = COMMON + "분류 정책: " + json.dumps(CATEGORY_DESCRIPTIONS, ensure_ascii=False) + """
 일반 관행보다 위 정책을 우선하여 주된 문서 유형 하나를 선택하세요.
-세금계산서·대가지급청구서는 ETC이며 BILLING은 금지합니다.
+세금계산서·대가지급청구서·산출내역서는 ETC입니다. BILLING·COST_SHEET은 금지합니다.
 착수신고서=CONTRACT, 착수보고서=REPORT, 검사조서=REPORT입니다.
 과업지시서=CONTRACT, 과업변경합의서=CONTRACT_CHANGE입니다.
-금액의 등장만으로 COST_SHEET, 변경의 언급만으로 CONTRACT_CHANGE를 선택하지 마세요.
+
+입찰 서류 묶음의 첨부물은 두 갈래로 갈립니다.
+  절차를 규율하는 것(입찰지침서·평가기준·적격심사표·제출 서식) = RFP
+  과업 범위를 정하는 것(과업지시서·과업내용서·용역설명서·규격서·설계서) = CONTRACT
+계약특수조건은 계약 부속 문서라 CONTRACT입니다.
+
+발주처가 내는 것이 RFP, 참여 업체가 내는 것이 PROPOSAL입니다.
+"제안"이라는 글자만 보고 PROPOSAL을 고르지 마세요.
+금액의 등장만으로, 변경의 언급만으로 CONTRACT_CHANGE를 선택하지 마세요.
 다른 문서의 인용·첨부 목록과 주된 문서의 목적을 구분하세요.
 일부 입력도 근거가 충분하면 분류하고, 주된 유형 판단 근거가 부족하면 ETC입니다.
 reason은 원문 특징을 근거로 한국어 한 문장입니다. ETC는 정책상 기타인지,
 그 외 유형인지, 판단 근거 부족인지 구분하세요.
-출력: {"category":"위 8개 코드 중 하나","reason":"분류 근거"}
+⚠️ reason에 없는 코드 설명을 지어내지 마세요("ETC(세금계산서)" 같은 표현 금지).
+출력: {"category":"위 7개 코드 중 하나","reason":"분류 근거"}
 """
 
 FACTS_SYSTEM_PROMPT = COMMON + """
