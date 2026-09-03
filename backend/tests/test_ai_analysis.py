@@ -467,10 +467,12 @@ def test_결정사항도_같은_구조로_동작한다(config):
     client = ScriptedAI(lambda *_: {"decisions": [
         {"title": "우선협상대상자로 A사를 선정", "content": None, "status": "DECIDED",
          "decided_on": "2026-07-25", "confidence": 0.9, "reason": "낙찰 결과에 적혀 있다."}]})
-    result = asyncio.run(DecisionAnalyzer(client, config).analyze("결정 내용입니다.\n" * 200))
+    result = asyncio.run(DecisionAnalyzer(client, config).analyze(
+        "2026년 7월 25일 우선협상대상자로 A사를 선정하였다.\n" * 100))
 
     assert len(result.result["decisions"]) == 1
-    assert result.prompt_version == "decision-v1"
+    assert "A사를 선정" in result.result["decisions"][0]["evidence_text"]
+    assert result.prompt_version == "decision-v2-grounded"
 
 
 @pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])

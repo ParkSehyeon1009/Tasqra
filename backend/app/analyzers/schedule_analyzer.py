@@ -137,7 +137,10 @@ class ScheduleAnalyzer:
           넣거나 한 가지 이름으로 무너졌다. 기계가 아는 것은 기계가 쓴다.
         """
         labels = [found.label for found in picked_dates if found.label]
-        return labels[0] if labels else item.title
+        title = labels[0] if labels else item.title
+        title = re.sub(r"\d{4}\s*[./년-]\s*\d{1,2}\s*[./월-]\s*\d{1,2}\s*일?", "", title)
+        title = re.sub(r"\s+", " ", title).strip(" :-·")
+        return title[:70].rstrip() or "일정"
 
     @staticmethod
     def _build(item, allowed) -> ScheduleItemExtraction | None:
@@ -160,7 +163,8 @@ class ScheduleAnalyzer:
 
         if kind is ScheduleKind.PERIOD:
             return ScheduleItemExtraction(
-                title=title, kind=kind, starts_on=picked[0], ends_on=picked[-1],
+                title=title, evidence_text=chosen[0].context.strip(),
+                kind=kind, starts_on=picked[0], ends_on=picked[-1],
                 confidence=item.confidence, reason=item.reason)
 
         # ⚠️ 한 시점을 **kind 가 지정하는 컬럼**에 담아야 한다. models/schedule.py
@@ -179,5 +183,6 @@ class ScheduleAnalyzer:
         else:
             starts_on, ends_on = when, None
         return ScheduleItemExtraction(
-            title=title, kind=kind, starts_on=starts_on, ends_on=ends_on,
+            title=title, evidence_text=chosen[-1].context.strip(),
+            kind=kind, starts_on=starts_on, ends_on=ends_on,
             confidence=item.confidence, reason=item.reason)

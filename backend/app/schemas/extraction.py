@@ -32,6 +32,7 @@ class DecisionExtraction(BaseModel):
 
     title: str = Field(min_length=1, max_length=300)
     content: str | None = None
+    evidence_text: str | None = None
     status: DecisionStatus
     decided_on: date | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
@@ -44,6 +45,7 @@ class ScheduleItemExtraction(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     title: str = Field(min_length=1, max_length=300)
+    evidence_text: str | None = None
     kind: ScheduleKind
     starts_on: date | None = None
     ends_on: date | None = None

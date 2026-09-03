@@ -5,7 +5,7 @@ from app.ai.client_protocol import AIRequest
 SUMMARY_PROMPT_VERSION = "summary-v2"
 CATEGORY_PROMPT_VERSION = "category-v2"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
-DECISION_PROMPT_VERSION = "decision-v1"
+DECISION_PROMPT_VERSION = "decision-v2-grounded"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
 ACTION_TASK_PROMPT_VERSION = "action-task-v1"
 
@@ -102,9 +102,10 @@ DECISION_SYSTEM_PROMPT = COMMON + EXTRACTION_RULES + """
   · 앞으로 지켜야 할 의무·자격 요건 (그것은 과업이지 결정이 아닙니다)
   · 단순한 사실 서술 (금액·기간이 적혀 있다는 것만으로는 결정이 아닙니다)
 
-title 은 결정 내용을 300자 이내 한 줄로, content 는 조건·예외가 있으면 적고
-없으면 null 입니다. decided_on 은 그 결정이 내려진 날짜이며 모르면 null 입니다.
-출력: {"decisions":[{"title":"...","content":null,"status":"DECIDED","decided_on":null,"confidence":0.9,"reason":"..."}]}
+title 은 70자 이내의 짧은 이름, content 는 누가 무엇을 결정했는지 이해되는 완전한
+문장입니다. evidence_text에는 판단 근거인 원문 한 문장을 글자 그대로 복사하세요.
+decided_on 은 그 결정이 내려진 날짜이며 모르면 null 입니다.
+출력: {"decisions":[{"title":"...","content":"...","evidence_text":"원문 그대로","status":"DECIDED","decided_on":null,"confidence":0.9,"reason":"..."}]}
 """
 
 # ⚠️ 이 프롬프트는 모델에게 날짜를 **쓰라고 하지 않는다. 고르라고 한다.**

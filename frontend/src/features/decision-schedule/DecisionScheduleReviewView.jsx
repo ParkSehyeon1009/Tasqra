@@ -156,16 +156,15 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
           onEdit={() => setEditing(item)}
           onCancel={() => actionMutation.mutate({ item, action: 'cancel' })}
           onRestore={() => actionMutation.mutate({ item, action: 'cancel' })}
+          editForm={editingKey === itemKey(item) ? <EditForm
+            type={item.resource.key}
+            row={item.row}
+            saving={updateMutation.isPending}
+            notify={notify}
+            onClose={() => setEditing(null)}
+            onSave={changes => updateMutation.mutate({ item, changes })}
+          /> : null}
         />)}
-        {activeState === 'approved' && editing && <EditForm
-          key={`edit-${itemKey(editing)}`}
-          type={editing.resource.key}
-          row={editing.row}
-          saving={updateMutation.isPending}
-          notify={notify}
-          onClose={() => setEditing(null)}
-          onSave={changes => updateMutation.mutate({ item: editing, changes })}
-        />}
       </ReviewList>
     </section>
 
@@ -231,7 +230,7 @@ function ReviewList({ queries, items, empty, children }) {
   </div>
 }
 
-function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove, onReject, onEdit, onCancel, onRestore }) {
+function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove, onReject, onEdit, onCancel, onRestore, editForm }) {
   const { resource, row } = item
   const locked = disabled || busy || !canEdit
   const confidence = confidenceLabel(row.confidence)
@@ -249,7 +248,8 @@ function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove
         {confidence && <span>{confidence}</span>}
       </div>
       {resource.key === 'decision' && row.content && <p>{row.content}</p>}
-      {row.reason && <small className='review-card-reason'><b>근거</b>{row.reason}</small>}
+      {row.evidence_text && <details className='review-evidence'><summary>원문 근거 보기</summary><blockquote>{row.evidence_text}</blockquote></details>}
+      {row.reason && <small className='review-card-reason'><b>AI 판단</b>{row.reason}</small>}
       {row.filename && <small className='review-card-source'>{row.filename}</small>}
       {row.stale && <em>{actions === 'rejected'
         ? '원문이 수정된 뒤의 오래된 제안입니다. 다시 분석하기 전에는 되살릴 수 없습니다.'
@@ -266,6 +266,7 @@ function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove
       </>}
       {actions === 'rejected' && <button type='button' disabled={locked || row.stale} onClick={onRestore}>{busy ? '처리 중…' : '되살리기'}</button>}
     </div>}
+    {editForm}
   </article>
 }
 

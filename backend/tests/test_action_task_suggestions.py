@@ -6,6 +6,8 @@ from app.ai.client_protocol import AIResult
 from app.analyzers.action_candidate_finder import find_action_candidates
 from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.output_schemas import ActionSelectionOutput
+from app.models.task_suggestion import TaskSuggestion
+from app.services.task_suggestion_service import TaskSuggestionService
 
 
 def config():
@@ -38,6 +40,7 @@ def test_action_analyzer_only_returns_grounded_candidates():
     assert result.result["candidate_count"] == 1
     assert result.result["selected_count"] == 1
     assert result.result["task_suggestions"][0]["evidence_text"] in "신청인은 증빙자료를 준비하여 제출해야 합니다."
+    assert "원문 근거:" not in result.result["task_suggestions"][0]["description"]
 
 
 def test_no_action_candidate_skips_model_call():
@@ -68,3 +71,24 @@ def test_selected_aggregate_suppresses_only_same_section_details():
     suggestions = result.result["task_suggestions"]
     assert [item["title"] for item in suggestions] == [
         "신청 서류 방문 제출", "필수 신청서류 작성 및 증빙자료 준비"]
+
+
+def test_reanalysis_approval_reuses_task_with_same_evidence():
+    class DB:
+        def commit(self): pass
+        def rollback(self): pass
+    item = TaskSuggestion(id=12, project_id=5, document_id=46, analysis_id=2,
+        title="서류 제출", description="서류를 제출합니다.", due_on=None,
+        actor=None, evidence_text="서류를 제출해야 함", evidence_fingerprint="same",
+        confidence=None, quality_score=0.8, reason="근거 있음", decision="PENDING",
+        decided_by=None, decided_at=None, source_text_revision=1,
+        created_task_id=None)
+    class Suggestions:
+        def get(self, *_): return item
+        def existing_task_id(self, *_): return 99
+    class Tasks:
+        def create_in_transaction(self, *_args, **_kwargs):
+            raise AssertionError("같은 근거의 태스크를 다시 만들면 안 된다")
+    row = TaskSuggestionService(DB(), Suggestions(), Tasks()).approve(5, 12, 1)
+    assert row.created_task_id == 99
+    assert row.decision == "APPROVED"

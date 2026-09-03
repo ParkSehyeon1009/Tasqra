@@ -90,6 +90,7 @@ class ScheduleItem(Base):
     )
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
+    evidence_text: Mapped[str | None] = mapped_column(Text)
     # MILESTONE · DEADLINE · MEETING · PERIOD. 머리말의 날짜 쓰임 표를 볼 것.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     # 문서에 없으면 NULL 이다. 만들어 채우지 않는다.

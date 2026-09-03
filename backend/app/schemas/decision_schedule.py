@@ -35,6 +35,7 @@ class SuggestionRow(BaseModel):
 class DecisionRow(SuggestionRow):
     title: str
     content: str | None
+    evidence_text: str | None
     status: DecisionStatus
     superseded_by: int | None
     decided_on: date | None
@@ -42,6 +43,7 @@ class DecisionRow(SuggestionRow):
 
 class ScheduleItemRow(SuggestionRow):
     title: str
+    evidence_text: str | None
     kind: ScheduleKind
     starts_on: date | None
     ends_on: date | None

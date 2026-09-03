@@ -1,6 +1,7 @@
 from sqlalchemy import func
 
 from app.models.task_suggestion import TaskSuggestion
+from app.models.task import Task
 
 
 class TaskSuggestionRepository:
@@ -22,6 +23,18 @@ class TaskSuggestionRepository:
     def get(self, project_id, item_id):
         return self._db.query(TaskSuggestion).filter_by(
             project_id=project_id, id=item_id).one_or_none()
+
+    def existing_task_id(self, project_id, document_id, evidence_fingerprint):
+        if not evidence_fingerprint:
+            return None
+        row = (self._db.query(Task.id)
+            .join(TaskSuggestion, Task.source_suggestion_id == TaskSuggestion.id)
+            .filter(Task.project_id == project_id,
+                    TaskSuggestion.document_id == document_id,
+                    TaskSuggestion.evidence_fingerprint == evidence_fingerprint)
+            .order_by(Task.id)
+            .first())
+        return int(row[0]) if row else None
 
     def list(self, project_id, decisions, limit, document_id=None):
         query = self._db.query(TaskSuggestion).filter(

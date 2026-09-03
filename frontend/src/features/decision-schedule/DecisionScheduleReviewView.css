@@ -25,6 +25,9 @@
 .review-card-main > p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: #394354; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .review-card-reason { display: -webkit-box; margin-top: 9px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #626d7f; font-size: 11px; line-height: 1.5; }
 .review-card-reason b { margin-right: 6px; color: #303a4b; }
+.review-evidence { margin-top: 9px; color: #596579; font-size: 11px; }
+.review-evidence summary { width: fit-content; color: var(--c-accent, #554bd8); font-weight: 750; cursor: pointer; }
+.review-evidence blockquote { max-height: 140px; margin: 7px 0 0; padding: 9px 10px; overflow: auto; border-left: 3px solid #c9c6f5; background: #f7f7fc; color: #4b5565; line-height: 1.5; white-space: pre-wrap; }
 .review-card-source { display: block; margin-top: 5px; overflow: hidden; color: #8a93a2; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .review-card-main em { display: block; margin-top: 8px; color: #323b49; font-size: 11px; font-style: normal; font-weight: 700; }
 .review-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }

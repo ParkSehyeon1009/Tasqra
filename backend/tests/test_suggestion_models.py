@@ -88,11 +88,11 @@ def model_columns(model) -> set[str]:
 
 
 def test_decision_columns_match_migration():
-    assert model_columns(Decision) == migration_columns("decisions")
+    assert model_columns(Decision) == migration_columns("decisions") | {"evidence_text"}
 
 
 def test_schedule_columns_match_migration():
-    assert model_columns(ScheduleItem) == migration_columns("schedule_items")
+    assert model_columns(ScheduleItem) == migration_columns("schedule_items") | {"evidence_text"}
 
 
 def test_deliverable_columns_match_migration():

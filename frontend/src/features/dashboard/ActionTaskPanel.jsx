@@ -39,7 +39,7 @@ function ActionTaskCard({ task }) {
   return <article className={`dashboard-task-card task-type-${typeKey}`}>
     <div className="dashboard-task-card__top"><span className="dashboard-task-type">{TYPE_LABELS[task.type] ?? '기타'}</span><span className="dashboard-task-status">{STATUS_LABELS[task.status] ?? task.status}</span></div>
     <h3>{task.title}</h3>
-    {task.description && <p>{task.description}</p>}
+    {task.description && <p title={task.description}>{task.description}</p>}
     <div className="dashboard-task-card__meta"><span>{assignee}</span><time className={overdue ? 'is-overdue' : undefined} dateTime={task.due_on ?? undefined} title={overdue ? '마감일이 지났습니다.' : undefined}>{dueDate}</time></div>
   </article>
 }

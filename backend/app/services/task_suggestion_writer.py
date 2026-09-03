@@ -1,4 +1,6 @@
 from decimal import Decimal
+import hashlib
+import re
 
 from app.models.document import Analysis
 from app.models.task_suggestion import TaskSuggestion
@@ -25,8 +27,14 @@ class TaskSuggestionWriter:
             analysis_id=analysis.id, title=item.title,
             description=item.description, due_on=item.due_on, actor=item.actor,
             evidence_text=item.evidence_text,
+            evidence_fingerprint=_fingerprint(item.evidence_text),
             confidence=None if item.confidence is None else Decimal(str(item.confidence)),
             quality_score=Decimal(str(item.quality_score)), reason=item.reason,
             decision="PENDING", source_text_revision=source_text_revision)
             for item in extractions]
         return analysis, self._suggestions.add_all(rows)
+
+
+def _fingerprint(text: str) -> str:
+    normalized = re.sub(r"\s+", "", text).lower()
+    return hashlib.md5(normalized.encode("utf-8"), usedforsecurity=False).hexdigest()

@@ -57,9 +57,11 @@ class ActionTaskAnalyzer:
             if candidate.is_aggregate or candidate.section_type not in aggregate_sections]
         suggestions = []
         for candidate in selected_candidates:
+            subject = f"{candidate.actor}은 " if candidate.actor else ""
+            due = f" 마감일은 {candidate.due_on.isoformat()}입니다." if candidate.due_on else ""
             suggestions.append(TaskSuggestionExtraction(
                     title=candidate.title,
-                    description=f"원문 근거: {candidate.text}",
+                    description=f"{subject}{candidate.title} 작업을 수행합니다.{due}",
                     due_on=candidate.due_on, actor=candidate.actor,
                     evidence_text=candidate.text, confidence=None,
                     quality_score=candidate.quality_score,

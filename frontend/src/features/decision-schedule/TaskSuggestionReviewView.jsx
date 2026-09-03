@@ -29,7 +29,8 @@ export default function TaskSuggestionReviewPanel({ projectId, documentId, canEd
       {items.map(item => <article className='review-card' key={item.id}>
         <div className='review-card__meta'><span>근거 점수 {Math.round(Number(item.quality_score) * 100)}</span>{item.due_on && <span>마감 {item.due_on}</span>}</div>
         <h3>{item.title}</h3>
-        <p>{item.evidence_text}</p>
+        {item.description && <p>{item.description}</p>}
+        <details className='review-evidence'><summary>원문 근거 보기</summary><blockquote>{item.evidence_text}</blockquote></details>
         {canEdit && <div className='review-card__actions'><button className='primary' disabled={action.isPending} onClick={() => action.mutate({ item, kind: 'approve' })}>승인하고 태스크 생성</button><button disabled={action.isPending} onClick={() => action.mutate({ item, kind: 'reject' })}>거절</button></div>}
       </article>)}
     </section>

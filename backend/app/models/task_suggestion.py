@@ -13,6 +13,7 @@ class TaskSuggestion(Base):
         CheckConstraint("decision IN ('PENDING','APPROVED','EDITED','REJECTED')", name="ck_task_suggestion_decision"),
         Index("ix_task_suggestion_project", "project_id", "decision"),
         Index("ix_task_suggestion_document", "document_id"),
+        Index("ix_task_suggestion_evidence", "project_id", "document_id", "evidence_fingerprint"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -24,6 +25,7 @@ class TaskSuggestion(Base):
     due_on: Mapped[date | None] = mapped_column(Date)
     actor: Mapped[str | None] = mapped_column(String(160))
     evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_fingerprint: Mapped[str | None] = mapped_column(String(64))
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     quality_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)

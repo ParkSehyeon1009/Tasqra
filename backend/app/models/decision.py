@@ -105,6 +105,7 @@ class Decision(Base):
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)
+    evidence_text: Mapped[str | None] = mapped_column(Text)
 
     # 결정 **자체**의 상태다. AI 제안 승인 여부(decision)와 다르다 — 머리말 참고.
     status: Mapped[str] = mapped_column(
