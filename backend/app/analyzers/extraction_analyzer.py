@@ -112,8 +112,22 @@ def _ground_decision(item, source: str) -> DecisionExtraction | None:
     if not _is_actual_decision(item, short_title, content, best):
         return None
     return DecisionExtraction(title=short_title, content=content,
-        evidence_text=best, status=item.status, decided_on=item.decided_on,
+        evidence_text=best, status=item.status,
+        decision_type=item.decision_type or _decision_type(" ".join((short_title, content, best))),
+        decided_on=item.decided_on,
         confidence=item.confidence, reason=item.reason)
+
+
+def _decision_type(text: str) -> str:
+    rules = (
+        (r"낙찰|우선협상|선정|지정", "SELECTION"),
+        (r"승인|결재|인정", "APPROVAL"),
+        (r"합의|협의.*정", "AGREEMENT"),
+        (r"변경|수정", "CHANGE"),
+        (r"취소|철회|번복|해지", "CANCELLATION"),
+        (r"채택", "ADOPTION"),
+    )
+    return next((kind for pattern, kind in rules if re.search(pattern, text)), "OTHER")
 
 
 _NEGATIVE_REASON = re.compile(r"결정사항이?\s*아니|결정사항을\s*포함하지|추론하지|추가\s*정보")

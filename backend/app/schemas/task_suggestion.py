@@ -12,6 +12,13 @@ class TaskSuggestionRow(BaseModel):
     description: str | None
     due_on: date | None
     actor: str | None
+    actor_scope: str | None
+    statement_type: str | None = "OBLIGATION"
+    task_kind: str | None
+    modality: str | None
+    recipient: str | None
+    relative_expression: str | None
+    condition: str | None
     evidence_text: str
     confidence: Decimal | None
     quality_score: Decimal

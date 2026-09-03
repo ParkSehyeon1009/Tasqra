@@ -503,7 +503,7 @@ def test_결정사항도_같은_구조로_동작한다(config):
 
     assert len(result.result["decisions"]) == 1
     assert "A사를 선정" in result.result["decisions"][0]["evidence_text"]
-    assert result.prompt_version == "decision-v2-grounded"
+    assert result.prompt_version == "decision-v3"
 
 
 @pytest.mark.parametrize("item", [

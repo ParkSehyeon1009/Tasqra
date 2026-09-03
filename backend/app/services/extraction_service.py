@@ -17,6 +17,7 @@ from app.extractors.structure import detect_header_footer, detect_heading
 from app.models.document import Document, DocumentPage, ExtractedText, OcrElement
 from app.models.enums import DocumentStatus, DocumentType, DocumentTypeSource, ExtractionStrategy, OcrElementType, OcrElementTypeSource, ProcessingMode, ReviewStatus
 from app.repositories.document_repository import DocumentRepository
+from app.services.document_package import infer_package
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class ExtractionService:
         document_type: str | None = None,
     ) -> Document:
         safe_filename = self._sanitize_filename(filename)
+        package_key, package_role = infer_package(safe_filename)
         extension = Path(safe_filename).suffix.lower()
         if extension not in ALLOWED_EXTENSIONS:
             raise BusinessError(ErrorCode.INVALID_FILE_TYPE, detail="PDF, DOCX, HWPX, PNG, JPG, JPEG 파일만 업로드할 수 있습니다.")
@@ -68,6 +70,8 @@ class ExtractionService:
                     content_hash=content_hash,
                     document_type=selected_document_type.value if selected_document_type else None,
                     document_type_source=DocumentTypeSource.USER.value if selected_document_type else None,
+                    package_key=package_key,
+                    package_role=package_role,
                     status=DocumentStatus.PENDING.value,
                     processing_error=None,
                     extraction_strategy=strategy.value,

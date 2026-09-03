@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 _GAP = r"(?:\s|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f])*"
 
 
+def normalize_summary(text: str) -> tuple[str, list[str]]:
+    """깨진 마지막 문장과 비한국어 문자 누출을 조용히 정상 결과로 위장하지 않는다."""
+    value = re.sub(r"\s+", " ", text).strip()
+    warnings = []
+    if re.search(r"[一-龥]", value):
+        warnings.append("unexpected_cjk")
+    if not re.search(r"(?:다|요|임|함|됨|음|것이다|있다|없다)[.!?]?$", value):
+        completed = list(re.finditer(r"(?:다|요|임|함|됨|음|것이다|있다|없다)[.!?](?=\s|$)", value))
+        if completed:
+            value = value[:completed[-1].end()].strip()
+            warnings.append("incomplete_tail_removed")
+        else:
+            warnings.append("possibly_incomplete")
+    return value, warnings
+
+
 def find_span(quote: str, text: str) -> tuple[int, int] | None:
     """인용이 원문의 어디에 있는지 (시작, 끝) 을 준다. 없으면 None.
 
@@ -70,7 +86,9 @@ class SummaryAnalyzer:
             runner.progress("문서 요약", 0, 1)
             parsed = await runner.call(direct, SummaryOutput, stage="문서 요약")
             runner.progress("문서 요약", 1, 1)
-            output = {**parsed.model_dump(), "strategy": "direct", "input_scope": scope}
+            summary, warnings = normalize_summary(parsed.summary)
+            output = {**parsed.model_dump(), "summary": summary, "quality_warnings": warnings,
+                      "strategy": "direct", "input_scope": scope}
         else:
             chunks = split_document(text, budget, facts_request,
                 overlap=self._settings.AI_CHUNK_OVERLAP_CHARS, max_chunks=self._settings.AI_MAX_CHUNKS)
@@ -135,7 +153,9 @@ class SummaryAnalyzer:
             parsed = await runner.call(final_request(records), GroundedSummaryOutput,
                 validate=verify_final, stage="최종 요약")
             runner.progress("최종 요약", 1, 1)
-            output = {**parsed.model_dump(), "strategy": "hierarchical", "input_scope": scope,
+            summary, warnings = normalize_summary(parsed.summary)
+            output = {**parsed.model_dump(), "summary": summary, "quality_warnings": warnings,
+                "strategy": "hierarchical", "input_scope": scope,
                 "chunk_count": len(chunks), "hard_split_count": sum(c.hard_split for c in chunks),
                 "empty_evidence_chunks": empty_chunks, "extracted_evidence_count": extracted_count,
                 # 원문에 없어서 버린 근거 수. 이 값이 크면 모델이 인용을 못 하고

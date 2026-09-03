@@ -99,7 +99,11 @@ class FoundDate:
                 "range_id": f"r{self.range_key}" if self.range_key is not None else None}
 
 
-def _context_type(context: str) -> str:
+def _context_type(context: str, *, document_prefix: str = "") -> str:
+    # 별지·붙임이 시작된 뒤의 날짜는 대개 빈 서식이나 작성 예시다. 날짜 바로
+    # 주변에 "예시"가 없더라도 문서 구조상 본문 일정과 구분해야 한다.
+    if re.search(r"(?:^|\n)\s*(?:\[?별지|붙임\s*\d*)", document_prefix, re.I):
+        return "form_or_appendix"
     if re.search(r"홍\s*길\s*동|작성\s*예시|기재\s*예시|예\s*\)", context, re.I):
         return "example"
     if re.search(r"경력|이력|과거|발급일자|심사위원\s*참여", context):
@@ -147,7 +151,8 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         time_value = _time_after(text[end:end + AFTER])
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
                                _label_before(context, raw, start - context_start),
-                               _context_type(context), time_value=time_value))
+                               _context_type(context, document_prefix=text[:start]),
+                               time_value=time_value))
         if len(dates) >= limit:
             break
     for index in range(1, len(dates)):
@@ -155,7 +160,10 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         between = text[previous.at + len(previous.raw):current.at]
         if len(between) <= 100 and re.search(r"(?:~|～|−|–|—|부터)", between):
             key = previous.range_key if previous.range_key is not None else previous.at
-            label = current.label or previous.label
+            # 「제출시작일시: A ~ B」에서 B에 시작 라벨을 복사하면 종료일이
+            # 시작일로 표시된다. 양 끝이 같은 '기간'일 때만 라벨을 계승한다.
+            inherited = previous.label if previous.label and "기간" in previous.label else None
+            label = current.label or inherited
             dates[index - 1] = replace(previous, range_key=key)
             dates[index] = replace(current, label=label, range_key=key)
     return dates

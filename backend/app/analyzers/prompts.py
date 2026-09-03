@@ -3,11 +3,12 @@ import json
 from app.ai.client_protocol import AIRequest
 
 SUMMARY_PROMPT_VERSION = "summary-v2"
-CATEGORY_PROMPT_VERSION = "category-v3-seven-types"
+CATEGORY_PROMPT_VERSION = "category-v3"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
-DECISION_PROMPT_VERSION = "decision-v2-grounded"
+DECISION_PROMPT_VERSION = "decision-v3"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
-ACTION_TASK_PROMPT_VERSION = "action-task-v1"
+# 버전명은 저장 컬럼 길이와 배포 비교를 위해 기능명-v숫자 형식만 사용한다.
+ACTION_TASK_PROMPT_VERSION = "action-task-v2"
 
 # AI 분류 정책 7종. 과거 COST_SHEET·BILLING은 ETC로 읽는다.
 CATEGORY_DESCRIPTIONS = {
@@ -75,6 +76,8 @@ FINAL_SYSTEM_PROMPT = COMMON + SUMMARY_RULES + """
 records는 문서 전체에서 선택된 근거이며 전부가 아닙니다.
 조건·예외와 제안/확정/취소를 구분하고 다른 조항의 금액을 더하지 마세요.
 뒤에 나왔다는 이유만으로 앞의 내용을 폐기하지 마세요.
+반드시 자연스러운 한국어 완결 문장으로 끝내고 중국어 표현을 섞지 마세요.
+요일·기간·제외 조건은 원문의 범위를 줄이거나 바꾸지 마세요.
 요약의 근거로 사용한 기존 id를 evidence_ids에 포함하세요.
 출력: {"summary":"300자 이내 요약","evidence_ids":["기존 id"]}
 """
@@ -111,7 +114,9 @@ DECISION_SYSTEM_PROMPT = COMMON + EXTRACTION_RULES + """
 title 은 70자 이내의 짧은 이름, content 는 누가 무엇을 결정했는지 이해되는 완전한
 문장입니다. evidence_text에는 판단 근거인 원문 한 문장을 글자 그대로 복사하세요.
 decided_on 은 그 결정이 내려진 날짜이며 모르면 null 입니다.
-출력: {"decisions":[{"title":"...","content":"...","evidence_text":"원문 그대로","status":"DECIDED","decided_on":null,"confidence":0.9,"reason":"..."}]}
+decision_type은 SELECTION, APPROVAL, AGREEMENT, CHANGE, CANCELLATION, ADOPTION,
+OTHER 중 하나입니다.
+출력: {"decisions":[{"title":"...","content":"...","evidence_text":"원문 그대로","status":"DECIDED","decision_type":"SELECTION","decided_on":null,"confidence":0.9,"reason":"..."}]}
 """
 
 # ⚠️ 이 프롬프트는 모델에게 날짜를 **쓰라고 하지 않는다. 고르라고 한다.**
@@ -155,6 +160,9 @@ confidence 는 0~1 이며 context 에 이름이 분명하면 0.8 이상, 짐작�
 ACTION_TASK_SYSTEM_PROMPT = COMMON + """
 candidates는 문서 원문에서 규칙으로 찾은 행동 후보입니다. 프로젝트 팀이
 실제로 수행해야 하는 일만 id로 고르세요. 없으면 빈 배열이 정답입니다.
+statement_type이 PROPOSAL_COMMITMENT이면 아직 채택되지 않은 제안이므로 고르지 마세요.
+actor_scope가 GENERIC_RULE이면 특정 프로젝트에서 활성화되지 않은 일반 규칙이므로
+고르지 마세요. 조건부 의무는 조건이 실제로 적용되는 것이 문맥상 분명할 때만 고르세요.
 서식·부록을 자동으로 버리지 마세요. section_type은 위치 힌트일 뿐입니다.
 서식을 실제로 작성·제출해야 하면 고르고, 이미 채워진 예시 값이나 설명문이면 버리세요.
 

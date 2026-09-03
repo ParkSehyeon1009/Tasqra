@@ -6,13 +6,18 @@ from datetime import date
 from app.analyzers.date_finder import find_dates
 
 _ACTION = re.compile(r"(제출|작성|준비|신청|등록|첨부|확인|검토|보고|납품|제작|보완|회신|송부|기재|발급|예약|참석)")
-_OBLIGATION = re.compile(r"(하여야|해야|할\s*것|바람|바랍니다|주시|요청|필수|기한|마감|이내|까지)")
+_OBLIGATION = re.compile(r"(하여야|해야|할\s*것|바람|바랍니다|주시|요청|필수|기한|마감|이내|까지|예정입니다)")
 _EXCLUDE = re.compile(r"(법\s*제\d+조|조례\s*제\d+조|선정기준|심사기준|자격요건|자격조건|평가기준|제출서류\s*:)")
 _AUTHORITY = re.compile(r"^\s*(화성시|시장|심사위원|위원회|발주처|감독관)")
 _BROKEN = re.compile(r"^\s*(사용하고|하고|하며|하여|제출하고)")
 _NON_DELIVERABLE = re.compile(r"(?:숙지.{0,20}준수|단순\s*열람)")
+_SCHEDULE_ONLY = re.compile(r"^\s*(?:납품|제출|접수|계약|사업)?\s*(?:기한|기간|일시)\s*[:：]")
 _BULLET = re.compile(r"^[\s○●■□▶·ㆍ※\-\d.)(①-⑳]+")
 _ACTOR = re.compile(r"(?:^|[\s(])(신청인|신청자|입찰참가자|입찰자|낙찰자|협력업체|계약자|수급인|제안사|담당자)(?:은|는|이|가|에게|에서)?")
+_GENERIC_RULE_DOC = re.compile(r"(?:행정안전부\s*예규|계약\s*일반조건|입찰\s*유의서|낙찰자\s*결정\s*기준)")
+_PROPOSAL_DOC = re.compile(r"(?:기술|상품|사업|공급)?\s*제안서")
+_ADOPTED = re.compile(r"(?:채택|승인|선정|합의|계약에\s*반영|이행하기로)")
+_RELATIVE = re.compile(r"((?:계약|착수|통보|요청|선정|납품)일(?:로부터|부터)?\s*\d{1,3}\s*(?:영업일|일|주|개월|달)\s*(?:이내|안에|까지)?)")
 
 
 @dataclass(frozen=True)
@@ -25,13 +30,62 @@ class ActionCandidate:
     quality_score: float
     section_type: str = "body"
     is_aggregate: bool = False
+    statement_type: str = "OBLIGATION"
+    actor_scope: str = "PROJECT_PARTY"
+    modality: str = "MUST"
+    task_kind: str = "ACTION"
+    relative_expression: str | None = None
+    condition: str | None = None
 
     def as_prompt_record(self):
         return {"id": self.id, "text": self.text,
                 "due_on": self.due_on.isoformat() if self.due_on else None,
                 "section_type": self.section_type,
                 "is_aggregate": self.is_aggregate,
+                "statement_type": self.statement_type,
+                "actor_scope": self.actor_scope,
+                "modality": self.modality,
+                "task_kind": self.task_kind,
+                "relative_expression": self.relative_expression,
+                "condition": self.condition,
                 "quality_score": self.quality_score}
+
+
+def _task_kind(text: str) -> str:
+    if re.search(r"제출|송부|회신|신청|등록", text):
+        return "SUBMISSION"
+    if re.search(r"보고", text):
+        return "REPORTING"
+    if re.search(r"납품|제작", text):
+        return "DELIVERABLE"
+    if re.search(r"검토|확인|보완", text):
+        return "REVIEW"
+    if re.search(r"참석|예약", text):
+        return "ATTENDANCE"
+    return "ACTION"
+
+
+def _semantic_metadata(text: str, section_type: str, *, generic_rule: bool,
+                       proposal: bool) -> dict:
+    if section_type in {"form_or_appendix", "writing_guide"}:
+        statement_type = "FORM_REQUIREMENT"
+    elif proposal and not _ADOPTED.search(text):
+        statement_type = "PROPOSAL_COMMITMENT"
+    else:
+        statement_type = "OBLIGATION"
+    relative = _RELATIVE.search(text)
+    condition = None
+    conditional = re.search(r"([^.!?\n]{0,120}(?:경우|요청\s*시|필요\s*시)[^.!?\n]{0,160})", text)
+    if conditional:
+        condition = re.sub(r"\s+", " ", conditional.group(1)).strip()
+    return {
+        "statement_type": statement_type,
+        "actor_scope": "GENERIC_RULE" if generic_rule else "PROJECT_PARTY",
+        "modality": "CONDITIONAL" if condition else "MUST",
+        "task_kind": _task_kind(text),
+        "relative_expression": relative.group(1) if relative else None,
+        "condition": condition,
+    }
 
 
 def _title(text: str) -> str:
@@ -66,6 +120,13 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
     # 별지·부록을 통째로 버리지 않는다. 계약서 별지 작업지시서처럼
     # 실제 업무가 들어 있을 수 있으므로 구조 태그만 붙여 모델이 판단하게 한다.
     scan_text = _join_wrapped_lines(text)
+    document_prefix = re.sub(r"\s+", " ", scan_text[:1600])
+    first_line = next((re.sub(r"\s+", " ", line).strip()
+                       for line in scan_text.splitlines() if line.strip()), "")
+    generic_rule = bool(_GENERIC_RULE_DOC.search(document_prefix))
+    proposal = bool(len(first_line) <= 100 and _PROPOSAL_DOC.search(first_line)
+                    and re.search(r"제안서(?:\s*[-–—:].*)?$", first_line)
+                    and not re.search(r"제안\s*요청서|입찰\s*공고", first_line))
     form_markers = [m.start() for m in re.finditer(r"\[별지\s*제?\s*1호\s*서식\]", scan_text)]
     form_start = min(form_markers) if form_markers else len(scan_text)
     guide = re.search(r"공적조서\s*및\s*구비서류\s*작성시\s*유의사항", scan_text[:form_start])
@@ -77,7 +138,9 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
     if receipt and re.search(r"접수방법\s*:\s*방문접수", receipt.group(0)):
         evidence = re.sub(r"\s+", " ", receipt.group(0)).strip()
         found.append(ActionCandidate("a1", evidence, "신청 서류 방문 제출", None,
-                                     "신청인", 0.9, "body"))
+                                     "신청인", 0.9, "body", False,
+                                     **_semantic_metadata(evidence, "body",
+                                         generic_rule=generic_rule, proposal=proposal)))
         seen.add("신청서류방문제출")
     cursor = 0
     for raw in parts:
@@ -86,6 +149,10 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
             cursor = position + len(raw)
         value = re.sub(r"\s+", " ", raw).strip()
         if not 10 <= len(value) <= 600 or not _ACTION.search(value):
+            continue
+        # 「납품기한: 2026/12/10」은 일정이지 독립된 업무가 아니다. 실제 납품·
+        # 제출 의무 문장이 별도로 있을 때만 태스크 후보가 된다.
+        if _SCHEDULE_ONLY.search(value):
             continue
         if (_EXCLUDE.search(value) or _AUTHORITY.search(value)
                 or _BROKEN.search(value) or _NON_DELIVERABLE.search(value)):
@@ -117,7 +184,9 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
         elif section_type == "example":
             score -= 0.35
         found.append(ActionCandidate(f"a{len(found)+1}", value, title, due, _actor(value),
-                                     max(0.1, min(score, 1.0)), section_type))
+                                     max(0.1, min(score, 1.0)), section_type, False,
+                                     **_semantic_metadata(value, section_type,
+                                         generic_rule=generic_rule, proposal=proposal)))
         if len(found) >= limit:
             break
     if guide:
@@ -125,5 +194,7 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
         evidence = guide_text[:1200]
         found.append(ActionCandidate(f"a{len(found)+1}", evidence,
             "필수 신청서류 작성 및 증빙자료 준비", None,
-            "신청인", 0.9, "writing_guide", True))
+            "신청인", 0.9, "writing_guide", True,
+            **_semantic_metadata(evidence, "writing_guide",
+                generic_rule=generic_rule, proposal=proposal)))
     return found[:limit]

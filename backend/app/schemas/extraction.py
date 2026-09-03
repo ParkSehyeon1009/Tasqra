@@ -34,6 +34,7 @@ class DecisionExtraction(BaseModel):
     content: str | None = None
     evidence_text: str | None = None
     status: DecisionStatus
+    decision_type: str | None = Field(default=None, max_length=40)
     decided_on: date | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     reason: str = Field(min_length=1)
@@ -52,6 +53,12 @@ class ScheduleItemExtraction(BaseModel):
     starts_time: time | None = None
     ends_time: time | None = None
     relative_expression: str | None = Field(default=None, max_length=300)
+    temporal_type: str | None = Field(default=None, max_length=40)
+    precision: str | None = Field(default=None, max_length=20)
+    anchor_event: str | None = Field(default=None, max_length=120)
+    calendar_rule: str | None = Field(default=None, max_length=30)
+    condition: str | None = Field(default=None, max_length=500)
+    tentative: bool = False
     confidence: float | None = Field(default=None, ge=0, le=1)
     reason: str = Field(min_length=1)
 
@@ -83,6 +90,13 @@ class TaskSuggestionExtraction(BaseModel):
     description: str | None = None
     due_on: date | None = None
     actor: str | None = Field(default=None, max_length=160)
+    actor_scope: str | None = Field(default=None, max_length=30)
+    statement_type: str = Field(default="OBLIGATION", max_length=40)
+    task_kind: str | None = Field(default=None, max_length=40)
+    modality: str | None = Field(default=None, max_length=30)
+    recipient: str | None = Field(default=None, max_length=160)
+    relative_expression: str | None = Field(default=None, max_length=300)
+    condition: str | None = Field(default=None, max_length=500)
     evidence_text: str = Field(min_length=1)
     confidence: float | None = Field(default=None, ge=0, le=1)
     quality_score: float = Field(ge=0, le=1)

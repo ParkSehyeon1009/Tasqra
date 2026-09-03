@@ -79,12 +79,19 @@ class ActionTaskAnalyzer:
         }
         selected_candidates = [candidate for candidate in selected_candidates
             if candidate.is_aggregate or candidate.section_type not in aggregate_sections]
-        unique, seen = [], set()
+        # 일반 법령·예규의 잠재 의무와 아직 채택되지 않은 제안 약속은 실제 프로젝트
+        # 태스크가 아니다. 모델이 골라도 구조 판정이 마지막 안전망이 된다.
+        selected_candidates = [candidate for candidate in selected_candidates
+            if candidate.actor_scope != "GENERIC_RULE"
+            and candidate.statement_type != "PROPOSAL_COMMITMENT"]
+        unique = []
         for candidate in selected_candidates:
-            key = re.sub(r"[^0-9A-Za-z가-힣]", "", candidate.title).lower()
-            if key and key not in seen:
-                seen.add(key)
+            duplicate = next((existing for existing in unique
+                if _same_action(existing, candidate)), None)
+            if duplicate is None:
                 unique.append(candidate)
+            elif candidate.quality_score > duplicate.quality_score:
+                unique[unique.index(duplicate)] = candidate
         selected_candidates = unique
         suggestions = []
         for candidate in selected_candidates:
@@ -95,6 +102,13 @@ class ActionTaskAnalyzer:
                     title=candidate.title,
                     description=f"{subject}가 원문 요구사항에 따라 {action}합니다.{due}",
                     due_on=candidate.due_on, actor=candidate.actor,
+                    actor_scope=candidate.actor_scope,
+                    statement_type=candidate.statement_type,
+                    task_kind=candidate.task_kind,
+                    modality=candidate.modality,
+                    recipient=_recipient(candidate.text),
+                    relative_expression=candidate.relative_expression,
+                    condition=candidate.condition,
                     evidence_text=candidate.text, confidence=None,
                     quality_score=candidate.quality_score,
                     reason="원문에 실행 행동과 의무 표현이 함께 있어 후보로 선택됨"))
@@ -111,3 +125,27 @@ def _predicate(title: str) -> str:
     if re.search(r"(?:제출|작성|준비|신청|등록|확인|검토|보고|납품|송부|기재|발급|참석)$", value):
         return value + "해야 "
     return value + "을(를) 수행해야 "
+
+
+def _recipient(text: str) -> str | None:
+    found = re.search(r"(발주기관|사업주관\s*부서|계약담당자|담당자|수요기관)(?:에|에게|으로)", text)
+    return re.sub(r"\s+", " ", found.group(1)) if found else None
+
+
+def _same_action(left, right) -> bool:
+    """표현이 달라도 행위·채널·핵심 대상이 같은 태스크를 하나로 본다."""
+    def signature(candidate):
+        text = f"{candidate.title} {candidate.text}"
+        action = next((word for word in ("제출", "작성", "준비", "신청", "등록", "확인",
+            "검토", "보고", "납품", "송부", "기재", "발급", "참석") if word in text), None)
+        channel = next((word for word in ("나라장터", "이메일", "우편", "방문") if word in text), None)
+        nouns = {word for word in ("제안서", "증빙서류", "서약서", "확인서", "계약서",
+            "신청서류", "가격입찰서", "산출내역서") if word in text}
+        return action, channel, nouns
+    la, lc, ln = signature(left)
+    ra, rc, rn = signature(right)
+    if not la or la != ra or (lc and rc and lc != rc):
+        return False
+    if left.due_on != right.due_on and left.due_on and right.due_on:
+        return False
+    return bool(ln & rn) or (lc is not None and lc == rc)

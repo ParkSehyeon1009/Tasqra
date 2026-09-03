@@ -15,6 +15,7 @@ class Document(Base):
         CheckConstraint("ocr_revision >= 1", name="ck_document_ocr_revision"),
         Index("ix_doc_list", "project_id", "created_at"),
         Index("ix_doc_type", "project_id", "document_type"),
+        Index("ix_doc_package", "project_id", "package_key"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -27,6 +28,8 @@ class Document(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     document_type: Mapped[str | None] = mapped_column(String(30))
     document_type_source: Mapped[str | None] = mapped_column(String(20))
+    package_key: Mapped[str | None] = mapped_column(String(500))
+    package_role: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentStatus.PENDING.value)
     processing_error: Mapped[str | None] = mapped_column(String(1000))
     processing_mode: Mapped[str] = mapped_column(String(20), nullable=False, default=ProcessingMode.NORMAL.value)

@@ -37,6 +37,7 @@ class DecisionRow(SuggestionRow):
     content: str | None
     evidence_text: str | None
     status: DecisionStatus
+    decision_type: str | None
     superseded_by: int | None
     decided_on: date | None
 
@@ -50,6 +51,12 @@ class ScheduleItemRow(SuggestionRow):
     starts_time: time | None
     ends_time: time | None
     relative_expression: str | None
+    temporal_type: str | None
+    precision: str | None
+    anchor_event: str | None
+    calendar_rule: str | None
+    condition: str | None
+    tentative: bool
 
 
 class DecisionListResponse(BaseModel):

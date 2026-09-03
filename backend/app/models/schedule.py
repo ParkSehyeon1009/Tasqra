@@ -100,6 +100,12 @@ class ScheduleItem(Base):
     starts_time: Mapped[time | None] = mapped_column(Time)
     ends_time: Mapped[time | None] = mapped_column(Time)
     relative_expression: Mapped[str | None] = mapped_column(String(300))
+    temporal_type: Mapped[str | None] = mapped_column(String(40))
+    precision: Mapped[str | None] = mapped_column(String(20))
+    anchor_event: Mapped[str | None] = mapped_column(String(120))
+    calendar_rule: Mapped[str | None] = mapped_column(String(30))
+    condition: Mapped[str | None] = mapped_column(Text)
+    tentative: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     # --- AI 제안 공통 컬럼 (amount_items · decisions 와 같은 모양) ------------
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
