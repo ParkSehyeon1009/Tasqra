@@ -6,7 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.schemas.extraction import DecisionExtraction, ScheduleKind
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-CategoryCode = Literal["RFP", "PROPOSAL", "COST_SHEET", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"]
+# ⚠️ models/enums.py 의 DocumentType 은 9종이다. 여기는 **모델이 고를 수 있는
+#   값**이라 더 좁다(BILLING·COST_SHEET 제외). prompts.CATEGORY_DESCRIPTIONS 의
+#   주석 참고 — enum 이 프롬프트의 상위집합인 구조는 의도된 것이다.
+CategoryCode = Literal["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"]
 
 
 class StrictOutput(BaseModel):
@@ -14,7 +17,15 @@ class StrictOutput(BaseModel):
 
 
 class SummaryOutput(StrictOutput):
-    summary: NonEmpty = Field(max_length=300)
+    # ⚠️ prompts.SUMMARY_RULES 의 「250자 이내」와 **같아야 한다**(2026-09-03).
+    #   한쪽만 바꾸면 모델이 쓰는 길이와 검증이 어긋난다. 상한이 낮으면 멀쩡한
+    #   요약이 검증에서 걸리고, 높으면 튀는 출력을 못 잡는다.
+    #   GroundedSummaryOutput 도 이것을 상속하므로 함께 따라간다.
+    #
+    #   200 -> 250 (2026-09-03): 배포 모델(sum-v6, q8_0)을 실제 문서 25건으로
+    #   재니 중앙 175자에 꼬리가 242자였다. 200 을 넘긴 8건은 환각·다국어 0 으로
+    #   내용이 정확했고, 상한 때문에만 버려지고 있었다(통과 68% -> 100%).
+    summary: NonEmpty = Field(max_length=250)
 
 
 class OverviewOutput(StrictOutput):
