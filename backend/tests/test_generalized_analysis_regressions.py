@@ -8,7 +8,7 @@ from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.category_analyzer import _document_family, _document_state, _document_traits
 from app.analyzers.date_finder import find_dates
 from app.analyzers.schedule_analyzer import ScheduleAnalyzer
-from app.analyzers.summary_analyzer import normalize_summary
+from app.analyzers.summary_analyzer import normalize_summary, preserve_amount_units
 from app.analyzers.prompts import (
     ACTION_TASK_PROMPT_VERSION,
     CATEGORY_PROMPT_VERSION,
@@ -54,11 +54,10 @@ def test_appendix_example_date_is_not_saved_as_schedule():
     assert found[0].context_type == "body"
     assert found[1].context_type == "form_or_appendix"
 
-    client = ScriptedAI(lambda _: {"items": [
-        {"date_ids": ["d1"], "title": "접수마감", "kind": "DEADLINE",
-         "confidence": 0.9, "reason": "본문의 마감"},
-        {"date_ids": ["d2"], "title": "제출 마감", "kind": "DEADLINE",
-         "confidence": 0.9, "reason": "서식 날짜"},
+    client = ScriptedAI(lambda prompt: {"items": [
+        {"date_ids": [record["id"]], "title": "제출 마감", "kind": "DEADLINE",
+         "confidence": 0.9, "reason": "서식 날짜"}
+        for record in json.loads(prompt.user)["dates"]
     ]})
     result = asyncio.run(ScheduleAnalyzer(client, CONFIG).analyze(text))
     assert [item["ends_on"] for item in result.result["schedule_items"]] == ["2026-08-31"]
@@ -152,3 +151,51 @@ def test_tbd_schedule_is_preserved_without_inventing_date():
     item = result.result["schedule_items"][0]
     assert item["temporal_type"] == "TBD"
     assert item["starts_on"] is None and item["ends_on"] is None
+
+
+def test_explicit_start_and_deadline_labels_override_model_roles():
+    text = ("가격입찰서 제출시작일시: 2026/07/13 10:00\n"
+            "가격입찰서 제출마감일시: 2026/07/15 10:00")
+    client = ScriptedAI(lambda _: {"items": []})
+    items = asyncio.run(ScheduleAnalyzer(client, CONFIG).analyze(text)).result["schedule_items"]
+    start = next(item for item in items if "시작" in item["title"])
+    deadline = next(item for item in items if "마감" in item["title"])
+    assert start["starts_on"] == "2026-07-13" and start["ends_on"] is None
+    assert deadline["ends_on"] == "2026-07-15" and deadline["starts_on"] is None
+
+
+def test_month_range_and_before_deadline_are_preserved_without_inventing_days():
+    text = "용역 수행: ’25. 9 ~ 11월\n최종보고서(안): 사업종료 10일 이전에 제출"
+    client = ScriptedAI(lambda _: {"items": []})
+    items = asyncio.run(ScheduleAnalyzer(client, CONFIG).analyze(text)).result["schedule_items"]
+    assert any(item["temporal_type"] == "MONTH_RANGE" for item in items)
+    deadline = next(item for item in items if "10일 이전" in (item["relative_expression"] or ""))
+    assert deadline["anchor_event"] == "사업종료"
+
+
+def test_as_needed_reporting_is_not_calendar_recurrence():
+    client = ScriptedAI(lambda _: {"items": []})
+    result = asyncio.run(ScheduleAnalyzer(client, CONFIG).analyze("필요시 수시 보고하여야 한다."))
+    assert result.result["schedule_items"] == []
+
+
+def test_summary_restores_explicit_korean_amount_multiplier():
+    summary, warnings = preserve_amount_units(
+        "소요예산은 30,000원입니다.", "소요예산: 금 30,000천원(부가세 포함)")
+    assert summary == "소요예산은 30,000,000원입니다."
+    assert warnings == ["amount_unit_restored"]
+
+
+def test_wrapped_action_sentence_becomes_one_complete_candidate():
+    text = ("연구수행자는 계약일로부터 10일 이내에 추진일정 등이 포함된\n"
+            "과업수행계획서와 기타 제반서류를 발주기관에 제출하여야 한다.")
+    candidates = find_action_candidates(text)
+    assert len(candidates) == 1
+    assert candidates[0].title == "과업수행계획서와 제반서류 제출"
+    assert candidates[0].actor == "연구수행자"
+
+
+def test_penalty_and_authority_request_are_not_action_candidates():
+    text = ("제안서 미제출 시 입찰무효 처리됩니다.\n"
+            "계약담당자는 관련자료 제출을 요청할 수 있습니다.")
+    assert find_action_candidates(text) == []

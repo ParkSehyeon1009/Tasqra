@@ -58,7 +58,8 @@ def _label_before(context: str, raw: str, at: int | None = None) -> str | None:
     at = context.find(raw) if at is None else at
     if at < 0:
         return None
-    found = _LABEL.search(context[:at])
+    label_matches = list(_LABEL.finditer(context[:at]))
+    found = label_matches[-1] if label_matches else None
     if not found:
         period = _PERIOD_LABEL.search(context[:at])
         if not period:
@@ -147,7 +148,9 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
             continue              # 앞선 match 와 겹친다
         last_end = end
         context_start = max(0, start - BEFORE)
-        context = text[context_start:end + AFTER].replace("\n", " ")
+        # 줄바꿈은 표 행·라벨의 경계다. 공백으로 지우면 다음 행의
+        # `제출마감일시:`가 앞 행 문장에 붙어 라벨을 잃는다.
+        context = text[context_start:end + AFTER]
         time_value = _time_after(text[end:end + AFTER])
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
                                _label_before(context, raw, start - context_start),

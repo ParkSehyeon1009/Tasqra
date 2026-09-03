@@ -557,7 +557,9 @@ def test_모델_응답이_깨져도_명확한_마감일은_복구한다(config):
         "제안서 제출마감일시: 2026/07/15 10:00"))
 
     assert result.result["schedule_items"][0]["ends_on"] == "2026-07-15"
-    assert result.result["failed_groups"] == [1]
+    # 강한 원문 라벨은 모델 호출 전에 확정하므로 깨진 모델 응답에 노출되지 않는다.
+    assert result.result["failed_groups"] == []
+    assert result.result["call_count"] == 0
 
 
 @pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
@@ -666,7 +668,8 @@ def test_fake_client_satisfies_decision_and_schedule_contracts(config):
         "제출마감: 2026-09-10"))
 
     assert decision.result["decisions"] == []
-    assert schedule.result["schedule_items"] == []
+    assert schedule.result["schedule_items"][0]["ends_on"] == "2026-09-10"
+    assert schedule.result["call_count"] == 0
 
 
 @pytest.mark.parametrize("module_name,token_key", [("openai_client", "max_completion_tokens"), ("local_client", "max_tokens")])

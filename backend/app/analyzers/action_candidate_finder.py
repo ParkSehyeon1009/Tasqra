@@ -7,13 +7,13 @@ from app.analyzers.date_finder import find_dates
 
 _ACTION = re.compile(r"(제출|작성|준비|신청|등록|첨부|확인|검토|보고|납품|제작|보완|회신|송부|기재|발급|예약|참석)")
 _OBLIGATION = re.compile(r"(하여야|해야|할\s*것|바람|바랍니다|주시|요청|필수|기한|마감|이내|까지|예정입니다)")
-_EXCLUDE = re.compile(r"(법\s*제\d+조|조례\s*제\d+조|선정기준|심사기준|자격요건|자격조건|평가기준|제출서류\s*:)")
+_EXCLUDE = re.compile(r"(법\s*제\d+조|조례\s*제\d+조|선정기준|심사기준|자격요건|자격조건|평가기준|제출서류\s*:|입찰무효|불이익|참가자격이\s*없|제재)")
 _AUTHORITY = re.compile(r"^\s*(화성시|시장|심사위원|위원회|발주처|감독관)")
 _BROKEN = re.compile(r"^\s*(사용하고|하고|하며|하여|제출하고)")
-_NON_DELIVERABLE = re.compile(r"(?:숙지.{0,20}준수|단순\s*열람)")
+_NON_DELIVERABLE = re.compile(r"(?:숙지.{0,20}준수|단순\s*열람|요청할\s*수\s*있|제출을\s*요청할\s*수)")
 _SCHEDULE_ONLY = re.compile(r"^\s*(?:납품|제출|접수|계약|사업)?\s*(?:기한|기간|일시)\s*[:：]")
 _BULLET = re.compile(r"^[\s○●■□▶·ㆍ※\-\d.)(①-⑳]+")
-_ACTOR = re.compile(r"(?:^|[\s(])(신청인|신청자|입찰참가자|입찰자|낙찰자|협력업체|계약자|수급인|제안사|담당자)(?:은|는|이|가|에게|에서)?")
+_ACTOR = re.compile(r"(?:^|[\s(])(신청인|신청자|입찰참가자|입찰자|낙찰자|협력업체|계약상대자|계약자|수급인|수행기관|연구수행자|제안사|대표자|담당자)(?:은|는|이|가|에게|에서)?")
 _GENERIC_RULE_DOC = re.compile(r"(?:행정안전부\s*예규|계약\s*일반조건|입찰\s*유의서|낙찰자\s*결정\s*기준)")
 _PROPOSAL_DOC = re.compile(r"(?:기술|상품|사업|공급)?\s*제안서")
 _ADOPTED = re.compile(r"(?:채택|승인|선정|합의|계약에\s*반영|이행하기로)")
@@ -96,10 +96,17 @@ def _title(text: str) -> str:
         return "제안서 및 증빙서류 나라장터 제출"
     if "서약서" in value and "확인서" in value and "제출" in value:
         return "서약서 및 확인서 제출"
+    if "과업수행계획서" in value and "제반서류" in value and "제출" in value:
+        return "과업수행계획서와 제반서류 제출"
     value = re.sub(r"[.:]​?\s*$", "", value)
     value = re.sub(r"(하여야\s*합니다|해야\s*합니다|하여야\s*한다|해야\s*한다|하여야\s*함|해야\s*함|할\s*것입니다|할\s*것|바랍니다)\.?$", "", value)
     # 카드 제목은 한눈에 읽히는 실행명이어야 한다. 조건·근거 전문은 별도 필드에 둔다.
     value = re.split(r"(?:하여야|해야|바랍니다|주시기|주시면|할\s*것)", value, maxsplit=1)[0].strip()
+    if len(value) > 90:
+        action = list(_ACTION.finditer(value))
+        if action:
+            value = value[max(0, action[-1].start() - 65):action[-1].end()]
+            value = re.sub(r"^\S+\s+", "", value) if len(value) > 70 else value
     return value[:90].rstrip(" ,·;:").strip()
 
 
@@ -113,7 +120,26 @@ def _join_wrapped_lines(text: str) -> str:
     text = re.sub(
         r"(하여|하고|하며|하거나|거나|또는|및|후|송부하여|제출하여)\s*[\r\n]+\s*",
         r"\1 ", text)
-    return re.sub(r"[\r\n]+\s*(주시|하여야|해야|바랍니다)", r" \1", text)
+    text = re.sub(r"[\r\n]+\s*(주시|하여야|해야|바랍니다)", r" \1", text)
+    lines = [line.strip() for line in text.splitlines()]
+    merged: list[str] = []
+    for line in lines:
+        if not line:
+            continue
+        if not merged:
+            merged.append(line)
+            continue
+        previous = merged[-1]
+        new_block = bool(re.match(r"[○●■□▶·ㆍ※①-⑳]|\d+[.)]\s", line))
+        previous_is_heading = (len(previous) <= 80 and re.search(
+            r"(?:제안서|요청서|공고서|계약서|과업지시서|보고서)$", previous))
+        previous_is_schedule = bool(_SCHEDULE_ONLY.search(previous))
+        complete = bool(re.search(r"[.!?]|(?:한다|합니다|하여야\s*함|해야\s*함)$", previous))
+        if not new_block and not previous_is_heading and not previous_is_schedule and not complete:
+            merged[-1] = previous + " " + line
+        else:
+            merged.append(line)
+    return "\n".join(merged)
 
 
 def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
@@ -148,6 +174,9 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
         if position >= 0:
             cursor = position + len(raw)
         value = re.sub(r"\s+", " ", raw).strip()
+        if receipt and position >= 0 and position < receipt.end():
+            # 접수 블록은 위에서 하나의 구조화 후보로 이미 만들었다.
+            continue
         if not 10 <= len(value) <= 600 or not _ACTION.search(value):
             continue
         # 「납품기한: 2026/12/10」은 일정이지 독립된 업무가 아니다. 실제 납품·
@@ -172,7 +201,7 @@ def find_action_candidates(text: str, limit: int = 60) -> list[ActionCandidate]:
             due = None
         if position >= form_start:
             section_type = "form_or_appendix"
-        elif guide and position >= guide.start():
+        elif guide and position + len(raw) >= guide.start():
             section_type = "writing_guide"
         else:
             section_type = "body"

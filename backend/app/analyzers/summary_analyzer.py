@@ -38,6 +38,20 @@ def normalize_summary(text: str) -> tuple[str, list[str]]:
     return value, warnings
 
 
+def preserve_amount_units(summary: str, source: str) -> tuple[str, list[str]]:
+    """요약이 원문의 천원·만원·억원 배수를 떼어낸 명백한 경우만 보정한다."""
+    warnings = []
+    multipliers = {"천원": 1_000, "만원": 10_000, "억원": 100_000_000}
+    for found in re.finditer(r"(?P<number>\d[\d,]*)\s*(?P<unit>천원|만원|억원)", source):
+        digits, unit = found.group("number"), found.group("unit")
+        wrong = re.compile(rf"(?<![\d,]){re.escape(digits)}\s*원")
+        if wrong.search(summary):
+            amount = int(digits.replace(",", "")) * multipliers[unit]
+            summary = wrong.sub(f"{amount:,}원", summary)
+            warnings.append("amount_unit_restored")
+    return summary, warnings
+
+
 def find_span(quote: str, text: str) -> tuple[int, int] | None:
     """인용이 원문의 어디에 있는지 (시작, 끝) 을 준다. 없으면 None.
 
@@ -87,6 +101,8 @@ class SummaryAnalyzer:
             parsed = await runner.call(direct, SummaryOutput, stage="문서 요약")
             runner.progress("문서 요약", 1, 1)
             summary, warnings = normalize_summary(parsed.summary)
+            summary, amount_warnings = preserve_amount_units(summary, text)
+            warnings.extend(amount_warnings)
             output = {**parsed.model_dump(), "summary": summary, "quality_warnings": warnings,
                       "strategy": "direct", "input_scope": scope}
         else:
@@ -154,6 +170,8 @@ class SummaryAnalyzer:
                 validate=verify_final, stage="최종 요약")
             runner.progress("최종 요약", 1, 1)
             summary, warnings = normalize_summary(parsed.summary)
+            summary, amount_warnings = preserve_amount_units(summary, text)
+            warnings.extend(amount_warnings)
             output = {**parsed.model_dump(), "summary": summary, "quality_warnings": warnings,
                 "strategy": "hierarchical", "input_scope": scope,
                 "chunk_count": len(chunks), "hard_split_count": sum(c.hard_split for c in chunks),

@@ -39,10 +39,18 @@ _RELATIVE_DURATION = re.compile(
     r"\d{1,3}\s*(?:영업일|일|주|개월|달|년)\s*(?:동안|으로\s*한다|로\s*한다|이다))"
 )
 _RECURRENCE = re.compile(
-    r"(?P<expression>(?:매일|매주|매월|월별|주간|정기적으로|수시로?)"
+    r"(?P<expression>(?:매일|매주|매월|월별|주간|정기적으로)"
     r"[^.!?\n]{0,100}?(?:제출|보고|지급|검사|회의|점검|확인))"
 )
 _MONTH_ONLY = re.compile(r"(?P<expression>20\d{2}\s*년\s*\d{1,2}\s*월)\s*(?P<tentative>예정)?")
+_MONTH_RANGE = re.compile(
+    r"(?P<expression>[’']?(?P<year>\d{2,4})\s*[.]?\s*(?P<start>\d{1,2})\s*월?"
+    r"\s*(?:~|～|−|–|—)\s*(?P<end>\d{1,2})\s*월)"
+)
+_BEFORE_DEADLINE = re.compile(
+    r"(?P<expression>(?P<reference>[가-힣A-Za-z0-9·ㆍ\s]{2,40}?)\s*"
+    r"(?P<amount>\d{1,3})\s*(?P<unit>영업일|일|주|개월|달)\s*이전)"
+)
 _TBD = re.compile(r"(?P<expression>(?:발표|회의|평가|선정|납품|계약|일정)[^.!?\n]{0,60}?(?:추후|별도)\s*통보)")
 
 
@@ -99,7 +107,7 @@ class ScheduleAnalyzer:
                 provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
                 model_name=self._ai_client.model_name, latency_ms=0)
 
-        periods, dates = self._extract_clear_periods(dates)
+        periods, dates = self._extract_clear_schedules(dates)
         groups = self._split_by_budget(dates, budget)
         items: list[ScheduleItemExtraction] = [*periods, *relative_items]
         labeled = len(periods) * 2
@@ -180,8 +188,8 @@ class ScheduleAnalyzer:
         return groups
 
     @staticmethod
-    def _extract_clear_periods(dates):
-        """원문이 같은 범위로 묶고 이름도 '기간'이면 모델 없이 확정한다."""
+    def _extract_clear_schedules(dates):
+        """원문 라벨과 범위가 명확한 일정은 모델에게 역할을 다시 추측시키지 않는다."""
         by_range = {}
         for found in dates:
             if found.range_key is not None:
@@ -191,19 +199,43 @@ class ScheduleAnalyzer:
             if len(grouped) != 2:
                 continue
             label = grouped[0].label or grouped[1].label
-            if kind_from_label(label) is not ScheduleKind.PERIOD:
+            label_kind = kind_from_label(label)
+            if label_kind is not ScheduleKind.PERIOD and not (
+                    label and re.search(r"개시|시작", label)):
                 continue
             picked = sorted(grouped, key=lambda item: (item.value, item.time_value or time.min))
             if picked[0].value == picked[1].value and picked[0].time_value == picked[1].time_value:
                 continue
             consumed.update(item.id for item in grouped)
+            title = re.sub(r"(?:개시|시작)\s*일시", "기간", label or "기간")
             periods.append(ScheduleItemExtraction(
-                title=(label or "기간")[:70], evidence_text=grouped[0].context.strip(),
+                title=title[:70], evidence_text=grouped[0].context.strip(),
                 kind=ScheduleKind.PERIOD, starts_on=picked[0].value, ends_on=picked[1].value,
                 starts_time=picked[0].time_value, ends_time=picked[1].time_value,
                 temporal_type="ABSOLUTE_RANGE",
                 precision="MINUTE" if any(item.time_value for item in picked) else "DAY",
                 confidence=1.0, reason="원문에서 시작일과 종료일이 하나의 기간으로 연결됨"))
+        # 콜론 바로 앞 라벨은 표·행의 강한 구조 신호다. 시작을 마감으로 바꾸는
+        # 모델 오류를 막기 위해 단일 시점도 여기서 확정한다.
+        for found in dates:
+            if found.id in consumed or found.context_type != "body":
+                continue
+            kind = kind_from_label(found.label)
+            if kind is None or kind is ScheduleKind.PERIOD:
+                continue
+            consumed.add(found.id)
+            deadline = kind is ScheduleKind.DEADLINE
+            periods.append(ScheduleItemExtraction(
+                title=(found.label or "일정")[:70], evidence_text=found.context.strip(),
+                kind=kind,
+                starts_on=None if deadline else found.value,
+                ends_on=found.value if deadline else None,
+                starts_time=None if deadline else found.time_value,
+                ends_time=found.time_value if deadline else None,
+                temporal_type="ABSOLUTE_INSTANT",
+                precision="MINUTE" if found.time_value else "DAY",
+                tentative=bool(re.search(r"예정|추후", found.context)),
+                confidence=1.0, reason="원문 일정 라벨과 날짜 역할을 규칙으로 확인함"))
         return periods, [found for found in dates if found.id not in consumed]
 
     @staticmethod
@@ -212,8 +244,10 @@ class ScheduleAnalyzer:
         unique, seen = [], set()
         for item in items:
             title = re.sub(r"[^0-9A-Za-z가-힣]", "", item.title).lower()
+            relative = re.sub(r"\s+", "", item.relative_expression or "")
+            relative = re.sub(r"(?:일)?(?:로부터|부터|후)", "후", relative)
             key = (title, item.kind, item.starts_on, item.ends_on, item.starts_time,
-                   item.ends_time, item.relative_expression)
+                   item.ends_time, relative, item.anchor_event)
             if key not in seen:
                 seen.add(key)
                 unique.append(item)
@@ -335,13 +369,28 @@ class ScheduleAnalyzer:
             if not reference or len(expression) > 300:
                 continue
             start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            label = ScheduleAnalyzer._nearby_action_label(text, found.start(), reference)
             items.append(ScheduleItemExtraction(
-                title=f"{reference} 후 기한"[:70], evidence_text=text[start:end].strip(),
+                title=(label or f"{reference} 후 기한")[:70], evidence_text=text[start:end].strip(),
                 kind=ScheduleKind.DEADLINE, relative_expression=expression,
                 temporal_type="RELATIVE_DEADLINE", anchor_event=reference,
                 calendar_rule="BUSINESS_DAY" if "영업일" in expression else "CALENDAR_DAY",
                 condition=ScheduleAnalyzer._condition(text[start:end]),
                 confidence=1.0, reason="원문에 기준 시점과 상대 기한이 명시됨"))
+        for found in _BEFORE_DEADLINE.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            reference = ScheduleAnalyzer._clean_reference(found.group("reference"))
+            if not reference:
+                continue
+            start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            label = ScheduleAnalyzer._nearby_action_label(text, found.start(), reference)
+            items.append(ScheduleItemExtraction(
+                title=(label or f"{reference} 이전 기한")[:70],
+                evidence_text=text[start:end].strip(), kind=ScheduleKind.DEADLINE,
+                relative_expression=expression, temporal_type="RELATIVE_DEADLINE",
+                anchor_event=reference,
+                calendar_rule="BUSINESS_DAY" if "영업일" in expression else "CALENDAR_DAY",
+                confidence=1.0, reason="원문에 기준 시점 이전의 상대 기한이 명시됨"))
         for found in _RELATIVE_DURATION.finditer(text):
             expression = re.sub(r"\s+", " ", found.group("expression")).strip()
             label = re.sub(r"\s+", " ", found.group("label")).strip(" ·,-")
@@ -378,6 +427,17 @@ class ScheduleAnalyzer:
                 temporal_type="MONTH_ONLY", precision="MONTH",
                 tentative=bool(found.group("tentative") or re.search(r"예정", context)),
                 confidence=0.9, reason="원문에는 월까지만 명시되어 임의의 일자를 만들지 않음"))
+        for found in _MONTH_RANGE.finditer(text):
+            start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
+            context = text[start:end]
+            if not re.search(r"기간|수행|추진|계약|공고|연구", context):
+                continue
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            items.append(ScheduleItemExtraction(
+                title=ScheduleAnalyzer._month_title(context), evidence_text=context.strip(),
+                kind=ScheduleKind.PERIOD, relative_expression=expression,
+                temporal_type="MONTH_RANGE", precision="MONTH", tentative=True,
+                confidence=0.9, reason="원문에 월 단위 시작과 종료 범위가 명시됨"))
         for found in _TBD.finditer(text):
             expression = re.sub(r"\s+", " ", found.group("expression")).strip()
             start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
@@ -412,6 +472,17 @@ class ScheduleAnalyzer:
         name = next((word for word in ("선정자 발표", "최종보고", "중간보고", "착수", "완료", "납품", "계약")
                      if word in context), "월 단위 일정")
         return name
+
+    @staticmethod
+    def _nearby_action_label(text: str, at: int, reference: str) -> str | None:
+        line = text[max(0, text.rfind("\n", 0, at) + 1):at]
+        line = re.split(r"[.!?]", line)[-1]
+        line = re.sub(r"^[\s○●◦·∙*■□▪▶〉>\-–—]+", "", line).strip()
+        label = re.split(r"[:：]", line, maxsplit=1)[0].strip()
+        if label and label != reference and len(label) <= 70 and re.search(
+                r"보고|제출|납품|접수|평가|회의|수행|작성", label):
+            return label
+        return None
 
     @staticmethod
     def _clean_reference(value: str) -> str:
