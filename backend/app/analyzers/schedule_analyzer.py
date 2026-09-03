@@ -69,6 +69,7 @@ class ScheduleAnalyzer:
         budget = PromptBudget(self._settings)
         runner = Runner(self._ai_client, self._settings, budget, progress)
         dates = find_dates(text)
+        total_date_count = len(dates)
 
         if not dates:
             # 날짜가 없는 문서다. 모델을 부를 이유가 없다 — 부르면 없는 일정을
@@ -79,10 +80,18 @@ class ScheduleAnalyzer:
                 provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
                 model_name=self._ai_client.model_name, latency_ms=0)
 
+        periods, dates = self._extract_clear_periods(dates)
         groups = self._split_by_budget(dates, budget)
-        items: list[ScheduleItemExtraction] = []
-        labeled = 0
+        items: list[ScheduleItemExtraction] = list(periods)
+        labeled = len(periods) * 2
         failed_groups: list[int] = []
+        if not groups:
+            return AnalyzeResult(
+                result={"schedule_items": [item.model_dump(mode="json") for item in items],
+                        "date_count": total_date_count, "labeled_count": labeled,
+                        "call_count": 0, "failed_groups": []},
+                provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
+                model_name=self._ai_client.model_name, latency_ms=0)
         for i, group in enumerate(groups):
             stage = f"일정 라벨링 {i + 1}/{len(groups)}" if len(groups) > 1 else "일정 라벨링"
             runner.progress(stage, i, len(groups))
@@ -119,12 +128,13 @@ class ScheduleAnalyzer:
             runner.progress(stage, i + 1, len(groups))
 
         # 원문 순서가 아니라 **날짜 순서**로 준다. 화면에서 그대로 일정이 된다.
+        items = self._deduplicate(items)
         items.sort(key=lambda item: (item.starts_on or item.ends_on, item.title))
         return AnalyzeResult(
             result={"schedule_items": [item.model_dump(mode="json") for item in items],
                     # 찾은 날짜 중 몇 개가 일정이 됐는지. 이 비율이 낮으면
                     # 프롬프트가 문맥을 못 읽고 있다는 신호다.
-                    "date_count": len(dates), "labeled_count": labeled,
+                    "date_count": total_date_count, "labeled_count": labeled,
                     "call_count": runner.calls, "failed_groups": failed_groups},
             provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
             **runner.metadata())
@@ -143,6 +153,42 @@ class ScheduleAnalyzer:
         if group:
             groups.append(group)
         return groups
+
+    @staticmethod
+    def _extract_clear_periods(dates):
+        """원문이 같은 범위로 묶고 이름도 '기간'이면 모델 없이 확정한다."""
+        by_range = {}
+        for found in dates:
+            if found.range_key is not None:
+                by_range.setdefault(found.range_key, []).append(found)
+        consumed, periods = set(), []
+        for grouped in by_range.values():
+            if len(grouped) != 2:
+                continue
+            label = grouped[0].label or grouped[1].label
+            if kind_from_label(label) is not ScheduleKind.PERIOD:
+                continue
+            picked = sorted(item.value for item in grouped)
+            if picked[0] == picked[1]:
+                continue
+            consumed.update(item.id for item in grouped)
+            periods.append(ScheduleItemExtraction(
+                title=(label or "기간")[:70], evidence_text=grouped[0].context.strip(),
+                kind=ScheduleKind.PERIOD, starts_on=picked[0], ends_on=picked[1],
+                confidence=1.0, reason="원문에서 시작일과 종료일이 하나의 기간으로 연결됨"))
+        return periods, [found for found in dates if found.id not in consumed]
+
+    @staticmethod
+    def _deduplicate(items):
+        """같은 의미·날짜의 반복 결과만 합치고 같은 날의 다른 일정은 보존한다."""
+        unique, seen = [], set()
+        for item in items:
+            title = re.sub(r"[^0-9A-Za-z가-힣]", "", item.title).lower()
+            key = (title, item.kind, item.starts_on, item.ends_on)
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
+        return unique
 
     @staticmethod
     def _recover_labeled(dates) -> list[ScheduleItemExtraction]:

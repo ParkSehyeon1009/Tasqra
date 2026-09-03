@@ -1,3 +1,6 @@
+import logging
+import re
+
 from app.analyzers.action_candidate_finder import find_action_candidates
 from app.analyzers.output_schemas import ActionSelectionOutput
 from app.analyzers.prompt_input import PromptBudget
@@ -5,7 +8,12 @@ from app.analyzers.prompts import ACTION_TASK_PROMPT_VERSION, build_action_task_
 from app.analyzers.protocol import AnalyzeResult
 from app.analyzers.runner import Runner
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
 from app.schemas.extraction import TaskSuggestionExtraction
+
+logger = logging.getLogger(__name__)
+MAX_CANDIDATES_PER_GROUP = 12
 
 
 class ActionTaskAnalyzer:
@@ -25,24 +33,40 @@ class ActionTaskAnalyzer:
         groups, group = [], []
         for candidate in candidates:
             next_group = group + [candidate]
-            if group and not budget.fits(build_action_task_prompt([c.as_prompt_record() for c in next_group])):
+            if group and (len(next_group) > MAX_CANDIDATES_PER_GROUP or not budget.fits(
+                    build_action_task_prompt([c.as_prompt_record() for c in next_group]))):
                 groups.append(group); group = [candidate]
             else:
                 group = next_group
         if group:
             groups.append(group)
         selected_candidates = []
+        failed_groups = []
         for index, candidates_group in enumerate(groups):
-            allowed = {candidate.id: candidate for candidate in candidates_group}
+            # 모델에는 묶음마다 a1부터 시작하는 짧은 ID만 보여준다. 두 번째 묶음이
+            # a19부터 시작하면 소형 모델이 학습된 a1을 되풀이하는 문제가 있었다.
+            allowed = {f"a{offset}": candidate
+                       for offset, candidate in enumerate(candidates_group, 1)}
+            records = []
+            for local_id, candidate in allowed.items():
+                record = candidate.as_prompt_record()
+                records.append({**record, "id": local_id})
             def verify(parsed, allowed=allowed):
                 if not set(parsed.selected_ids) <= allowed.keys():
                     raise ValueError("unknown action candidate id")
                 if len(set(parsed.selected_ids)) != len(parsed.selected_ids):
                     raise ValueError("duplicated action candidate id")
             stage = f"액션 태스크 선별 {index+1}/{len(groups)}"
-            parsed = await runner.call(build_action_task_prompt(
-                [c.as_prompt_record() for c in candidates_group]), ActionSelectionOutput,
-                validate=verify, stage=stage)
+            try:
+                parsed = await runner.call(build_action_task_prompt(records),
+                    ActionSelectionOutput, validate=verify, stage=stage)
+            except BusinessError as exc:
+                if exc.error_code is not ErrorCode.AI_INVALID_RESPONSE:
+                    raise
+                # 형식이 깨진 한 묶음 때문에 요약·분류 등 전체 분석을 폐기하지 않는다.
+                failed_groups.append(index + 1)
+                logger.warning("액션 태스크 묶음 제외 stage=%s", stage)
+                continue
             for candidate_id in parsed.selected_ids:
                 selected_candidates.append(allowed[candidate_id])
 
@@ -55,11 +79,18 @@ class ActionTaskAnalyzer:
         }
         selected_candidates = [candidate for candidate in selected_candidates
             if candidate.is_aggregate or candidate.section_type not in aggregate_sections]
+        unique, seen = [], set()
+        for candidate in selected_candidates:
+            key = re.sub(r"[^0-9A-Za-z가-힣]", "", candidate.title).lower()
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(candidate)
+        selected_candidates = unique
         suggestions = []
         for candidate in selected_candidates:
             subject = candidate.actor or "담당자"
             due = f" {candidate.due_on.isoformat()}까지 완료해야 합니다." if candidate.due_on else ""
-            action = candidate.title.rstrip(". ")
+            action = _predicate(candidate.title)
             suggestions.append(TaskSuggestionExtraction(
                     title=candidate.title,
                     description=f"{subject}가 원문 요구사항에 따라 {action}합니다.{due}",
@@ -69,5 +100,14 @@ class ActionTaskAnalyzer:
                     reason="원문에 실행 행동과 의무 표현이 함께 있어 후보로 선택됨"))
         return AnalyzeResult(result={"task_suggestions": [s.model_dump(mode="json") for s in suggestions],
             "candidate_count": len(candidates), "selected_count": len(suggestions),
-            "call_count": runner.calls}, provider=self._ai_client.provider,
+            "call_count": runner.calls, "failed_groups": failed_groups}, provider=self._ai_client.provider,
             prompt_version=ACTION_TASK_PROMPT_VERSION, **runner.metadata())
+
+
+def _predicate(title: str) -> str:
+    """명사형·연결형 제목 뒤에 붙여도 자연스러운 서술어로 정리한다."""
+    value = title.rstrip(". ")
+    value = re.sub(r"(?:하여|하시기|하기|하도록)$", "", value).rstrip()
+    if re.search(r"(?:제출|작성|준비|신청|등록|확인|검토|보고|납품|송부|기재|발급|참석)$", value):
+        return value + "해야 "
+    return value + "을(를) 수행해야 "

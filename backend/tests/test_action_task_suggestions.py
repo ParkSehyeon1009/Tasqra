@@ -99,3 +99,55 @@ def test_정중한_송부_요청도_액션_후보로_잡는다():
     assert candidates
     assert any("송부" in item.text for item in candidates)
     assert candidates[0].actor == "협력업체"
+
+
+def test_줄_중간에서_끊긴_정중한_요청도_이어_읽는다():
+    candidates = find_action_candidates(
+        "계약서 2부를 작성하여 우편으로 송부하여\n주시면 진행하겠습니다.")
+    assert any("송부" in item.text for item in candidates)
+
+
+def test_숙지_문구는_태스크가_아니고_제출물은_짧은_제목을_쓴다():
+    candidates = find_action_candidates("""
+입찰자는 입찰설명서를 숙지하고 준수하여야 합니다.
+제안서와 증빙서류는 반드시 나라장터를 통하여 제출하여 주시기 바랍니다.
+""")
+    assert [item.title for item in candidates] == ["제안서 및 증빙서류 나라장터 제출"]
+
+
+class GroupAwareAI(FakeAIClient):
+    def __init__(self, fail_second=False):
+        self.calls = 0
+        self.fail_second = fail_second
+        self.group_ids = []
+
+    async def generate_with_meta(self, prompt):
+        import json
+        self.calls += 1
+        records = json.loads(prompt.user)["candidates"]
+        ids = [record["id"] for record in records]
+        self.group_ids.append(ids)
+        selected = ["missing"] if self.fail_second and self.calls >= 2 else ids[:1]
+        return AIResult(text=ActionSelectionOutput(selected_ids=selected).model_dump_json(),
+            model_name=self.model_name, tokens_in=1, tokens_out=1, latency_ms=1)
+
+
+def _many_actions(count=14):
+    return "\n".join(
+        f"담당자는 제안서 {number}번 항목을 작성하여 제출해야 합니다."
+        for number in range(1, count + 1))
+
+
+def test_각_묶음의_id는_a1부터_다시_시작한다():
+    client = GroupAwareAI()
+    result = asyncio.run(ActionTaskAnalyzer(client, config()).analyze(_many_actions()))
+    assert len(client.group_ids) == 2
+    assert all(ids[0] == "a1" for ids in client.group_ids)
+    assert result.result["failed_groups"] == []
+
+
+def test_깨진_묶음은_제외하고_앞선_선택을_보존한다():
+    client = GroupAwareAI(fail_second=True)
+    result = asyncio.run(ActionTaskAnalyzer(client, config()).analyze(_many_actions()))
+    assert result.result["selected_count"] == 1
+    assert result.result["failed_groups"] == [2]

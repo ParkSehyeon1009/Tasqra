@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 # 공공 문서에 실제로 나오는 형태. 추출기가 공백을 여러 칸 뱉으므로 사이를 허용한다.
@@ -47,16 +47,22 @@ _LABEL = re.compile(
 )
 # 이름처럼 보이지만 아닌 것. 「1) 입찰의 일시 및 장소」 같은 목차 번호가 섞인다.
 _NOT_LABEL = re.compile(r"[.。]\s|다\s*$|습니다|바랍니다")
+_PERIOD_LABEL = re.compile(r"(?:^|[○●◦·∙*■□▪▶〉>\-–—)])\s*([^:：\n]{2,40}?기간)\s*[:：][^:：\n]{0,100}$")
 
 
-def _label_before(context: str, raw: str) -> str | None:
-    at = context.find(raw)
+def _label_before(context: str, raw: str, at: int | None = None) -> str | None:
+    # 같은 날짜가 가까이 반복될 수 있으므로 문자열 검색보다 원문 위치를 우선한다.
+    at = context.find(raw) if at is None else at
     if at < 0:
         return None
     found = _LABEL.search(context[:at])
     if not found:
-        return None
-    label = re.sub(r"\s+", " ", found.group("label")).strip()
+        period = _PERIOD_LABEL.search(context[:at])
+        if not period:
+            return None
+        label = re.sub(r"\s+", " ", period.group(1)).strip()
+    else:
+        label = re.sub(r"\s+", " ", found.group("label")).strip()
     # context 가 문장 중간에서 잘리면 글머리표가 앞에 남는다(「- 제출기한」).
     # 화면에 그대로 뜨므로 걷어낸다.
     label = re.sub(r"^[\s○●◦·∙*■□▪▶〉>\-–—.·]+", "", label).strip()
@@ -75,6 +81,7 @@ class FoundDate:
     context: str     # 앞뒤를 잘라낸 문맥
     label: str | None = None   # 콜론 앞에서 잡은 이름. 없으면 모델이 정한다
     context_type: str = "body"  # 예시·이력은 삭제하지 않고 판단 힌트만 준다
+    range_key: int | None = None  # 원문에서 ~·부터/까지로 연결된 같은 기간
 
     def as_prompt_record(self) -> dict:
         # ⚠️ label 은 **모델에게 보내지 않는다.** 힌트로 줘 봤더니 오히려 나빠졌다
@@ -82,7 +89,8 @@ class FoundDate:
         #   보고 판단하게 두고, label 이 있으면 파이썬이 결과를 덮어쓴다.
         #   schedule_analyzer._build() 를 보라.
         return {"id": self.id, "date": self.value.isoformat(), "context": self.context,
-                "context_type": self.context_type}
+                "context_type": self.context_type,
+                "range_id": f"r{self.range_key}" if self.range_key is not None else None}
 
 
 def _context_type(context: str) -> str:
@@ -128,9 +136,19 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         if start < last_end:
             continue              # 앞선 match 와 겹친다
         last_end = end
-        context = text[max(0, start - BEFORE):end + AFTER].replace("\n", " ")
+        context_start = max(0, start - BEFORE)
+        context = text[context_start:end + AFTER].replace("\n", " ")
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
-                               _label_before(context, raw), _context_type(context)))
+                               _label_before(context, raw, start - context_start),
+                               _context_type(context)))
         if len(dates) >= limit:
             break
+    for index in range(1, len(dates)):
+        previous, current = dates[index - 1], dates[index]
+        between = text[previous.at + len(previous.raw):current.at]
+        if len(between) <= 100 and re.search(r"(?:~|～|−|–|—|부터)", between):
+            key = previous.range_key if previous.range_key is not None else previous.at
+            label = current.label or previous.label
+            dates[index - 1] = replace(previous, range_key=key)
+            dates[index] = replace(current, label=label, range_key=key)
     return dates

@@ -498,6 +498,26 @@ def test_생략된_연월이_있는_기간을_복원한다():
     assert [item.value.isoformat() for item in found] == ["2026-08-13", "2026-08-31"]
 
 
+def test_명확한_접수기간은_모델없이_하나로_묶는다(config):
+    client = ScriptedAI(lambda *_: pytest.fail("명확한 기간은 모델을 부르면 안 된다"))
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "접수기간: 2026. 8. 13. ~ 8. 31."))
+    item = result.result["schedule_items"][0]
+    assert (item["kind"], item["starts_on"], item["ends_on"]) == (
+        "PERIOD", "2026-08-13", "2026-08-31")
+    assert result.result["call_count"] == 0
+
+
+@pytest.mark.parametrize(("text", "model_category", "reason", "expected"), [
+    ("조달물자 구매입찰 재공고 제안서 제출 안내", "COST_SHEET", "금액의 언급 없음", "RFP"),
+    ("협력 방안 제안서 상품 판매 협력업체를 모집합니다.", "ETC", "기타 문서", "PROPOSAL"),
+])
+def test_제목과_명백히_모순되는_분류는_교정한다(config, text, model_category, reason, expected):
+    client = ScriptedAI(lambda *_: {"category": model_category, "reason": reason})
+    result = asyncio.run(CategoryAnalyzer(client, config).analyze(text))
+    assert result.result["category"] == expected
+
+
 def test_모델_응답이_깨져도_명확한_마감일은_복구한다(config):
     client = ScriptedAI(lambda *_: {"items": [{"date_ids": ["없는-id"],
         "title": "오류", "kind": "DEADLINE", "confidence": 0.1, "reason": "오류"}]})
