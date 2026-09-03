@@ -5,6 +5,7 @@
 // =============================================================================
 
 import { useEffect, useState } from 'react'
+import { BrandMark } from '../../components/common/Logo'
 import { projectColorIndex } from '../../utils/projectColor'
 
 // 탭이 **두 곳**에 적혀 있다. 여기와 WorkspacePage 의 TABS 다.
@@ -22,7 +23,7 @@ export default function ProjectSidebar({ projects, activeProjectId, activeTab, p
     return () => document.body.classList.remove('tasqra-rail-mini')
   }, [collapsed])
   return <aside className="project-sidebar" aria-label="프로젝트 메뉴">
-    <div className="project-sidebar__top"><div className="project-sidebar__brand"><BrandMark/><div className="project-sidebar__text"><strong>Tasqra</strong><small>DOCUMENT · TO · ACTION</small></div></div><button className="project-sidebar__collapse" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}><Icon name="chevron"/></button></div>
+    <div className="project-sidebar__top"><div className="project-sidebar__brand"><BrandMark className="project-sidebar__logo" size={34}/><div className="project-sidebar__text"><strong>Tasqra</strong><small>DOCUMENT · TO · ACTION</small></div></div><button className="project-sidebar__collapse" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}><Icon name="chevron"/></button></div>
     <div className="project-sidebar__heading"><span className="project-sidebar__text">프로젝트</span><button onClick={onCreate} aria-label="새 프로젝트 만들기">＋</button></div>
     <nav className="project-sidebar__list" aria-label="참여 중인 프로젝트">
       {onOpenPortfolio && <button className={`project-sidebar__portfolio${portfolioActive ? ' is-active' : ''}`} aria-current={portfolioActive ? 'page' : undefined} title="전체 프로젝트" onClick={onOpenPortfolio}><Icon name="dashboard"/><span className="project-sidebar__text">전체 프로젝트</span></button>}
@@ -33,8 +34,6 @@ export default function ProjectSidebar({ projects, activeProjectId, activeTab, p
     }) : <p className="project-sidebar__text">참여 중인 프로젝트가 없습니다.</p>}</nav>
   </aside>
 }
-
-function BrandMark() { return <svg className="project-sidebar__logo" width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="tasqra-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7fb3ff"/><stop offset="1" stopColor="#3f5bd9"/></linearGradient></defs><circle cx="16" cy="15" r="9.5" fill="url(#tasqra-logo)"/><ellipse cx="16" cy="16" rx="14.5" ry="5.6" fill="none" stroke="#9fc2ff" strokeWidth="1.5" opacity=".85" transform="rotate(-22 16 16)"/><path d="M11.4 11.2h9.2M16 11.2v9.6" stroke="#fff" strokeWidth="2.4" strokeLinecap="round"/><circle cx="26" cy="7" r="1.1" fill="#cfe1ff"/><circle cx="6" cy="24" r=".8" fill="#cfe1ff"/></svg> }
 
 function Icon({ name }) {
   const common = { width:16,height:16,viewBox:'0 0 20 20',fill:'none',stroke:'currentColor',strokeWidth:1.7,'aria-hidden':true }

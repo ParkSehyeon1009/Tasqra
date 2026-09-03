@@ -129,9 +129,9 @@ export default function DeliverablesView({ projectId, notify }) {
   const [periodTo, setPeriodTo] = useState(DEFAULT_TO)
   // 삭제 확인 대상. null 이면 확인창이 닫혀 있다.
   const [deleteTarget, setDeleteTarget] = useState(null)
-  // 미리보기 영역은 처음부터 보여준다. 담을 내용이 없더라도 영역과 이유가 보여야
-  // 사용자가 화면이 사라진 것으로 오해하지 않는다. 본문 API는 can_generate일 때만 부른다.
-  const [contentOpen, setContentOpen] = useState(true)
+  // 본문 미리보기는 사용자가 버튼을 눌렀을 때만 연다. 닫힌 동안에는
+  // ContentPreview가 마운트되지 않아 LLM을 쓰는 본문 API도 호출하지 않는다.
+  const [contentOpen, setContentOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const previewQuery = useQuery({

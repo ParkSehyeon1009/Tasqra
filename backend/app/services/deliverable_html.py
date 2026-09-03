@@ -26,17 +26,12 @@
 #   그대로 구워 만든다 — deliverable_pdf.py).
 #   그래서 이 파일만 표지·절 번호·머리글 대비 같은 짜임을 갖는다.
 #
-# ⚠ 포인트색 하나만 쓴다 — 나머지는 무채색이다 (2026-08-27 판단)
-#   전에는 완전 무채색이었는데 검정 면(표지 띠·번호 뱃지·표 머리)이 너무 무거웠고,
-#   표지만 화면 폭 전체라 본문(가운데 컬럼)과 왼쪽이 어긋났다. 그래서 검정 면을
-#   걷어내고 **포인트색 #0f6b6b(딥 틸) 하나**만 쓴다 — 표지 아래 선 하나와 절 번호
-#   칩에만. 전체 폭 가로선을 절·표마다 반복하면 조잡해져서("선이 줄줄줄") 표지 아래
-#   한 줄로만 두고, 나머지 위계는 **여백과 글자 크기**로 만든다. 나머지 색은 여전히
-#   검정(#1b1b1b)·회색·흰색이다.
+# ⚠ HTML·PDF도 무채색으로 유지한다 (2026-09-02 판단)
+#   산출물은 화면 미리보기뿐 아니라 내려받은 HTML과 PDF도 그대로 공유·인쇄한다.
+#   그래서 표지 아래 선과 절 번호 칩까지 검정(#1b1b1b) 하나로 통일하고, 나머지
+#   위계는 회색 면·여백·글자 크기로 만든다. 미리보기와 실제 파일의 색이 달라지지
+#   않도록 iframe 필터가 아니라 이 공통 렌더러에서 색을 정한다.
 #
-#   색을 바꾸려면 이 파일의 #0f6b6b 를 모두 바꾼다(지금은 그 한 값뿐이다). CSS
-#   변수를 쓰지 않는 이유는 아래 STYLE 주석 참고 — 오래된 PDF 엔진 대비다.
-#   포인트색은 채도·명도가 있어 흑백 복사에서도 회색으로 남아 뭉개지지 않는다.
 #   스타일은 파일 안에 넣는다 — 산출물은 한 파일로 주고받으므로 외부 CSS·웹폰트를
 #   참조하면 받는 쪽에서 깨진다.
 #
@@ -60,12 +55,10 @@ from app.services.deliverable_markdown import (
 
 __all__ = ["render_html", "to_html"]
 
-# 무채색 + 포인트색 하나(#0f6b6b). 폰트는 받는 쪽에 있는 것을 쓴다(웹폰트를
-# 내려받게 하지 않는다).
+# 무채색 산출물. 폰트는 받는 쪽에 있는 것을 쓴다(웹폰트를 내려받게 하지 않는다).
 #
 # CSS 변수(--foo)를 쓰지 않았다. 나중에 PDF 변환기를 붙일 때 오래된 엔진이
 # 변수를 이해하지 못하면 색이 전부 빠진다 — 값을 그대로 적어 두면 그런 일이 없다.
-# 그래서 포인트색은 #0f6b6b 리터럴로 반복된다. 색을 바꾸려면 전부 찾아 바꾼다.
 STYLE = """
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -73,13 +66,13 @@ body { margin: 0; background: #ffffff; color: #1b1b1b; font-size: 14px; line-hei
   font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
     "NanumGothic", "Nanum Gothic", sans-serif; }
 
-/* 표지. 검정 면을 걷어내고 흰 바탕에 제목 블록 아래 포인트색 선 하나만 둔다.
+/* 표지. 흰 바탕에 제목 블록 아래 검정 선 하나만 둔다.
    본문·꼬리말과 같은 920px 가운데 컬럼에 두어 왼쪽 끝을 맞춘다 — 전에는 표지만
    화면 폭 전체라 가운데 정렬된 본문과 왼쪽이 어긋나 표지만 튀어 보였다.
    전체 폭 가로선은 이 한 줄뿐이다 — 절·표마다 선을 반복하면 "선이 줄줄줄" 조잡해져서,
    나머지 위계는 선이 아니라 여백과 글자 크기로 만든다. */
 .cover { max-width: 920px; margin: 0 auto; padding: 38px 44px 20px;
-  border-bottom: 3px solid #0f6b6b; }
+  border-bottom: 3px solid #1b1b1b; }
 .cover h1 { margin: 0; font-size: 27px; font-weight: 700; line-height: 1.3;
   letter-spacing: -0.01em; color: #1b1b1b; }
 /* 메타는 가운뎃점(·)으로 잇는다 — 점 마커를 줄줄이 붙이면 그것도 선처럼 보인다. */
@@ -89,11 +82,11 @@ body { margin: 0; background: #ffffff; color: #1b1b1b; font-size: 14px; line-hei
 
 main { max-width: 920px; margin: 0 auto; padding: 26px 44px 4px; }
 
-/* 절 머리. keyline 을 두지 않고 여백으로 절을 나눈다. 번호는 작은 포인트색 칩,
+/* 절 머리. keyline 을 두지 않고 여백으로 절을 나눈다. 번호는 작은 검정 칩,
    제목은 굵게. 위계를 선이 아니라 .block 위 여백과 글자로 드러낸다. */
 .block { margin: 32px 0 0; }
 .block-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
-.block-num { flex: none; min-width: 22px; padding: 3px 6px; background: #0f6b6b; color: #ffffff;
+.block-num { flex: none; min-width: 22px; padding: 3px 6px; background: #1b1b1b; color: #ffffff;
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-align: center; border-radius: 2px; }
 .block-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.01em; }
 
