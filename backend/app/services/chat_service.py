@@ -135,6 +135,33 @@ class ChatService:
         # 계산한다. 기간 없는 `2명`은 계산하지 않고 인월 수량을 다시 묻는다.
         has_amount_intent = self._has_amount_calculation_intent(question)
         if has_amount_intent:
+            workload_rate = self._requested_workload_rate(question)
+            if workload_rate is not None:
+                people_and_months = self._requested_people_and_months(question)
+                if people_and_months is not None:
+                    return self._answer_unit_price(
+                        project_id=project_id,
+                        question=question,
+                        assembled=assembled,
+                        searched_project_ids=search.searched_project_ids,
+                        requested_people_and_months=people_and_months,
+                        requested_workload_rate=workload_rate,
+                    )
+                return self._clarification_response(
+                    answer="숫자 투입률은 확인했지만 인원과 개월을 하나의 "
+                    "기술자 항목에 연결하지 못했습니다. '특급기술자 2명이 "
+                    "3개월 동안 50% 투입되면 인건비는?'처럼 질문해 주세요.",
+                    assembled=assembled,
+                    searched_project_ids=search.searched_project_ids,
+                )
+            if self._has_unsupported_workload_condition(question):
+                return self._clarification_response(
+                    answer="투입 조건을 계산하려면 0% 초과 100% 이하의 투입률을 "
+                    "하나만 명시해 주세요. 예: '특급기술자 2명이 3개월 동안 "
+                    "50% 투입되면 인건비는?'",
+                    assembled=assembled,
+                    searched_project_ids=search.searched_project_ids,
+                )
             person_month_assignments = self._requested_person_month_assignments(
                 question
             )
@@ -262,6 +289,40 @@ class ChatService:
             marker in question
             for marker in ("인건비", "금액", "비용", "계산", "얼마")
         )
+
+    @staticmethod
+    def _requested_workload_rate(question: str) -> Decimal | None:
+        """투입 문맥과 가까운 유일한 `N%`를 0 초과 100 이하일 때만 읽는다."""
+        matches = list(re.finditer(
+            r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%|퍼센트)",
+            question,
+        ))
+        if len(matches) != 1:
+            return None
+
+        match = matches[0]
+        context = question[max(0, match.start() - 12):match.end() + 12]
+        if not any(
+            marker in context
+            for marker in ("투입률", "투입", "근무", "파트타임", "반일")
+        ):
+            return None
+
+        rate = Decimal(match.group(1))
+        return rate if Decimal(0) < rate <= Decimal(100) else None
+
+    @staticmethod
+    def _has_unsupported_workload_condition(question: str) -> bool:
+        """계산하지 못한 투입률·시간제 조건을 전일 투입으로 오인하지 않게 막는다."""
+        has_percentage = bool(re.search(
+            r"(?<![\d.])\d+(?:\.\d+)?\s*(?:%|퍼센트)",
+            question,
+        ))
+        has_workload_marker = any(
+            marker in question
+            for marker in ("투입률", "파트타임", "반일")
+        )
+        return has_percentage or has_workload_marker
 
     @classmethod
     def _requested_person_month_assignments(
@@ -395,6 +456,7 @@ class ChatService:
         requested_person_months: Decimal | None = None,
         requested_person_months_by_name: dict[str, Decimal] | None = None,
         requested_people_and_months: tuple[str, Decimal, Decimal] | None = None,
+        requested_workload_rate: Decimal | None = None,
     ) -> ChatResponse:
         """승인 금액 행과 원문을 대조해 단가 또는 명시한 인월 금액을 답한다."""
         evidence_document_ids = {
@@ -593,19 +655,39 @@ class ChatService:
                 verified_rows[0]
             )
             total_person_months = people * months
+            effective_person_months = total_person_months
+            if requested_workload_rate is not None:
+                effective_person_months *= (
+                    requested_workload_rate / Decimal(100)
+                )
             people_text = self._format_decimal(people)
             months_text = self._format_decimal(months)
             total_text = self._format_decimal(total_person_months)
+            effective_text = self._format_decimal(effective_person_months)
             currency_suffix = (
                 "원" if item.currency == "KRW" else f" {item.currency}"
             )
-            calculated = self._calculate_amount(total_person_months, unit_price)
-            answer = (
-                f"전일 투입 기준으로 계산하면 {item.item_name}: 1인월 단가 "
-                f"{unit_price:,}{currency_suffix} × {people_text}명 × "
-                f"{months_text}개월 = {calculated:,}{currency_suffix}이며, "
-                f"총투입량은 {total_text}인월입니다."
+            calculated = self._calculate_amount(
+                effective_person_months,
+                unit_price,
             )
+            if requested_workload_rate is not None:
+                rate_text = self._format_decimal(requested_workload_rate)
+                answer = (
+                    f"문서에서 검증한 1인월 단가로 계산하면 {item.item_name}: "
+                    f"1인월 단가 {unit_price:,}{currency_suffix} × "
+                    f"{people_text}명 × {months_text}개월 × 투입률 "
+                    f"{rate_text}% = {calculated:,}{currency_suffix}입니다. "
+                    f"인원·기간 기준 총투입량은 {total_text}인월이고, "
+                    f"투입률 적용 유효 총투입량은 {effective_text}인월입니다."
+                )
+            else:
+                answer = (
+                    f"전일 투입 기준으로 계산하면 {item.item_name}: 1인월 단가 "
+                    f"{unit_price:,}{currency_suffix} × {people_text}명 × "
+                    f"{months_text}개월 = {calculated:,}{currency_suffix}이며, "
+                    f"총투입량은 {total_text}인월입니다."
+                )
         elif (
             requested_person_months is not None
             or requested_person_months_by_name is not None
