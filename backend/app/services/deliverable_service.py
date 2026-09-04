@@ -40,7 +40,7 @@ import logging
 import os
 import uuid
 from collections.abc import Sequence
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -115,10 +115,14 @@ SNAPSHOT_KEYS = (
 # 다음에 못 세는 재료가 생겨도 화면을 고치지 않고 여기에 이름만 더하면 된다.
 UNCOUNTABLE: list[str] = []
 
-# 개요 절이 있는 유형. deliverable_markdown.build_document 가 이 두 유형에만 개요
-# 절을 넣는다(회의 안건·결정 대장에는 개요가 없다). 그래서 **이 유형일 때만**
-# LLM 을 불러 개요를 만든다 — 없는 절에 헛 호출을 하지 않는다.
-OVERVIEW_KINDS = frozenset({"WEEKLY_REPORT", "PROJECT_STATUS"})
+# 산출물 개요에 LLM을 사용하지 않는다. 주간 보고서와 프로젝트 현황 모두 실제
+# DB 자료를 서버가 구조화한다. 빈 집합을 유지하면 기존 내부 메서드가 호출되더라도
+# 외부 AI 요청 없이 즉시 반환한다.
+OVERVIEW_KINDS: frozenset[str] = frozenset()
+
+# 프로젝트 현황의 향후 계획 범위. 별도 스프린트 주기 데이터가 없으므로 현재는
+# 기준일 다음 날부터 7일간으로 명시하고, 범위를 문서에도 함께 표시한다.
+PROJECT_STATUS_HORIZON_DAYS = 7
 
 # 개요를 만들 때 LLM 에 넘길 대표 항목 수 상한. 표 전체가 아니라 몇 건만 보여
 # 흐름을 잡게 한다 — 좁은 컨텍스트 창(prompts.py 주석)과 1회 호출 비용 때문이다.
@@ -171,7 +175,9 @@ class DeliverableService:
         since, until = (period_from, period_to) if needs_period else (None, None)
         counts = self._count(project_id, kind=kind, since=since, until=until)
 
-        can_generate = counts.countable_total > 0
+        # 프로젝트 현황은 프로젝트 기본정보와 열린 태스크도 본문 재료다. 기존 다섯
+        # 집계가 0이어도 유효한 프로젝트 자체가 있으므로 생성할 수 있다.
+        can_generate = kind == "PROJECT_STATUS" or counts.countable_total > 0
         reason = None
         if not can_generate:
             reason = self._blocked_reason(kind, counts)
@@ -207,8 +213,7 @@ class DeliverableService:
           ① 형식을 먼저 본다 — DB 를 건드리기 전에 막을 수 있는 것은 먼저 막는다
           ② 미리보기를 그대로 부른다 — **세는 규칙을 두 번 쓰지 않는다**
           ③ 담을 것이 없으면 만들지 않는다 (DLV-001-2 완료 판정)
-          ④ 개요를 LLM 으로 1회 만들고(있으면), 본문을 만들어 파일에 쓴 뒤 이력을
-             커밋한다. LLM 호출은 transactional 을 열기 전에 끝낸다
+          ④ DB 자료로 본문을 만들어 파일에 쓴 뒤 이력을 커밋한다.
 
         ②가 이 함수의 핵심이다. 만들기가 자기만의 집계를 갖게 되면 "미리보기는
         12건이라 했는데 보고서는 9건" 이 생긴다. 그래서 건수는 미리보기 것을 쓰고
@@ -248,10 +253,6 @@ class DeliverableService:
         since, until = preview.period_from, preview.period_to
         materials = self._materials(project_id, kind=kind, since=since, until=until)
         title = build_title(kind, since, until)
-        # 개요를 만드는 LLM 호출은 **여기**다 — transactional 을 열기 전이다.
-        # analysis_service 와 같은 판단이다: AI 응답을 기다리는 동안 DB 트랜잭션을
-        # 열어두지 않는다. 담을 것이 없으면 위에서 이미 막혔으므로 헛 호출이 아니다.
-        summary = await self._overview(kind, title, since, until, materials)
         generated_at = datetime.now(timezone.utc)
         # 형식별 본문 생성기는 RENDERERS 에서 고른다. 절을 고르는 규칙은 어느
         # 형식이든 같다(build_document) — 한쪽에만 절을 더하는 실수를 막는다.
@@ -262,7 +263,6 @@ class DeliverableService:
             period_to=until,
             materials=materials,
             generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
-            summary=summary,
         )
 
         extension, _ = FORMAT_FILE_TYPES[deliverable_format]
@@ -374,10 +374,6 @@ class DeliverableService:
         since, until = preview.period_from, preview.period_to
         materials = self._materials(project_id, kind=kind, since=since, until=until)
         title = build_title(kind, since, until)
-        # 만들기(generate)와 **같은 개요**를 만든다. 여기서 개요를 비워 두면 미리 본
-        # 것과 실제로 만든 것이 개요만 달라진다 — 이 메서드가 존재하는 이유(미리 본
-        # 것과 만든 것이 어긋나지 않게)에 어긋난다. 그래서 본문 미리보기도 1회 부른다.
-        summary = await self._overview(kind, title, since, until, materials)
         generated_at = datetime.now(timezone.utc)
         body = RENDERERS[deliverable_format](
             kind=kind,
@@ -386,7 +382,6 @@ class DeliverableService:
             period_to=until,
             materials=materials,
             generated_at_text=generated_at.astimezone().strftime("%Y-%m-%d %H:%M"),
-            summary=summary,
         )
         return DeliverableContentResponse(
             kind=kind,
@@ -498,7 +493,7 @@ class DeliverableService:
             return DeliverableMaterials(
                 decisions=self._repo.list_decisions(project_id, limit=MATERIAL_ROW_LIMIT)
             )
-        return DeliverableMaterials(
+        materials = DeliverableMaterials(
             documents=self._repo.list_documents(
                 project_id, since=since, until=until, limit=MATERIAL_ROW_LIMIT
             ),
@@ -515,6 +510,44 @@ class DeliverableService:
                 project_id, since=since, until=until, limit=MATERIAL_ROW_LIMIT
             ),
         )
+        if kind == "PROJECT_STATUS":
+            as_of = datetime.now(timezone.utc).date()
+            upcoming_from = as_of + timedelta(days=1)
+            upcoming_until = as_of + timedelta(days=PROJECT_STATUS_HORIZON_DAYS)
+            task_total, task_done = self._repo.count_task_progress(project_id)
+            materials.project = self._repo.get_project_overview(project_id)
+            materials.task_total = task_total
+            materials.task_done = task_done
+            materials.recent_completed_tasks = self._repo.list_recent_completed_tasks(
+                project_id, limit=OVERVIEW_SAMPLE_ROWS + 1
+            )
+            materials.overdue_total = self._repo.count_overdue_tasks(
+                project_id, as_of=as_of
+            )
+            materials.overdue_tasks = self._repo.list_overdue_tasks(
+                project_id, as_of=as_of, limit=OVERVIEW_SAMPLE_ROWS + 1
+            )
+            materials.milestones = self._repo.list_milestones(
+                project_id, as_of=as_of, limit=OVERVIEW_SAMPLE_ROWS + 1
+            )
+            materials.upcoming_tasks = self._repo.list_upcoming_tasks(
+                project_id,
+                since=upcoming_from,
+                until=upcoming_until,
+                limit=OVERVIEW_SAMPLE_ROWS + 1,
+            )
+            materials.upcoming_schedule_items = (
+                self._repo.list_upcoming_schedule_items(
+                    project_id,
+                    since=upcoming_from,
+                    until=upcoming_until,
+                    limit=OVERVIEW_SAMPLE_ROWS + 1,
+                )
+            )
+            materials.status_as_of = as_of
+            materials.upcoming_from = upcoming_from
+            materials.upcoming_until = upcoming_until
+        return materials
 
     async def _overview(
         self,
@@ -524,11 +557,11 @@ class DeliverableService:
         until: date | None,
         materials: DeliverableMaterials,
     ) -> str | None:
-        """개요 문장을 LLM 으로 **1회** 만든다 (DLV-002-1·DLV-002-2).
+        """주간 보고서의 개요 문장을 LLM으로 **1회** 만든다.
 
-        완료 판정이 "LLM 호출은 개요 1회" 다 — 그래서 이 메서드가 산출물 하나당
-        딱 한 번, 개요 절이 있는 유형(OVERVIEW_KINDS)에서만 부른다. 표의 다섯 절은
-        이미 실제 자료로 채워지므로 LLM 은 개요에만 쓴다.
+        프로젝트 현황은 이 메서드의 대상이 아니다. 기본정보·업무 완료율·성과·
+        일정 이슈·향후 계획을 DB 값으로 계산해 문서 구조가 직접 만든다. LLM은
+        계획 대비 상태나 위험을 추정하지 않는다.
 
         호출 방식은 **기존 어댑터 패턴**(analyzers/summary_analyzer.py)을 그대로
         따른다: `generate_with_meta` 를 `asyncio.wait_for` 로 감싸 시간 초과를 막고,
@@ -548,13 +581,19 @@ class DeliverableService:
         digest = self._overview_digest(title, since, until, materials)
         try:
             budget = PromptBudget(settings)
-            prompt = build_deliverable_overview_prompt(digest, representative_names_omitted=False)
+            prompt = build_deliverable_overview_prompt(
+                digest,
+                representative_names_omitted=False,
+            )
             omitted = not budget.fits(prompt)
             if omitted:
                 # 숫자나 행 중간을 잘라 새 의미를 만들지 않는다. 전체 집계는 유지하고
                 # 대표 이름만 생략한다. 이것도 안 맞으면 개요를 만들지 않는다.
                 digest = self._overview_digest(title, since, until, materials, include_names=False)
-                prompt = build_deliverable_overview_prompt(digest, representative_names_omitted=True)
+                prompt = build_deliverable_overview_prompt(
+                    digest,
+                    representative_names_omitted=True,
+                )
             prompt = budget.prepare(prompt)
             result = await asyncio.wait_for(
                 self._ai_client.generate_with_meta(prompt),

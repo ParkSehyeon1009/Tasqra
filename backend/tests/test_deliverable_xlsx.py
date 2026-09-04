@@ -41,7 +41,7 @@ from app.services.deliverable_xlsx import render_xlsx, to_xlsx
 WEEK = {"period_from": date(2026, 8, 14), "period_to": date(2026, 8, 20)}
 
 # 주간 보고서의 절 이름. build_document 가 정한 순서와 같아야 한다.
-WEEKLY_SECTIONS = ["문서", "완료한 태스크", "결정사항", "일정·기한", "금액"]
+WEEKLY_SECTIONS = ["주간 요약", "문서", "완료한 태스크", "결정사항", "일정·기한", "금액"]
 
 
 def _document(name="계약서.pdf"):
@@ -100,13 +100,32 @@ def test_render_returns_xlsx_bytes():
 
 
 def test_empty_sections_still_become_sheets():
-    """자료가 문서 1건뿐이어도 다섯 절 시트가 모두 있어야 한다.
+    """자료가 문서 1건뿐이어도 주간 요약과 다섯 자료 시트가 모두 있어야 한다.
 
     '행이 있는 절만 시트로' 만들면 자료 없는 주에 절이 통째로 사라진다 — 받는
     사람은 그것을 '빠뜨렸다' 로 읽는다. 이 버그를 잡는 회귀 테스트다.
     """
     workbook = _load(render_xlsx(**_args(DeliverableMaterials(documents=[_document()]))))
     assert workbook.sheetnames == ["요약", *WEEKLY_SECTIONS]
+
+
+def test_weekly_summary_sheet_has_structured_rows():
+    workbook = _load(
+        render_xlsx(
+            **_args(
+                DeliverableMaterials(
+                    documents=[_document()], amount_items=[_amount()]
+                )
+            )
+        )
+    )
+    sheet = workbook["주간 요약"]
+    assert [cell.value for cell in sheet[1]][:2] == ["구분", "내용"]
+    assert _find_row(sheet, "실적")[:2] == ["실적", "문서 1건 등록"]
+    assert _find_row(sheet, "금액")[:2] == [
+        "금액",
+        "승인 금액 항목 1건 · 단순 합계 6,000,000원",
+    ]
 
 
 def test_empty_section_sheet_has_header_and_sentence():
@@ -186,6 +205,8 @@ def test_summary_sheet_lists_each_section_with_count():
     summary = workbook["요약"]
     texts = [v for row in summary.iter_rows(values_only=True) for v in row if isinstance(v, str)]
     assert "담긴 내용" in texts
+    # 주간 요약은 실제 자료가 있는 구분 2개(실적·금액)를 담는다.
+    assert _find_row(summary, "주간 요약")[:2] == ["주간 요약", 2]
     # 문서 2건 · 금액 1건이 표에 그대로 나온다.
     assert _find_row(summary, "문서")[:2] == ["문서", 2]
     assert _find_row(summary, "금액")[:2] == ["금액", 1]
