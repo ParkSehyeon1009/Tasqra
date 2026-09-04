@@ -65,6 +65,7 @@ from app.services.amount_item_service import AmountItemService
 from app.services.amount_summary_service import AmountSummaryService
 from app.services.amount_task_service import AmountTaskService
 from app.services.auth_service import AuthService
+from app.services.chat_service import ChatService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
 from app.services.chunking_service import ChunkingService
@@ -74,6 +75,7 @@ from app.services.decision_schedule_review_service import DecisionScheduleReview
 from app.services.decision_schedule_writer import DecisionScheduleWriter
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
+from app.services.token_counting import Utf8ByteTokenCounter
 from app.services.document_service import DocumentService
 from app.services.task_service import TaskService
 
@@ -249,6 +251,27 @@ def get_search_service(
 
 def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
     return AmountRepository(db)
+
+
+# get_amount_repository 는 get_chat_service 위에 있어야 한다.
+def get_chat_service(
+    search_service: SearchService = Depends(get_search_service),
+    chunk_repository: ChunkRepository = Depends(get_chunk_repository),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+) -> ChatService:
+    """검색·전문 조회·생성 모델을 CHAT-001 애플리케이션 서비스로 조립한다.
+
+    현재 provider는 생성 모델 tokenizer를 노출하지 않으므로 UTF-8 byte 기반의
+    보수적 근사 counter를 쓴다. 정확 counter가 준비되면 이 주입만 교체한다.
+    """
+    return ChatService(
+        search_service=search_service,
+        chunk_repository=chunk_repository,
+        amount_repository=amount_repository,
+        ai_client=get_ai_client(),
+        settings=settings,
+        token_counter=Utf8ByteTokenCounter(),
+    )
 
 
 def get_decision_schedule_repository(

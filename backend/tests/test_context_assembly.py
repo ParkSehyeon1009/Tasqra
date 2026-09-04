@@ -61,9 +61,7 @@ def test_never_exceeds_budget():
         assert out.used_tokens <= budget, (
             f"예산 {budget} 을 넘겼다: {out.used_tokens}"
         )
-        assert tokens_of(out.text) <= budget + len(out.evidences) * 2, (
-            "조립된 본문이 예산을 넘는다"
-        )
+        assert tokens_of(out.text) <= budget, "조립된 본문이 예산을 넘는다"
 
 
 def test_zero_budget_returns_empty():

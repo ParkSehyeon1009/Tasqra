@@ -371,6 +371,49 @@ class ChunkRepository:
             for row in self._db.execute(stmt).all()
         ]
 
+    def get_context_rows(
+        self,
+        *,
+        chunk_ids: Sequence[int],
+        project_ids: Sequence[int],
+        embedding_model: str,
+    ) -> list[tuple[DocumentChunk, str, int, str]]:
+        """검색이 고른 청크의 전문을 같은 프로젝트 범위 안에서 다시 가져온다.
+
+        검색 응답은 목록 크기를 줄이기 위해 snippet만 노출한다. LLM 근거에는 전문이
+        필요하므로 ID로 다시 읽되, ID만 믿지 않고 청크와 문서 양쪽의
+        ``project_id``가 허용 범위에서 서로 일치하는지와 모델 조건을 다시 건다.
+        서비스가 결과를 검색 순서대로 재배열한다.
+        """
+        if not chunk_ids or not project_ids:
+            return []
+
+        from app.models.document import Document
+        from app.models.project import Project
+
+        document_scope = (
+            Document.project_id == project_ids[0]
+            if len(project_ids) == 1
+            else Document.project_id.in_(list(project_ids))
+        )
+        stmt = (
+            select(DocumentChunk, Document.filename, Project.id, Project.name)
+            .join(
+                Document,
+                (Document.id == DocumentChunk.document_id)
+                & (Document.project_id == DocumentChunk.project_id),
+            )
+            .join(Project, Project.id == DocumentChunk.project_id)
+            .where(DocumentChunk.id.in_(list(chunk_ids)))
+            .where(self._scope_condition(project_ids))
+            .where(document_scope)
+            .where(DocumentChunk.embedding_model == embedding_model)
+        )
+        return [
+            (row[0], row[1], int(row[2]), row[3])
+            for row in self._db.execute(stmt).all()
+        ]
+
     def explain_search(
         self,
         *,

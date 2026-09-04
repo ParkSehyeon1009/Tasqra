@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 
 import app.models  # noqa: F401
-from app.api.routes import amount_router, analysis_router, auth_router, dashboard_router, decision_schedule_router, deliverable_router, document_router, invitation_router, project_router, search_router, task_router, upload_router
+from app.api.routes import amount_router, analysis_router, auth_router, chat_router, dashboard_router, decision_schedule_router, deliverable_router, document_router, invitation_router, project_router, search_router, task_router, upload_router
 from app.core.config import settings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -42,6 +42,9 @@ app.include_router(analysis_router.router)
 app.include_router(document_router.router)
 # 의미 검색(SRH-001). 담당 보현. 계약은 API_계약서.md 에 초안으로 추가했다.
 app.include_router(search_router.router)
+# 단일 프로젝트 문서 기반 질의응답 챗봇(CHAT-001). 검색 범위 정책과 실제
+# 청크 전문을 재사용하고, 답변 근거는 서버가 조립 결과에서 매핑한다.
+app.include_router(chat_router.router)
 app.include_router(amount_router.router)
 app.include_router(decision_schedule_router.router)
 # 프로젝트 핵심 현황(DSH-001). 열린 태스크는 tasks 테이블에서 완료되지 않은
