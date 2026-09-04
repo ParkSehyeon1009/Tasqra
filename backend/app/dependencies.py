@@ -249,9 +249,15 @@ def get_search_service(
     )
 
 
+def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
+    return AmountRepository(db)
+
+
+# get_amount_repository 는 get_chat_service 위에 있어야 한다.
 def get_chat_service(
     search_service: SearchService = Depends(get_search_service),
     chunk_repository: ChunkRepository = Depends(get_chunk_repository),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
 ) -> ChatService:
     """검색·전문 조회·생성 모델을 CHAT-001 애플리케이션 서비스로 조립한다.
 
@@ -261,14 +267,11 @@ def get_chat_service(
     return ChatService(
         search_service=search_service,
         chunk_repository=chunk_repository,
+        amount_repository=amount_repository,
         ai_client=get_ai_client(),
         settings=settings,
         token_counter=Utf8ByteTokenCounter(),
     )
-
-
-def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
-    return AmountRepository(db)
 
 
 def get_decision_schedule_repository(

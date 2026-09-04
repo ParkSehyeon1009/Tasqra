@@ -8,6 +8,7 @@
 
 import asyncio
 import json
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -96,15 +97,39 @@ def _chunk(chunk_id, text, *, document_id=10, seq=0, filename="계약서.pdf"):
     return (model, filename, 1, "테스트 프로젝트")
 
 
-def _service(*, search_response, rows=(), ai=None, settings=None, counter=None):
+def _amount_item(name, quantity, unit_price, amount, *, unit="인월"):
+    row = f"{name} | {quantity} / {unit} | {unit_price:,} | {amount:,}"
+    return SimpleNamespace(
+        item_name=name,
+        quantity=Decimal(str(quantity)),
+        unit=unit,
+        unit_price=Decimal(str(unit_price)),
+        amount=Decimal(str(amount)),
+        currency="KRW",
+        source_quote=row,
+    )
+
+
+def _service(
+    *,
+    search_response,
+    rows=(),
+    amount_rows=(),
+    ai=None,
+    settings=None,
+    counter=None,
+):
     search = MagicMock()
     search.search_hybrid.return_value = search_response
     repository = MagicMock()
     repository.get_context_rows.return_value = list(rows)
+    amount_repository = MagicMock()
+    amount_repository.list_project_items.return_value = list(amount_rows)
     ai = ai or _FakeAI()
     service = ChatService(
         search_service=search,
         chunk_repository=repository,
+        amount_repository=amount_repository,
         ai_client=ai,
         settings=settings or _settings(),
         token_counter=counter or Utf8ByteTokenCounter(),
@@ -137,6 +162,384 @@ def test_no_search_results_returns_without_calling_llm():
     assert "근거를 찾지 못했습니다" in response.answer
     repository.get_context_rows.assert_not_called()
     assert ai.requests == []
+
+
+def test_unit_price_question_uses_approved_amount_columns_without_llm():
+    table = (
+        "항목 | 투입량 | 기준 단가 | 합계\n"
+        "특급기술자 | 3 / 인 / 월 | 9,500,000 | 28,500,000"
+    )
+    item = SimpleNamespace(
+        item_name="특급기술자",
+        quantity=Decimal("3"),
+        unit="인월",
+        unit_price=Decimal("9500000"),
+        amount=Decimal("28500000"),
+        currency="KRW",
+        source_quote="특급기술자 | 3 / 인 / 월 | 9,500,000 | 28,500,000",
+    )
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table, filename="[TEST] 산출내역서.pdf")],
+        amount_rows=[(item, 10, "[TEST] 산출내역서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(
+        service.ask(
+            user_id=7,
+            project_id=1,
+            question="특급기술자 1인당 인건비는 얼마야?",
+        )
+    )
+
+    assert ai.requests == []
+    assert "1인월당 단가는 9,500,000원" in response.answer
+    assert "3인월 × 단가 9,500,000원 = 총액 28,500,000원" in response.answer
+    assert response.evidence[0].document_filename == "[TEST] 산출내역서.pdf"
+
+
+def test_named_multiple_technicians_return_each_verified_unit_price():
+    table = (
+        "항목 | 투입량 | 기준 단가 | 합계\n"
+        "특급기술자 | 3 / 인 / 월 | 9,500,000 | 28,500,000\n"
+        "고급기술자 | 6 / 인 / 월 | 7,200,000 | 43,200,000\n"
+        "중급기술자 | 2 / 인 / 월 | 5,500,000 | 11,000,000"
+    )
+    items = [
+        _amount_item("특급기술자", 3, 9_500_000, 28_500_000),
+        _amount_item("고급기술자", 6, 7_200_000, 43_200_000),
+        _amount_item("중급기술자", 2, 5_500_000, 11_000_000),
+    ]
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table, filename="[TEST] 산출내역서.pdf")],
+        amount_rows=[(item, 10, "[TEST] 산출내역서.pdf") for item in items],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자, 고급기술자, 중급기술자 1인당 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "특급기술자: 1인월당 9,500,000원" in response.answer
+    assert "고급기술자: 1인월당 7,200,000원" in response.answer
+    assert "중급기술자: 1인월당 5,500,000원" in response.answer
+    assert len(response.evidence) == 1
+
+
+def test_technician_collection_question_returns_all_technician_rows_only():
+    table = (
+        "특급기술자 | 3 / 인 / 월 | 9,500,000 | 28,500,000\n"
+        "고급기술자 | 6 / 인 / 월 | 7,200,000 | 43,200,000\n"
+        "제경비 | 1 / 식 / 월 | 25,800,000 | 25,800,000"
+    )
+    technician_items = [
+        _amount_item("특급기술자", 3, 9_500_000, 28_500_000),
+        _amount_item("고급기술자", 6, 7_200_000, 43_200_000),
+    ]
+    overhead = _amount_item("제경비", 1, 25_800_000, 25_800_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table)],
+        amount_rows=[
+            *((item, 10, "계약서.pdf") for item in technician_items),
+            (overhead, 10, "계약서.pdf"),
+        ],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="기술자들별로 1인당 인건비 말해줘",
+    ))
+
+    assert ai.requests == []
+    assert "특급기술자" in response.answer
+    assert "고급기술자" in response.answer
+    assert "제경비" not in response.answer
+
+
+def test_duplicate_technician_name_across_evidence_documents_is_ambiguous():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("특급기술자", 2, 10_000_000, 20_000_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([
+            _search_item(11, document_id=10),
+            _search_item(22, document_id=20),
+        ]),
+        rows=[
+            _chunk(11, first.source_quote, document_id=10, filename="첫째.pdf"),
+            _chunk(22, second.source_quote, document_id=20, filename="둘째.pdf"),
+        ],
+        amount_rows=[
+            (first, 10, "첫째.pdf"),
+            (second, 20, "둘째.pdf"),
+        ],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 1인당 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "단가를 하나로 확정하지 못했습니다" in response.answer
+    assert response.evidence == []
+
+
+def test_named_multiple_technicians_abstains_when_one_requested_row_is_missing():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("고급기술자", 6, 7_200_000, 43_200_000)
+    table = f"{first.source_quote}\n{second.source_quote}"
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table)],
+        amount_rows=[(first, 10, "계약서.pdf"), (second, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자, 고급기술자, 중급기술자 1인당 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "단가를 하나로 확정하지 못했습니다" in response.answer
+    assert response.evidence == []
+
+
+def test_unique_technicians_from_different_documents_are_not_mixed():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("고급기술자", 6, 7_200_000, 43_200_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([
+            _search_item(11, document_id=10),
+            _search_item(22, document_id=20),
+        ]),
+        rows=[
+            _chunk(11, first.source_quote, document_id=10, filename="첫째.pdf"),
+            _chunk(22, second.source_quote, document_id=20, filename="둘째.pdf"),
+        ],
+        amount_rows=[(first, 10, "첫째.pdf"), (second, 20, "둘째.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자, 고급기술자 1인당 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "단가를 하나로 확정하지 못했습니다" in response.answer
+    assert response.evidence == []
+
+
+def test_explicit_person_month_quantity_calculates_single_amount_without_llm():
+    item = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, item.source_quote)],
+        amount_rows=[(item, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 2인월 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "특급기술자: 2인월 × 9,500,000원 = 19,000,000원" in response.answer
+    assert len(response.evidence) == 1
+
+
+def test_person_month_quantity_calculates_each_technician_amount():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("고급기술자", 6, 7_200_000, 43_200_000)
+    table = f"{first.source_quote}\n{second.source_quote}"
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table)],
+        amount_rows=[(first, 10, "계약서.pdf"), (second, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="기술자들별로 2인월 인건비를 계산해줘",
+    ))
+
+    assert ai.requests == []
+    assert "특급기술자: 2인월 × 9,500,000원 = 19,000,000원" in response.answer
+    assert "고급기술자: 2인월 × 7,200,000원 = 14,400,000원" in response.answer
+
+
+def test_person_count_without_duration_requests_person_month_quantity():
+    item = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, item.source_quote)],
+        amount_rows=[(item, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 2명 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "인원 수만으로는 총 인건비를 계산할 수 없습니다" in response.answer
+    assert "2인월" in response.answer
+    assert response.evidence == []
+
+
+def test_different_person_month_quantities_map_to_each_named_item():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("고급기술자", 6, 7_200_000, 43_200_000)
+    third = _amount_item("중급기술자", 4, 5_800_000, 23_200_000)
+    table = f"{first.source_quote}\n{second.source_quote}\n{third.source_quote}"
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table)],
+        amount_rows=[
+            (first, 10, "계약서.pdf"),
+            (second, 10, "계약서.pdf"),
+            (third, 10, "계약서.pdf"),
+        ],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question=(
+            "특급기술자 2인월, 고급기술자 3인월, "
+            "중급기술자 1.5인월 인건비는?"
+        ),
+    ))
+
+    assert ai.requests == []
+    assert "특급기술자: 2인월 × 9,500,000원 = 19,000,000원" in response.answer
+    assert "고급기술자: 3인월 × 7,200,000원 = 21,600,000원" in response.answer
+    assert "중급기술자: 1.5인월 × 5,800,000원 = 8,700,000원" in response.answer
+    assert len(response.evidence) == 1
+
+
+def test_duplicate_requested_name_abstains_even_when_only_one_has_quantity():
+    first = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    second = _amount_item("고급기술자", 6, 7_200_000, 43_200_000)
+    table = f"{first.source_quote}\n{second.source_quote}"
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, table)],
+        amount_rows=[(first, 10, "계약서.pdf"), (second, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question=(
+            "특급기술자와 특급기술자 2인월, "
+            "고급기술자 3인월 인건비는?"
+        ),
+    ))
+
+    assert ai.requests == []
+    assert "단가를 하나로 확정하지 못했습니다" in response.answer
+    assert response.evidence == []
+
+
+def test_unpaired_multiple_person_months_request_explicit_item_mapping():
+    item = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, item.source_quote)],
+        amount_rows=[(item, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 2인월과 3인월 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "인월 수량을 항목과 일대일로 연결하지 못했습니다" in response.answer
+    assert response.evidence == []
+
+
+def test_person_month_fact_question_does_not_trigger_amount_calculation():
+    item = _amount_item("특급기술자", 3, 9_500_000, 28_500_000)
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, item.source_quote)],
+        amount_rows=[(item, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 투입 기간이 2인월이야?",
+    ))
+
+    assert len(ai.requests) == 1
+    assert response.answer == "문서 근거에 따른 답변입니다."
+
+
+def test_person_month_calculation_rejects_non_person_month_unit():
+    item = _amount_item(
+        "특급기술자",
+        3,
+        500_000,
+        1_500_000,
+        unit="인일",
+    )
+    ai = _FakeAI()
+    service, _, _, _ = _service(
+        search_response=_search_response([_search_item(11)]),
+        rows=[_chunk(11, item.source_quote)],
+        amount_rows=[(item, 10, "계약서.pdf")],
+        ai=ai,
+    )
+
+    response = asyncio.run(service.ask(
+        user_id=7,
+        project_id=1,
+        question="특급기술자 2인월 인건비는?",
+    ))
+
+    assert ai.requests == []
+    assert "단가를 하나로 확정하지 못했습니다" in response.answer
+    assert response.evidence == []
 
 
 def test_final_evidence_and_full_prompt_fit_calculated_budget():

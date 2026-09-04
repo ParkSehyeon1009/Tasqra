@@ -1,9 +1,9 @@
 // =============================================================================
 // 이 파일의 책임: 프로젝트 화면 어디서든 우측 하단 버튼으로 여는 문서 질의응답
-//   패널을 제공하고, 답변과 서버가 검증한 원문 근거를 표시한다(CHAT-001 MVP).
+//   패널을 제공하고, 같은 프로젝트의 최근 질문·답변 20개와 검증된 근거를 표시한다.
 // 다른 파일과의 관계: App의 프로젝트 공통 호스트가 프로젝트별로 한 번 마운트하고
 //   api/chat.js만 호출한다. 근거를 누르면 기존 문서 원문 화면의 해당 청크 구간으로 이동한다.
-// Spring 비교: 전역 레이아웃에 붙는 공통 Widget View와 단건 Command form이다.
+// Spring 비교: 전역 레이아웃 Widget View에 세션 한정 Command 결과 목록을 둔 형태다.
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
@@ -12,14 +12,19 @@ import { useNavigate } from 'react-router-dom'
 import { askProjectDocuments } from '../../api/chat'
 import './ChatView.css'
 
+const MAX_CHAT_EXCHANGES = 20
+
 export default function ChatView({ projectId, projectName }) {
   const [open, setOpen] = useState(false)
   const [question, setQuestion] = useState('')
-  const [askedQuestion, setAskedQuestion] = useState('')
+  const [exchanges, setExchanges] = useState([])
   const bodyRef = useRef(null)
   const inputRef = useRef(null)
+  const nextExchangeIdRef = useRef(1)
   const navigate = useNavigate()
-  const chat = useMutation({ mutationFn: value => askProjectDocuments(projectId, value) })
+  const chat = useMutation({
+    mutationFn: ({ question: value }) => askProjectDocuments(projectId, value),
+  })
 
   useEffect(() => {
     if (!open) return undefined
@@ -34,15 +39,38 @@ export default function ChatView({ projectId, projectName }) {
   useEffect(() => {
     if (!open || !bodyRef.current) return
     bodyRef.current.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' })
-  }, [open, chat.data, chat.isError, chat.isPending])
+  }, [open, exchanges])
+
+  function updateExchange(exchangeId, update) {
+    setExchanges(current => current.map(exchange =>
+      exchange.id === exchangeId ? { ...exchange, ...update } : exchange
+    ))
+  }
 
   function submit(event) {
     event.preventDefault()
     const trimmed = question.trim()
     if (!trimmed || chat.isPending) return
-    setAskedQuestion(trimmed)
+    const exchangeId = nextExchangeIdRef.current++
+    setExchanges(current => [
+      ...current,
+      { id: exchangeId, question: trimmed, status: 'pending' },
+    ].slice(-MAX_CHAT_EXCHANGES))
     setQuestion('')
-    chat.mutate(trimmed)
+    chat.mutate(
+      { exchangeId, question: trimmed },
+      {
+        onSuccess: response => updateExchange(exchangeId, {
+          status: 'completed',
+          response,
+        }),
+        onError: error => updateExchange(exchangeId, {
+          status: 'failed',
+          errorMessage: error?.message || '알 수 없는 오류가 발생했습니다.',
+          errorCode: error?.code || '',
+        }),
+      },
+    )
   }
 
   function openEvidence(item) {
@@ -61,7 +89,7 @@ export default function ChatView({ projectId, projectName }) {
   }
 
   return <div className={`chat-widget${open ? ' is-open' : ''}`}>
-    {open && <button type='button' className='chat-widget-backdrop' aria-label='챗봇 닫기' onClick={() => setOpen(false)}/>} 
+    {open && <button type='button' className='chat-widget-backdrop' aria-label='챗봇 닫기' onClick={() => setOpen(false)}/>}
 
     <button type='button' className='chat-launcher' aria-expanded={open}
       aria-controls='project-chat-panel' onClick={() => setOpen(value => !value)}>
@@ -87,21 +115,23 @@ export default function ChatView({ projectId, projectName }) {
           <p>답변에 사용한 문서와 원문 인용을 함께 확인할 수 있습니다.</p>
         </div>
 
-        {askedQuestion && <div className='chat-message chat-message--user'>
-          <span>나</span><p>{askedQuestion}</p>
-        </div>}
+        {exchanges.map(exchange => <div className='chat-exchange' key={exchange.id}>
+          <div className='chat-message chat-message--user'>
+            <span>나</span><p>{exchange.question}</p>
+          </div>
 
-        {chat.isPending && <div className='chat-message chat-message--assistant'>
-          <span>문서 챗봇</span><p className='chat-thinking'>관련 문서를 찾고 답변을 만들고 있습니다…</p>
-        </div>}
+          {exchange.status === 'pending' && <div className='chat-message chat-message--assistant'>
+            <span>문서 챗봇</span><p className='chat-thinking'>관련 문서를 찾고 답변을 만들고 있습니다…</p>
+          </div>}
 
-        {chat.isError && !chat.isPending && <div className='chat-message chat-message--assistant chat-message--error'>
-          <span>문서 챗봇</span>
-          <p>답변을 만들지 못했습니다.</p>
-          <small>{chat.error?.message}{chat.error?.code ? ` · ${chat.error.code}` : ''}</small>
-        </div>}
+          {exchange.status === 'failed' && <div className='chat-message chat-message--assistant chat-message--error'>
+            <span>문서 챗봇</span>
+            <p>답변을 만들지 못했습니다.</p>
+            <small>{exchange.errorMessage}{exchange.errorCode ? ` · ${exchange.errorCode}` : ''}</small>
+          </div>}
 
-        {chat.data && !chat.isPending && <ChatAnswer response={chat.data} onOpen={openEvidence}/>} 
+          {exchange.status === 'completed' && <ChatAnswer response={exchange.response} onOpen={openEvidence}/>}
+        </div>)}
       </div>
 
       <form className='chat-composer' onSubmit={submit}>

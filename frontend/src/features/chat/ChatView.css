@@ -39,6 +39,7 @@
 .chat-drawer-close:focus-visible { outline: 3px solid var(--c-accent-bg); }
 
 .chat-drawer-body { display: flex; flex: 1 1 auto; overflow-y: auto; flex-direction: column; gap: 17px; padding: 18px 16px 22px; background: var(--c-bg-canvas); scroll-behavior: smooth; }
+.chat-exchange { display: flex; flex-direction: column; gap: 17px; }
 .chat-intro { padding: 13px 14px; border: 1px solid var(--c-border); border-radius: 13px; background: var(--c-bg); }
 .chat-intro strong { color: var(--c-text-strong); font-size: 13px; }
 .chat-intro p { margin: 5px 0 0; color: var(--c-text-muted); font-size: 12px; line-height: 1.55; }
