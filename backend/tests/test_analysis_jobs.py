@@ -1,3 +1,7 @@
+# ① 책임: 비동기 분석 작업의 상태·저장·실패 코드 계약을 검증한다.
+# ② 관계: AnalysisJobService를 fake repository·AnalysisService와 격리해 검사한다.
+# ③ Spring 비교: 큐 작업 @Service의 트랜잭션·예외 처리를 검증하는 단위 테스트다.
+
 import asyncio
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -106,7 +110,30 @@ def test_all_failed_analyzers_do_not_save_results():
     }])
     asyncio.run(service.run(1, 2, job.id, MagicMock()))
     assert job.status == "FAILED"
+    assert job.error_code == "AI_INVALID_RESPONSE"
+    assert job.analyzer_errors[0]["analyzer"] == "decision"
     assert "2/5" in job.error_message
+    service.analysis.save_results.assert_not_called()
+
+
+def test_all_failed_timeout_preserves_timeout_code_and_error_detail():
+    service, job, _ = setup_job()
+    service.analysis.analyze_text_isolated.return_value = ([], [{
+        "analyzer": "amount",
+        "code": "AI_TIMEOUT",
+        "message": "금액 추출 1/1 처리에 실패했습니다.",
+    }])
+
+    asyncio.run(service.run(1, 2, job.id, MagicMock()))
+
+    assert job.status == "FAILED"
+    assert job.error_code == "AI_TIMEOUT"
+    assert job.error_message == "금액 추출 1/1 처리에 실패했습니다."
+    assert job.analyzer_errors == [{
+        "analyzer": "amount",
+        "code": "AI_TIMEOUT",
+        "message": "금액 추출 1/1 처리에 실패했습니다.",
+    }]
     service.analysis.save_results.assert_not_called()
 
 
@@ -318,3 +345,61 @@ def test_job_migration_builds_postgres_table_and_active_unique_index():
     for col in AnalysisJob.__table__.columns:
         assert col.name in sql
         assert col.name in orm_sql
+
+
+def test_save_routes_amount_to_writer_with_text_and_ocr_revisions():
+    amount_writer = MagicMock()
+    amount_analysis = SimpleNamespace(id=41)
+    amount_writer.write.return_value = (amount_analysis, [SimpleNamespace()])
+    service = AnalysisService(
+        MagicMock(), MagicMock(), MagicMock(), {}, MagicMock(), MagicMock(), amount_writer)
+    document = SimpleNamespace(
+        id=2, project_id=1, ocr_revision=11,
+        document_type=None, document_type_source=None)
+    result = SimpleNamespace(
+        result={
+            "document_type": "COST_SHEET",
+            "currency": "KRW",
+            "stated_total": 28_500_000,
+            "items": [{
+                "item_name": "특급기술자",
+                "category": "DIRECT_LABOR",
+                "quantity": "3",
+                "unit": "인월",
+                "unit_price": 9_500_000,
+                "amount": 28_500_000,
+                "period_from": None,
+                "period_to": None,
+                "source_quote": "특급기술자 3인월 28,500,000원",
+                "confidence": 0.95,
+                "reason": "같은 행에 기재됨",
+            }],
+            "notes": None,
+        },
+        provider="local", model_name="default-model", prompt_version="amount-v1",
+        tokens_in=1, tokens_out=2, latency_ms=3,
+    )
+
+    rows = service.save_results(document, 7, [("amount", result)])
+
+    assert rows == [amount_analysis]
+    kwargs = amount_writer.write.call_args.kwargs
+    assert kwargs["document_id"] == 2
+    assert kwargs["source_text_revision"] == 7
+    assert kwargs["source_ocr_revision"] == 11
+    assert kwargs["analyzer_type"] == "amount"
+    assert kwargs["extraction"].items[0].amount == 28_500_000
+
+
+def test_failed_amount_analyzer_makes_job_partial_not_completed():
+    service, job, _ = setup_job()
+    service.analysis.analyze_text_isolated.return_value = ([('summary', 'result')], [{
+        'analyzer': 'amount', 'code': 'AI_INVALID_RESPONSE',
+        'message': '금액 추출 응답 형식 오류',
+    }])
+
+    asyncio.run(service.run(1, 2, job.id, MagicMock()))
+
+    assert job.status == "PARTIAL"
+    assert job.analyzer_errors[0]["analyzer"] == "amount"
+    service.analysis.save_results.assert_called_once()

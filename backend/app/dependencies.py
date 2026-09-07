@@ -25,6 +25,7 @@ from app.ai.fake_client import FakeAIClient
 from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.amount_analyzer import AmountAnalyzer
 from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.features_analyzer import FeaturesAnalyzer
@@ -66,6 +67,7 @@ from app.models.user import User
 from app.services.amount_precedent_service import AmountPrecedentService
 from app.services.amount_item_service import AmountItemService
 from app.services.amount_summary_service import AmountSummaryService
+from app.services.amount_writer import AmountWriter
 from app.services.amount_task_service import AmountTaskService
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
@@ -200,6 +202,9 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
         "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
         "decision": DecisionAnalyzer(get_ai_client(settings.AI_MODEL_DECISION or None)),
         "schedule": ScheduleAnalyzer(get_ai_client(settings.AI_MODEL_SCHEDULE or None)),
+        # 금액은 별도 학습 모델·adapter 없이 현재 기본 AI_MODEL을 쓴다.
+        # 기본 분석 목록에는 넣지 않고 명시 요청에서만 실행한다.
+        "amount": AmountAnalyzer(get_ai_client()),
         # 액션 태스크는 별도 학습 모델이 없어 요약 모델의 선택 능력을 재사용한다.
         "action_task": ActionTaskAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
         # ⚠️ 과업(features)은 **요약과 같은 모델**을 쓴다. 어댑터 하나(sumfeat-v2)가
@@ -459,6 +464,7 @@ def get_analysis_service(
     analyzer_registry: dict[str, Analyzer] = Depends(get_analyzer_registry),
     decision_schedule_writer: DecisionScheduleWriter = Depends(get_decision_schedule_writer),
     task_suggestion_repository: TaskSuggestionRepository = Depends(get_task_suggestion_repository),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
 ) -> AnalysisService:
     return AnalysisService(
         db=db,
@@ -467,6 +473,7 @@ def get_analysis_service(
         analyzer_registry=analyzer_registry,
         decision_schedule_writer=decision_schedule_writer,
         task_suggestion_writer=TaskSuggestionWriter(analysis_repository, task_suggestion_repository),
+        amount_writer=AmountWriter(analysis_repository, amount_repository),
     )
 
 
