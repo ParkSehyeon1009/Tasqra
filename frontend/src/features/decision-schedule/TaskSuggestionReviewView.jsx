@@ -17,8 +17,6 @@ import './DecisionScheduleReviewView.css'
 //
 // 순서에 뜻이 있다. 위에서부터 「무슨 일을 하는가 -> 언제까지 무엇을 내는가」다.
 const GROUPS = [
-  { key: 'scope', label: '과업 범위', hint: '사업으로 수행할 일',
-    match: item => item.statement_type === 'SCOPE' },
   { key: 'deliverable', label: '제출·납품', hint: '기한이 붙는 산출물',
     match: item => ['SUBMISSION', 'DELIVERABLE'].includes(item.task_kind) },
   { key: 'reporting', label: '보고·점검', hint: '주기적으로 알리거나 확인할 일',
@@ -105,10 +103,9 @@ export default function TaskSuggestionReviewPanel({ projectId, documentId, canEd
             {group.items.map(item => <article className='review-card' key={item.id}>
               <div className='review-card-main'>
                 <div className='review-card-title'>
-                  {/* 묶음 제목이 성격을 말해주므로 배지는 뽑은 근거만 알린다.
-                      SCOPE(features)는 생성이라 원문 인용이 없고,
-                      그 밖(action_task)은 원문 문장에서 고른 것이다. */}
-                  <span className='review-card-kind'>{item.statement_type === 'SCOPE' ? '요약' : '원문'}</span>
+                  {/* 🔴 2026-09-07: 여기 있던 「요약/원문」 배지를 뺐다.
+                      features(과업 범위)를 태스크 제안에서 걷어내면서 모든
+                      항목이 원문에서 고른 것이 됐다 — 구분할 대상이 없다. */}
                   <strong>{item.title}</strong>
                 </div>
                 <div className='review-card-meta'>

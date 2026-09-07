@@ -3,7 +3,6 @@
 # Spring 비교: 분석 결과 저장과 자동 분류 정책을 묶는 @Service 계층이다.
 
 import json
-import re
 
 from pydantic import ValidationError
 
@@ -14,26 +13,29 @@ from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
 from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
-# 태스크 제안을 만드는 분석기가 **둘이고, 뽑는 것이 다르다.**
+# 액션 태스크는 **「해야 할 일」만 다룬다.**
 #
 #   action_task  후보를 파이썬 규칙으로 찾고(action_candidate_finder) 모델은
 #                **그중에서 고른다.** 없는 것을 만들 수 없고 근거가 원문에 있다.
 #                뽑는 것: 기한 있는 이행 의무 (「월간 작업결과 보고: 익월 5일까지」)
-#   features     모델이 **생성한다.** 근거 인용이 없어 지어낼 수 있다.
-#                뽑는 것: 사업 범위 (「고정수리센터 운영」·「방치자전거 적출 및 수거」)
 #
-# 🔴 2026-09-07 정정: 처음에는 「목적이 겹치니 하나만 켠다」고 보고 features 를
-#   기본에서 뺐다. **틀렸다.** 실제 문서로 돌려보니 같은 과업지시서에서
-#   action_task 는 보고·제출 의무를, features 는 사업 내용을 뽑았다 — 겹치지
-#   않는다. 태스크 보드에는 둘 다 필요하다.
+# 🔴 2026-09-07: features(과업 범위)를 태스크 제안에 넣었다가 **뺐다.**
+#   같은 과업지시서에서 features 는 「고정수리 운영」·「수리기사 채용」 같은
+#   **사업 범위**를 정확히 뽑았지만, 그것은 담당자에게 배정할 「할 일」이 아니라
+#   사업이 무엇인지에 대한 서술이다. 액션 태스크의 성격과 맞지 않는다.
 #
-#   대신 **문서 유형으로 가른다.** 아래 ACTION_TASK_CATEGORIES ·
-#   FEATURES_CATEGORIES 참고. 유형별로 어느 쪽이 쓸모 있는지가 갈렸다.
-# ⚠️ 순서가 의미를 갖는다 — **category 가 action_task·features 보다 앞**이어야 한다.
-#   뒤의 둘은 분류 결과를 보고 돌지 말지 정한다(_skip_reason). 순서를 바꾸면
+#   ⚠️ **features 를 기본 분석에서도 뺐다.** 태스크 제안으로 안 가면 남는
+#     소비처가 없어 analyses 에 JSON 으로만 쌓인다 — 아무도 안 보는 결과에
+#     문서당 8회 호출을 치르게 된다. 레지스트리에는 남아 있으므로
+#     types=["features"] 로 부르면 계속 돈다.
+#
+#   되돌리려면 이 목록에 "features" 를 넣고 save_results 에 변환을 다시 붙이면
+#   된다(2026-09-07 커밋 참고).
+#
+# ⚠️ 순서가 의미를 갖는다 — **category 가 action_task 보다 앞**이어야 한다.
+#   action_task 는 분류 결과를 보고 돌지 말지 정한다(_skip_reason). 순서를 바꾸면
 #   조용히 안 걸러지고, 노이즈가 다시 쌓이는 것으로만 드러난다. 테스트로 잠갔다.
-DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule",
-                          "action_task", "features"]
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
 
 # 🔑 액션 태스크를 뽑을 문서 유형. **이 밖에서는 분석기를 아예 부르지 않는다.**
 #
@@ -56,116 +58,15 @@ DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule",
 #   넓히거나 비우면 된다(비우면 전부 건너뛴다는 뜻이 아니라, 아래 _skip_reason 이
 #   category 를 모를 때 돌리는 쪽으로 떨어지므로 주의).
 #
-# ⚠️ RFP·PROPOSAL 에서 「수행할 과업」을 뽑는 것은 features 분석기의 몫이다.
-#   같은 제안요청서에서 features 는 「교통편 제공·숙식 제공·견학장소 예약 및 섭외」
-#   를 정확히 찾았다. 다만 task_suggestions 에 쓰는 경로가 아직 없다.
+# ⚠️ 그래서 RFP·PROPOSAL 문서에는 **태스크 제안이 하나도 안 나온다.** 알고
+#   두는 것이다 — 그 문서들의 「~하여야 한다」는 전부 입찰 절차라 뽑아도 노이즈다.
 ACTION_TASK_CATEGORIES = frozenset({"CONTRACT", "CONTRACT_CHANGE"})
 
-# 과업(features)을 뽑을 문서 유형. **「할 일이 적혀 있는 문서」**다.
-# AgentLearning/src/generate_features.py 의 FEATURE_TYPES 와 같은 목록이다 —
-# 라벨을 만들 때 이미 같은 판단을 했고, 학습과 서비스가 같은 범위를 봐야 한다.
-#
-#   RFP·PROPOSAL       action_task 가 절차만 골라오는 곳. **여기서는 features 가 답이다.**
-#                      제안요청서(수학여행) 실측: action_task 0건 / features 는
-#                      「교통편 제공·숙식 제공·견학장소 예약 및 섭외」를 정확히 찾았다
-#   CONTRACT 계열      둘 다 돈다. 뽑는 것이 다르다 — features 는 사업 범위,
-#                      action_task 는 기한 있는 이행 의무다
-#
-# ⚠️ 비싸다. 구간마다 호출하므로 문서당 중앙 8회·4초, 긴 문서는 48회·114초다.
-#   REPORT·MEETING_NOTES·ETC 에서 빼는 이유는 정확도만이 아니라 비용이다.
-FEATURES_CATEGORIES = frozenset({"RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE"})
-
 # 분석기별로 「어떤 유형에서 돌릴지」. 여기 없는 분석기는 항상 돈다.
-_CATEGORY_SCOPE = {"action_task": ACTION_TASK_CATEGORIES,
-                   "features": FEATURES_CATEGORIES}
-
-# 과업을 태스크 제안으로 옮길 때 쓰는 고정값.
 #
-# ⚠️ **측정된 점수가 아니다.** features 는 생성 방식이라 개별 항목의 확신도를
-#   낼 근거가 없다. action_task 의 실측 중앙값(0.70)보다 낮게 두어 화면에서
-#   근거 있는 제안이 먼저 오도록 한 값이다. 「이 항목이 70% 맞다」는 뜻이 아니다.
-FEATURE_QUALITY_SCORE = 0.5
-
-
-def _낱말(text):
-    """제목 비교용 낱말. 두 글자 이상만 본다 — 조사·한 글자는 우연히 겹친다."""
-    빼는말 = {"관리", "운영", "수행", "제공", "실시", "진행", "관련", "경우", "위해", "따라"}
-    return {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", text or "") if w not in 빼는말}
-
-
-def _이미_나왔나(title, 기존제목들):
-    """같은 일을 action_task 가 이미 냈는가.
-
-    ⚠️ **한쪽 방향으로만 본다.** features 제목은 짧은 명사구(「작업 사진 제출」)이고
-      action_task 제목은 원문 문장이라, 짧은 쪽의 낱말이 긴 쪽에 **전부 들어 있으면**
-      같은 일로 본다. 반대 방향(긴 쪽이 짧은 쪽에 포함)은 성립하지 않는다.
-
-    ⚠️ 낱말 2개 이상일 때만 본다. 한 낱말이면(「보고」) 무관한 문장에도 걸린다.
-
-    ⚠️ **덜 합치는 쪽으로 기운다.** 과하게 합치면 과업이 사라지고 아무도 못
-      알아채지만, 덜 합치면 비슷한 카드가 둘 떠서 승인 화면에서 지우면 된다.
-      그래서 「전부 포함」만 같다고 보고 부분 겹침은 놔둔다.
-
-    ⚠️ 낱말 **집합 비교가 아니라 부분 문자열**로 본다. 한국어는 조사가 붙어
-      「사진」과 「사진을」이 다른 낱말로 잡히기 때문이다. 집합으로 짰다가
-      실제 중복(「작업 사진 제출」 대 「…각 작업 사진을 촬영하여 제출」)을
-      못 잡았다.
-    """
-    내낱말 = _낱말(title)
-    if len(내낱말) < 2:
-        return False
-    return any(all(w in 기존 for w in 내낱말) for 기존 in 기존제목들)
-
-
-def _앞서_나온_제목들(results):
-    """이번 분석에서 **이미 태스크 제안으로 저장될** 제목들.
-
-    features 는 DEFAULT_ANALYZER_TYPES 에서 action_task 뒤에 온다. 그래서
-    features 를 변환할 때 앞의 결과를 볼 수 있다 — 순서에 기대는 자리다.
-    """
-    제목 = []
-    for _, result in results:
-        for item in (result.result.get("task_suggestions") or []):
-            값 = item.get("title") if isinstance(item, dict) else getattr(item, "title", None)
-            if 값:
-                제목.append(값)
-    return 제목
-
-
-def _features_as_suggestions(features, 기존제목들=()):
-    """과업 항목을 TaskSuggestionExtraction 모양으로 바꾼다.
-
-    ⚠️ **evidence_text 에 과업 이름을 함께 넣는 이유가 있다.** 그 값의 해시가
-      evidence_fingerprint 가 되고, TaskSuggestionService.approve 는 그것으로
-      「이미 태스크를 만든 근거인가」를 판단한다.
-
-      과업은 한 구간에서 여러 개가 나오므로 근거 구간만 넣으면 **항목마다
-      지문이 같아진다.** 그러면 첫 항목을 승인해 태스크가 생긴 뒤, 나머지를
-      승인해도 태스크가 만들어지지 않고 엉뚱한 태스크에 붙는다.
-      (task_suggestion_service.py:34 의 분기)
-
-      writer 의 _fingerprint 를 고치면 action_task 의 기존 지문까지 바뀌므로
-      이쪽에서만 푼다.
-    """
-    rows = []
-    for item in features:
-        # 같은 일을 action_task 가 이미 냈으면 카드를 둘 만들지 않는다.
-        # 실측: 과업지시서에서 「작업 사진 제출」이 양쪽에 나왔다.
-        if _이미_나왔나(item["name"], 기존제목들):
-            continue
-        구간 = (item.get("source_text") or "").strip()
-        rows.append({
-            "title": item["name"][:300],
-            "description": item.get("summary"),
-            # 생성된 항목이라 원문 인용이 없다. 무엇을 보고 만들었는지를 준다.
-            "evidence_text": f"{item['name']} — 근거 구간\n{구간}" if 구간 else item["name"],
-            # 사업 범위이지 기한 있는 의무가 아니다. action_task 의 OBLIGATION 과 구분한다.
-            "statement_type": "SCOPE",
-            "quality_score": FEATURE_QUALITY_SCORE,
-            "reason": "문서에 적힌 과업 범위를 요약한 항목입니다. 원문을 그대로 인용한 것이 "
-                      "아니므로 근거 구간과 대조해 확인하세요.",
-        })
-    return rows
+# ⚠️ 값이 비어 있는 분석기를 넣지 말 것 — _skip_reason 이 「허용 목록이
+#   없다」와 구분하지 못한다.
+_CATEGORY_SCOPE = {"action_task": ACTION_TASK_CATEGORIES}
 
 
 class AnalysisService:
@@ -306,18 +207,6 @@ class AnalysisService:
                     project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision,
                     source_ocr_revision=document.ocr_revision, analyzer_type=name,
-                    result=result, extractions=items)
-                rows.append(analysis)
-                continue
-            if "features" in result.result:
-                # 과업(features)을 태스크 제안으로 옮긴다. 저장·승인 흐름은
-                # action_task 와 **같은 것을 쓴다** — 사람이 보는 화면이 하나여야 한다.
-                items = TaskSuggestionExtractionList.model_validate_json(
-                    json.dumps(_features_as_suggestions(
-                        result.result["features"], _앞서_나온_제목들(results)))).root
-                analysis, _ = self._task_suggestion_writer.write(
-                    project_id=document.project_id, document_id=document.id,
-                    source_text_revision=revision, analyzer_type=name,
                     result=result, extractions=items)
                 rows.append(analysis)
                 continue

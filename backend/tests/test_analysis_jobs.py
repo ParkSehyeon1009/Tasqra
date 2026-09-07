@@ -200,7 +200,7 @@ def test_default_analysis_includes_decisions_and_schedule():
     #   (analysis_service._skip_reason). test_action_task_scope.py 가 그 순서를
     #   따로 잠그고 있고, 여기서는 구성만 확인한다.
     assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule",
-                                      "action_task", "features"]
+                                      "action_task"]
 
 
 def test_save_routes_decision_and_schedule_fields_to_writer():
