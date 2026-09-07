@@ -14,6 +14,48 @@
 .action-item-review { min-height: 150px; padding: 14px; background: #f7f8fb; }
 .review-list-body { min-width: 0; }
 .review-card-list { display: grid; gap: 10px; }
+
+/* 두 검토 패널을 전환하는 바깥 탭(AnalysisSidePanels).
+   ⚠️ 안쪽 상태 탭(.review-state-tabs)과 **생김새를 다르게 둔다.** 두 층이
+   겹치므로 같은 모양이면 어느 것이 무엇을 바꾸는지 알 수 없다.
+   바깥은 칸을 나눈 전환기, 안쪽은 알약이다. */
+.side-panel-switch__tabs { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 4px; margin-top: 24px; padding: 4px; border-radius: 12px; background: #eef0f5; }
+.side-panel-switch__tabs button { padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: #5b6478; font-size: 12px; font-weight: 700; cursor: pointer; }
+.side-panel-switch__tabs button:hover { color: #111827; }
+.side-panel-switch__tabs button.is-active { background: #fff; color: #111827; box-shadow: 0 1px 3px rgba(28, 39, 60, .12); }
+/* 전환기가 위에 붙으므로 패널 자체의 위 여백은 없앤다. */
+.side-panel-switch .decision-schedule-panel { margin-top: 8px; }
+
+/* 액션 태스크 후보를 성격별로 묶는다(TaskSuggestionReviewView).
+   과업지시서 한 건에서 20건 넘게 나와 한 줄로 늘어놓으면 무엇부터 볼지 모른다.
+   ⚠️ 개수를 줄이는 게 아니라 읽는 단위를 만드는 것이다 — 합쳐서 지우면
+   과업이 사라지고 아무도 못 알아챈다.
+
+   ⚠️ 아래는 전부 .suggestion-panel 안으로 **범위를 좁혔다.** 이 파일은 옆
+   패널(결정·일정)과 공유하므로, 범위를 안 좁히면 그쪽 목록까지 잘린다. */
+.suggestion-group { display: grid; gap: 8px; }
+.suggestion-group + .suggestion-group { margin-top: 16px; }
+/* 좁은 열에 들어가므로 줄바꿈을 허용한다. flex 한 줄로 두면 설명이 눌린다. */
+.suggestion-group__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0; color: #111827; font-size: 13px; font-weight: 800; }
+.suggestion-group__head b { padding: 1px 7px; border-radius: 999px; background: var(--c-accent-soft, #eeedff); color: var(--c-accent, #554bd8); font-size: 11px; }
+.suggestion-group__head span { flex: 1 1 100%; color: #6b7280; font-size: 11px; font-weight: 500; }
+
+/* 목록이 길어 페이지 전체가 늘어난다. 패널에 높이를 주고 안에서 스크롤한다.
+   ⚠️ 높이를 화면 기준(vh)으로 잡는다. 고정 px 로 두면 작은 화면에서 잘리고
+   큰 화면에서는 빈 공간이 남는다. */
+.suggestion-panel .review-list-body { max-height: min(620px, 60vh); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+/* 스크롤 중에도 지금 보는 묶음이 무엇인지 보여야 한다.
+   ⚠️ 배경은 감싸는 .action-item-review 와 같아야 한다(#f7f8fb). 다르면 카드가
+   헤더 뒤로 지나갈 때 띠가 보인다. */
+.suggestion-panel .suggestion-group__head { position: sticky; top: 0; z-index: 1; padding: 6px 0; background: #f7f8fb; }
+.suggestion-panel .review-list-body::-webkit-scrollbar { width: 8px; }
+.suggestion-panel .review-list-body::-webkit-scrollbar-thumb { border-radius: 999px; background: #cfd5e0; }
+.suggestion-panel .review-list-body::-webkit-scrollbar-track { background: transparent; }
+/* 좁은 열에서 카드가 눌리지 않게 여백을 줄이고 근거·판단문을 작게 둔다. */
+.suggestion-panel .review-card { gap: 9px; padding: 12px; }
+.suggestion-panel .review-card-reason { font-size: 11px; line-height: 1.5; }
+.suggestion-panel .review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggestion-panel .review-actions button { flex: 1 1 auto; }
 .review-card { display: grid; gap: 12px; padding: 14px; border: 1px solid #dbe0e8; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(28, 39, 60, .04); }
 .review-card.is-stale { background: #f2f3f5; border-style: dashed; }
 .review-card-main { min-width: 0; }

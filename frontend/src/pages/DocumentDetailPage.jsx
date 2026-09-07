@@ -19,8 +19,7 @@ import DocumentContentTab from '../features/document-detail/DocumentContentTab'
 import DocumentHeader from '../features/document-detail/DocumentHeader'
 import DocumentHistoryTab from '../features/document-detail/DocumentHistoryTab'
 import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
-import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionScheduleReviewView'
-import TaskSuggestionReviewPanel from '../features/decision-schedule/TaskSuggestionReviewView'
+import AnalysisSidePanels from '../features/decision-schedule/AnalysisSidePanels'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
 import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, LEGACY_COST_SHEET_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
@@ -123,7 +122,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
         {activeTab === 'analysis' && <div className="document-analysis-layout">
           <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
-          <div><TaskSuggestionReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/><DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/></div>
+          <div><AnalysisSidePanels projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/></div>
         </div>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>
