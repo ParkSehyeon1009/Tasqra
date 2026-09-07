@@ -20,9 +20,10 @@
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import AmountCategory, DocumentType
+
 
 class AmountItemOut(BaseModel):
     """금액 항목 하나. 문서에 적힌 값만 담고, 없는 값은 None으로 둔다.
@@ -31,6 +32,8 @@ class AmountItemOut(BaseModel):
     문서에 아예 없는 경우가 많다. 빈 문자열이나 0을 쓰지 않는 이유는 0이
     "금액이 0원"이라는 다른 뜻이기 때문이다.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     item_name: str = Field(min_length=1, max_length=300,
                            description="문서에 적힌 항목명 그대로")
@@ -68,6 +71,8 @@ class AmountExtractionOut(BaseModel):
     금액이 없는 문서(회의록 등)는 오류가 아니다. items를 빈 배열로 두고
     notes에 사유를 적는다.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     document_type: DocumentType
     currency: str = Field(default="KRW", pattern=r"^[A-Z]{3}$",

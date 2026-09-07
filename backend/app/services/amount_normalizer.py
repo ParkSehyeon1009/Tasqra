@@ -17,18 +17,31 @@
 #   거기서 걸리고, unit_price는 선택이라 통과한다.
 # =============================================================================
 
+import math
 import re
 from decimal import Decimal, InvalidOperation
 
-# 금액에서 걷어낼 것들. 통화기호·단위·공백.
-# 원 단위 정수만 남긴다.
-_CURRENCY_NOISE = re.compile(r"[,\s원₩$¥€]|KRW|USD|JPY|EUR", re.IGNORECASE)
+# 통화 문자열은 숫자 전체와 경계의 통화 표기만 허용한다. 중간 통화 기호를
+# 지워 숫자를 이어 붙이지 않는다("1원2"를 12로 만들면 원문을 변조하게 된다).
+_GROUPED_INTEGER = r"(?:\d{1,3}(?:,\d{3})+|\d+)"
+_CURRENCY_MARK = r"(?:KRW|USD|JPY|EUR|원|[₩$¥€])"
+_AMOUNT_TEXT = re.compile(
+    rf"^\s*(?:{_CURRENCY_MARK}\s*)?"
+    rf"(?P<number>{_GROUPED_INTEGER})"
+    rf"(?:\s*{_CURRENCY_MARK})?\s*$",
+    re.IGNORECASE,
+)
+
+# 수량은 숫자 전체와 선택 단위만 허용한다. 숫자 접두사만 떼어내지 않으므로
+# "1e3"·"1.5.2" 같은 잘못된 문자열을 각각 1·1.5로 저장하지 않는다.
+_QUANTITY_TEXT = re.compile(
+    rf"^\s*(?P<number>{_GROUPED_INTEGER}(?:\.\d+)?)"
+    r"(?:\s*[A-Za-z가-힣/%]+(?:\s*[A-Za-z가-힣/%]+)*)?\s*$"
+)
 
 # 값이 없음을 뜻하는 표기. 문서에 실제로 이렇게 적혀 있는 경우가 있다.
 _EMPTY_MARKS = {"", "-", "—", "–", "n/a", "na", "없음", "미정", "해당없음", "null", "none"}
 
-# 수량에서 숫자 부분만 뽑는다. "3인월" -> "3", "1.5 M/M" -> "1.5"
-_LEADING_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 def _is_empty(raw) -> bool:
     if raw is None:
@@ -60,18 +73,20 @@ def normalize_number(raw: str | int | float | None) -> int | None:
     if isinstance(raw, float):
         # 소수점이 있는 금액은 원 단위가 아니다. 반올림하지 않고 버린다.
         # 반올림하면 어디서 값이 바뀌었는지 추적이 안 된다.
+        if not math.isfinite(raw):
+            return None
         return int(raw) if raw >= 0 and raw == int(raw) else None
 
-    cleaned = _CURRENCY_NOISE.sub("", str(raw)).strip()
-    if not cleaned:
+    match = _AMOUNT_TEXT.fullmatch(str(raw))
+    if not match:
         return None
 
     try:
-        value = Decimal(cleaned)
+        value = Decimal(match.group("number").replace(",", ""))
     except InvalidOperation:
         return None
 
-    if value < 0 or value != value.to_integral_value():
+    if not value.is_finite() or value < 0 or value != value.to_integral_value():
         return None
 
     return int(value)
@@ -101,12 +116,12 @@ def normalize_quantity(raw: str | int | float | Decimal | None) -> Decimal | Non
         value = Decimal(str(raw))
         return value if value >= 0 else None
 
-    match = _LEADING_NUMBER.search(str(raw).replace(",", ""))
+    match = _QUANTITY_TEXT.fullmatch(str(raw))
     if not match:
         return None
 
     try:
-        value = Decimal(match.group())
+        value = Decimal(match.group("number").replace(",", ""))
     except InvalidOperation:
         return None
 
@@ -122,6 +137,8 @@ def normalize_payload(raw: dict) -> dict:
     """
     out = dict(raw)
     out["stated_total"] = normalize_number(raw.get("stated_total"))
+    if "notes" in out and _is_empty(out.get("notes")):
+        out["notes"] = None
 
     items = raw.get("items")
     if not isinstance(items, list):
@@ -141,7 +158,7 @@ def normalize_payload(raw: dict) -> dict:
         # 빈 문자열로 온 단위·기간은 None으로 통일한다.
         # Pydantic에서 max_length는 통과하지만 빈 문자열이 저장되면
         # "값이 없음"과 "빈 값"이 DB에서 구분되지 않는다.
-        for key in ("unit", "period_from", "period_to", "category", "notes"):
+        for key in ("unit", "period_from", "period_to", "category"):
             if key in fixed and _is_empty(fixed.get(key)):
                 fixed[key] = None
 

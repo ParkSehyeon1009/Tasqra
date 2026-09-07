@@ -89,6 +89,20 @@ class AmountRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def add_items(self, rows: list[AmountItem]) -> list[AmountItem]:
+        """검증된 금액 행을 현재 외부 트랜잭션에 추가하고 PK를 확정한다."""
+        if rows:
+            self._db.add_all(rows)
+            self._db.flush()
+        return rows
+
+    def delete_pending_items(self, document_id: int) -> int:
+        """재분석 전 같은 문서의 미검토 금액만 삭제한다."""
+        return self._db.query(AmountItem).filter(
+            AmountItem.document_id == document_id,
+            AmountItem.decision == "PENDING",
+        ).delete(synchronize_session=False)
+
     def list_precedents(
         self,
         *,
