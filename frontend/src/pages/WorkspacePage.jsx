@@ -58,6 +58,7 @@ export default function WorkspacePage({ user, onLogout, notify }) {
   if (!TABS.some(([key]) => key === tab)) return <Navigate to={`/projects/${projectId}/dashboard`} replace/>
   if (projectQuery.isPending) return <LoadingState label="프로젝트 접근 권한을 확인하는 중..."/>
   if (projectQuery.isError || !project) return <Navigate to="/projects" replace/>
+  if (tab === 'amounts' && project.role === 'VIEWER') return <Navigate to={`/projects/${projectId}/dashboard`} replace/>
   return <WorkspaceContent project={project} projects={projects} tab={tab} navigate={navigate} notify={notify} user={user} onLogout={onLogout} createMutation={createMutation} deleteMutation={deleteMutation} recentInvitees={recentInvitees}/>
 }
 
@@ -193,7 +194,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
 function TabContent({ tab, project, data, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearDocumentFilters, onDocumentPageChange, canEdit, notify, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
   if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} documentsTotal={data.documentsTotal} documentsPage={data.documentsPage} documentsTotalPages={data.documentsTotalPages} documentType={documentType} documentState={documentState} onDocumentTypeChange={onDocumentTypeChange} onDocumentStateChange={onDocumentStateChange} onClearFilters={onClearDocumentFilters} onPageChange={onDocumentPageChange} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onRetryUpload={onRetryUpload} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
-  if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
+  if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members} canEdit={canEdit}/>
   // 검색은 워크스페이스 데이터(문서 목록 · 멤버)를 쓰지 않는다. 자기 상태만
   // 들고 api/search.js 를 부른다. 범위 토글에 쓸 프로젝트 이름만 넘긴다.
   if (tab === 'search') return <SearchView projectId={project.id} projectName={project.name}/>
