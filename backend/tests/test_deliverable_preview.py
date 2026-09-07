@@ -334,7 +334,7 @@ def test_preview_content_builds_structured_status_without_llm_call():
         "프로젝트 기본 정보",
         "진행 상태 요약",
         "주요 성과",
-        "이슈 및 리스크",
+        "일정 이슈",
         "향후 계획",
     ):
         assert f"## {title}" in out.body

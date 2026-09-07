@@ -323,7 +323,7 @@ class DeliverableRepository:
     def count_amount_items(
         self, project_id: int, *, since: date | None = None, until: date | None = None
     ) -> int:
-        """금액 항목 수.
+        """산출물에 담을 승인된 금액 항목 수(`APPROVED`·`EDITED`).
 
         `amount_items` 에는 `project_id` 가 없다 — 문서를 거쳐야 한다. 리비전
         0007 이 그렇게 만들었고, 금액은 항상 문서에서 나오기 때문이다.
@@ -337,7 +337,10 @@ class DeliverableRepository:
             select(func.count())
             .select_from(AmountItem)
             .join(Document, Document.id == AmountItem.document_id)
-            .where(Document.project_id == project_id)
+            .where(
+                Document.project_id == project_id,
+                AmountItem.decision.in_(APPROVED_DECISIONS),
+            )
         )
         if since is not None:
             stmt = stmt.where(func.date(Document.created_at) >= since)
@@ -481,7 +484,7 @@ class DeliverableRepository:
         승인 전(`PENDING`)·거절(`REJECTED`) 항목은 뺀다 — 승인해야 어디에도
         반영된다는 원칙(`AMT-001-2`)이고, 금액 현황(`amount-summary`)이 집계하는
         조건과 같아야 한다. 이 조건이 없어서 **거절한 금액이 산출물에 그대로
-        남던 버그**를 고친다. `count_amount_items`(PENDING 개수)와는 목적이 다르다.
+        남던 버그**를 고친다. `count_amount_items` 와 같은 승인 조건을 쓴다.
         """
         stmt = (
             select(AmountItem)
