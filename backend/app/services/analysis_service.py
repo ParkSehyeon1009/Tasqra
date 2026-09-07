@@ -34,6 +34,32 @@ from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractio
 #     긴 문서는 48회·114초다.
 DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
 
+# 🔑 액션 태스크를 뽑을 문서 유형. **이 밖에서는 분석기를 아예 부르지 않는다.**
+#
+# 왜 유형으로 가르나 — 실측(2026-09-07, 실제 문서 3건)에서 유형이 결과를 갈랐다:
+#
+#     재공고서(RFP)      제안 19건 중 쓸 만한 것 1건
+#     제안요청서(RFP)    제안 10건 중 쓸 만한 것 **0건**
+#     과업지시서(CONTRACT) 제안  9건 중 쓸 만한 것 **9건**
+#
+# 우연이 아니라 구조다. action_candidate_finder 는 「제출·작성·등록 + 하여야/까지」
+# 를 찾는데, **공공 입찰 문서에서 그 어미가 붙는 문장은 거의 전부 입찰 절차다**
+# (입찰보증금 납부·공동수급협정서 제출·제안서 제본 규격…). 반면 진짜 과업은
+# 「고정수리센터를 운영한다」처럼 범위 서술이라 의무 어미가 없다.
+# 그래서 후보 찾기가 정확할수록 절차만 골라온다 — 규칙을 손봐서 될 문제가 아니다.
+#
+# 노이즈의 크기가 문제다. 두 RFP 문서에서 29건 중 1건만 진짜였다. 승인 화면에
+# 그것이 쌓이면 사람이 기능 자체를 안 믿게 된다.
+#
+# ⚠️ **표본 3건이다.** 메커니즘은 설명되지만 확정은 아니다. 되돌리려면 이 집합을
+#   넓히거나 비우면 된다(비우면 전부 건너뛴다는 뜻이 아니라, 아래 _skip_reason 이
+#   category 를 모를 때 돌리는 쪽으로 떨어지므로 주의).
+#
+# ⚠️ RFP·PROPOSAL 에서 「수행할 과업」을 뽑는 것은 features 분석기의 몫이다.
+#   같은 제안요청서에서 features 는 「교통편 제공·숙식 제공·견학장소 예약 및 섭외」
+#   를 정확히 찾았다. 다만 task_suggestions 에 쓰는 경로가 아직 없다.
+ACTION_TASK_CATEGORIES = frozenset({"CONTRACT", "CONTRACT_CHANGE"})
+
 
 class AnalysisService:
     def __init__(self, db, document_repository, analysis_repository, analyzer_registry,
@@ -51,11 +77,51 @@ class AnalysisService:
             raise BusinessError(ErrorCode.ANALYZER_NOT_FOUND)
         return types
 
+    @staticmethod
+    def _skip_reason(name, results):
+        """이 분석기를 건너뛸 이유가 있으면 문장으로, 없으면 None.
+
+        ⚠️ **분석기 사이에 순서 의존이 생기는 자리다.** category 결과를 보고
+          action_task 를 켤지 정하므로, DEFAULT_ANALYZER_TYPES 에서 category 가
+          action_task 보다 **앞에** 있어야 한다. 순서를 바꾸면 조용히 안 걸러진다
+          (테스트로 잠가 뒀다).
+
+        ⚠️ **모르면 거르지 않는다.** category 를 안 돌렸거나 결과가 없으면 그냥
+          돌린다. 분류가 없다는 이유로 기능이 사라지면 사용자는 원인을 알 수 없다.
+        """
+        if name != "action_task":
+            return None
+        category = next((r.result.get("category") for n, r in results if n == "category"),
+                        None)
+        if category is None or category in ACTION_TASK_CATEGORIES:
+            return None
+        return f"{category} 문서에서는 액션 태스크를 뽑지 않습니다"
+
+    @staticmethod
+    def _skipped_result(analyzer, reason):
+        """건너뛴 것도 **결과로 남긴다.**
+
+        ⚠️ 그냥 지나가면 「제안이 왜 없나」에 답할 수 없다. 분류가 틀려서
+          건너뛴 경우가 특히 그렇다 — 화면에서 원인을 보여줄 수 있어야 한다.
+        """
+        from app.analyzers.protocol import AnalyzeResult
+
+        return AnalyzeResult(
+            result={"task_suggestions": [], "skipped": reason,
+                    "candidate_count": 0, "selected_count": 0, "call_count": 0},
+            # 모델을 부르지 않았다. 부른 척하지 않는다.
+            provider="skipped", model_name="-",
+            prompt_version=getattr(analyzer, "prompt_version", "-"), latency_ms=0)
+
     async def analyze_text(self, content, types, progress=None):
         # 로컬 GPU에 요약·분류 요청을 동시에 쌓지 않는다.
         results = []
         for name in types:
             analyzer = self._analyzer_registry[name]
+            reason = self._skip_reason(name, results)
+            if reason:
+                results.append((name, self._skipped_result(analyzer, reason)))
+                continue
             result = await analyzer.analyze(content, progress=progress)
             results.append((name, result))
         return results
@@ -65,6 +131,10 @@ class AnalysisService:
         results, errors = [], []
         for name in types:
             analyzer = self._analyzer_registry[name]
+            reason = self._skip_reason(name, results)
+            if reason:
+                results.append((name, self._skipped_result(analyzer, reason)))
+                continue
             try:
                 result = await analyzer.analyze(content, progress=progress)
             except BusinessError as exc:
