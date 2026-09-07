@@ -195,7 +195,12 @@ def test_analysis_service_isolates_one_analyzer_failure():
 
 
 def test_default_analysis_includes_decisions_and_schedule():
-    assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule", "action_task"]
+    # ⚠️ 목록 자체보다 **순서**가 계약이다 — category 가 action_task·features
+    #   보다 앞에 있어야 그 둘이 분류 결과를 보고 돌지 말지 정할 수 있다
+    #   (analysis_service._skip_reason). test_action_task_scope.py 가 그 순서를
+    #   따로 잠그고 있고, 여기서는 구성만 확인한다.
+    assert DEFAULT_ANALYZER_TYPES == ["summary", "category", "decision", "schedule",
+                                      "action_task", "features"]
 
 
 def test_save_routes_decision_and_schedule_fields_to_writer():

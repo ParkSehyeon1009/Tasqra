@@ -13,26 +13,26 @@ from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
 from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
-# ⚠️ **"features" 는 일부러 빠져 있다.** 레지스트리에는 등록돼 있으므로
-#   types=["features"] 로 부르면 돌지만 기본으로는 돌지 않는다.
+# 태스크 제안을 만드는 분석기가 **둘이고, 뽑는 것이 다르다.**
 #
-#   같은 목적(문서에서 할 일을 뽑아 태스크 제안으로)을 가진 분석기가 둘이다:
+#   action_task  후보를 파이썬 규칙으로 찾고(action_candidate_finder) 모델은
+#                **그중에서 고른다.** 없는 것을 만들 수 없고 근거가 원문에 있다.
+#                뽑는 것: 기한 있는 이행 의무 (「월간 작업결과 보고: 익월 5일까지」)
+#   features     모델이 **생성한다.** 근거 인용이 없어 지어낼 수 있다.
+#                뽑는 것: 사업 범위 (「고정수리센터 운영」·「방치자전거 적출 및 수거」)
 #
-#     action_task  후보를 파이썬 규칙으로 찾고(action_candidate_finder) 모델은
-#                  **그중에서 고른다.** 없는 것을 만들 수 없다. 제안 저장·승인
-#                  흐름(task_suggestions)이 여기에 붙어 있다 -> **기본값**
-#     features     모델이 과업을 **생성한다.** 사업 범위를 분해하는 쪽에 가깝다
-#                  (「현황 및 수요분석」·「통계 대시보드 개발」) -> 필요할 때만
+# 🔴 2026-09-07 정정: 처음에는 「목적이 겹치니 하나만 켠다」고 보고 features 를
+#   기본에서 뺐다. **틀렸다.** 실제 문서로 돌려보니 같은 과업지시서에서
+#   action_task 는 보고·제출 의무를, features 는 사업 내용을 뽑았다 — 겹치지
+#   않는다. 태스크 보드에는 둘 다 필요하다.
 #
-#   ⚠️ features 를 기본에서 뺀 이유는 둘이다. (1) 둘 다 켜면 문서마다 서로 다른
-#     태스크 목록이 두 개 나온다. (2) 생성 방식이라 **지어낼 수 있다** — 실측
-#     22건 중 2건에서 「공고서 작성·개찰·자격 등록」같은 발주기관의 입찰 절차를
-#     과업으로 뽑았다. 구간 단위 재학습으로도 못 고쳤다(2026-09-07 패치노트).
-#     action_task 의 후보 찾기는 그 부류를 규칙으로 제외한다(_EXCLUDE).
-#
-#   ⚠️ 비용도 다르다. features 는 구간마다 호출해 문서당 중앙 8회·4초,
-#     긴 문서는 48회·114초다.
-DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
+#   대신 **문서 유형으로 가른다.** 아래 ACTION_TASK_CATEGORIES ·
+#   FEATURES_CATEGORIES 참고. 유형별로 어느 쪽이 쓸모 있는지가 갈렸다.
+# ⚠️ 순서가 의미를 갖는다 — **category 가 action_task·features 보다 앞**이어야 한다.
+#   뒤의 둘은 분류 결과를 보고 돌지 말지 정한다(_skip_reason). 순서를 바꾸면
+#   조용히 안 걸러지고, 노이즈가 다시 쌓이는 것으로만 드러난다. 테스트로 잠갔다.
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule",
+                          "action_task", "features"]
 
 # 🔑 액션 태스크를 뽑을 문서 유형. **이 밖에서는 분석기를 아예 부르지 않는다.**
 #
@@ -59,6 +59,63 @@ DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action
 #   같은 제안요청서에서 features 는 「교통편 제공·숙식 제공·견학장소 예약 및 섭외」
 #   를 정확히 찾았다. 다만 task_suggestions 에 쓰는 경로가 아직 없다.
 ACTION_TASK_CATEGORIES = frozenset({"CONTRACT", "CONTRACT_CHANGE"})
+
+# 과업(features)을 뽑을 문서 유형. **「할 일이 적혀 있는 문서」**다.
+# AgentLearning/src/generate_features.py 의 FEATURE_TYPES 와 같은 목록이다 —
+# 라벨을 만들 때 이미 같은 판단을 했고, 학습과 서비스가 같은 범위를 봐야 한다.
+#
+#   RFP·PROPOSAL       action_task 가 절차만 골라오는 곳. **여기서는 features 가 답이다.**
+#                      제안요청서(수학여행) 실측: action_task 0건 / features 는
+#                      「교통편 제공·숙식 제공·견학장소 예약 및 섭외」를 정확히 찾았다
+#   CONTRACT 계열      둘 다 돈다. 뽑는 것이 다르다 — features 는 사업 범위,
+#                      action_task 는 기한 있는 이행 의무다
+#
+# ⚠️ 비싸다. 구간마다 호출하므로 문서당 중앙 8회·4초, 긴 문서는 48회·114초다.
+#   REPORT·MEETING_NOTES·ETC 에서 빼는 이유는 정확도만이 아니라 비용이다.
+FEATURES_CATEGORIES = frozenset({"RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE"})
+
+# 분석기별로 「어떤 유형에서 돌릴지」. 여기 없는 분석기는 항상 돈다.
+_CATEGORY_SCOPE = {"action_task": ACTION_TASK_CATEGORIES,
+                   "features": FEATURES_CATEGORIES}
+
+# 과업을 태스크 제안으로 옮길 때 쓰는 고정값.
+#
+# ⚠️ **측정된 점수가 아니다.** features 는 생성 방식이라 개별 항목의 확신도를
+#   낼 근거가 없다. action_task 의 실측 중앙값(0.70)보다 낮게 두어 화면에서
+#   근거 있는 제안이 먼저 오도록 한 값이다. 「이 항목이 70% 맞다」는 뜻이 아니다.
+FEATURE_QUALITY_SCORE = 0.5
+
+
+def _features_as_suggestions(features):
+    """과업 항목을 TaskSuggestionExtraction 모양으로 바꾼다.
+
+    ⚠️ **evidence_text 에 과업 이름을 함께 넣는 이유가 있다.** 그 값의 해시가
+      evidence_fingerprint 가 되고, TaskSuggestionService.approve 는 그것으로
+      「이미 태스크를 만든 근거인가」를 판단한다.
+
+      과업은 한 구간에서 여러 개가 나오므로 근거 구간만 넣으면 **항목마다
+      지문이 같아진다.** 그러면 첫 항목을 승인해 태스크가 생긴 뒤, 나머지를
+      승인해도 태스크가 만들어지지 않고 엉뚱한 태스크에 붙는다.
+      (task_suggestion_service.py:34 의 분기)
+
+      writer 의 _fingerprint 를 고치면 action_task 의 기존 지문까지 바뀌므로
+      이쪽에서만 푼다.
+    """
+    rows = []
+    for item in features:
+        구간 = (item.get("source_text") or "").strip()
+        rows.append({
+            "title": item["name"][:300],
+            "description": item.get("summary"),
+            # 생성된 항목이라 원문 인용이 없다. 무엇을 보고 만들었는지를 준다.
+            "evidence_text": f"{item['name']} — 근거 구간\n{구간}" if 구간 else item["name"],
+            # 사업 범위이지 기한 있는 의무가 아니다. action_task 의 OBLIGATION 과 구분한다.
+            "statement_type": "SCOPE",
+            "quality_score": FEATURE_QUALITY_SCORE,
+            "reason": "문서에 적힌 과업 범위를 요약한 항목입니다. 원문을 그대로 인용한 것이 "
+                      "아니므로 근거 구간과 대조해 확인하세요.",
+        })
+    return rows
 
 
 class AnalysisService:
@@ -89,13 +146,14 @@ class AnalysisService:
         ⚠️ **모르면 거르지 않는다.** category 를 안 돌렸거나 결과가 없으면 그냥
           돌린다. 분류가 없다는 이유로 기능이 사라지면 사용자는 원인을 알 수 없다.
         """
-        if name != "action_task":
+        허용 = _CATEGORY_SCOPE.get(name)
+        if 허용 is None:
             return None
         category = next((r.result.get("category") for n, r in results if n == "category"),
                         None)
-        if category is None or category in ACTION_TASK_CATEGORIES:
+        if category is None or category in 허용:
             return None
-        return f"{category} 문서에서는 액션 태스크를 뽑지 않습니다"
+        return f"{category} 문서에서는 이 분석을 하지 않습니다"
 
     @staticmethod
     def _skipped_result(analyzer, reason):
@@ -106,9 +164,13 @@ class AnalysisService:
         """
         from app.analyzers.protocol import AnalyzeResult
 
+        # ⚠️ 건너뛴 분석기의 **자기 필드**를 빈 값으로 넣는다. save_results 가
+        #   result.result 의 키로 저장 경로를 고르기 때문이다 — features 결과에
+        #   task_suggestions 를 넣으면 엉뚱한 경로로 간다.
+        빈결과 = ({"features": []} if getattr(analyzer, "field", None) == "features"
+                  else {"task_suggestions": [], "candidate_count": 0, "selected_count": 0})
         return AnalyzeResult(
-            result={"task_suggestions": [], "skipped": reason,
-                    "candidate_count": 0, "selected_count": 0, "call_count": 0},
+            result={**빈결과, "skipped": reason, "call_count": 0},
             # 모델을 부르지 않았다. 부른 척하지 않는다.
             provider="skipped", model_name="-",
             prompt_version=getattr(analyzer, "prompt_version", "-"), latency_ms=0)
@@ -194,6 +256,17 @@ class AnalysisService:
                     project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision,
                     source_ocr_revision=document.ocr_revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            if "features" in result.result:
+                # 과업(features)을 태스크 제안으로 옮긴다. 저장·승인 흐름은
+                # action_task 와 **같은 것을 쓴다** — 사람이 보는 화면이 하나여야 한다.
+                items = TaskSuggestionExtractionList.model_validate_json(
+                    json.dumps(_features_as_suggestions(result.result["features"]))).root
+                analysis, _ = self._task_suggestion_writer.write(
+                    project_id=document.project_id, document_id=document.id,
+                    source_text_revision=revision, analyzer_type=name,
                     result=result, extractions=items)
                 rows.append(analysis)
                 continue

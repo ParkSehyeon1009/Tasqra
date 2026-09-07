@@ -15,7 +15,15 @@ class TaskSuggestionWriter:
               analyzer_type, result, extractions):
         # 재분석이 목록을 계속 불리지 않게 미검토 후보는 최신 결과로 교체한다.
         # 이미 승인·수정·거절한 기록과 만들어진 태스크는 보존한다.
-        self._suggestions.delete_pending(project_id, document_id)
+        #
+        # ⚠️ **analyzer_type 으로 좁힌다.** 이 테이블에 쓰는 분석기가 둘이라
+        #   (action_task·features) 문서 단위로 지우면 뒤에 도는 쪽이 앞의 결과를
+        #   지운다. repository.delete_pending 주석 참고.
+        #
+        # ⚠️ Analysis 를 만들기 **전에** 부른다. 그래야 이번 분석 결과는 남고
+        #   이전 실행의 것만 지워진다. 순서를 바꾸면 방금 넣은 것을 지운다.
+        self._suggestions.delete_pending(project_id, document_id,
+                                         analyzer_type=analyzer_type)
         analysis = self._analyses.create(Analysis(
             document_id=document_id, analyzer_type=analyzer_type,
             result_json=result.result, provider=result.provider,

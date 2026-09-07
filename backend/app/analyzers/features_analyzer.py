@@ -116,17 +116,27 @@ class FeaturesAnalyzer:
                         capped = True
                         continue
                     seen[key] = len(found)
-                    found.append(item)
-                elif len(item.summary) > len(found[at].summary):
+                    found.append((item, chunk))
+                elif len(item.summary) > len(found[at][0].summary):
                     # 경계에 걸친 항목은 문맥을 더 많이 본 쪽의 설명이 길다.
                     # 결정사항이 confidence 로 고르는 자리인데, 과업 스키마에는
                     # confidence 가 없다 — 3B 모델의 자기 확신도를 믿기 어려워
                     # 넣지 않았다(schedule_analyzer 가 같은 이유로 날짜를 뺐다).
-                    found[at] = item
+                    found[at] = (item, chunk)
             runner.progress(stage, i + 1, len(chunks))
 
         return AnalyzeResult(
-            result={self.field: [item.model_dump(mode="json") for item in found],
+            result={self.field: [{**item.model_dump(mode="json"),
+                                  # ⚠️ **어느 구간에서 나왔는지 남긴다.**
+                                  #   이 분석기는 생성 방식이라 「원문 그대로의
+                                  #   인용」이 없다. 그래도 승인하는 사람은 무엇을
+                                  #   보고 만든 것인지 대조할 수 있어야 한다.
+                                  #   태스크 제안으로 옮길 때 evidence_text 가
+                                  #   되며, 그 자리는 비워둘 수 없다.
+                                  "source_start": chunk.start,
+                                  "source_end": chunk.end,
+                                  "source_text": chunk.text}
+                                 for item, chunk in found],
                     "chunk_count": len(chunks), "empty_chunks": empty_chunks,
                     # 잘렸다는 것을 남긴다. 이게 없으면 「원래 그만큼」과 구별이 안 된다.
                     "capped_at": cap if capped else None,

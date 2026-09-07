@@ -25,7 +25,9 @@ from app.analyzers.protocol import AnalyzeResult
 from app.services.analysis_service import (
     ACTION_TASK_CATEGORIES,
     DEFAULT_ANALYZER_TYPES,
+    FEATURES_CATEGORIES,
     AnalysisService,
+    _features_as_suggestions,
 )
 
 
@@ -104,9 +106,10 @@ def test_기본_목록에서_category_가_action_task_보다_앞이다():
     바뀌면 조용히 안 걸러지고, 그때는 노이즈가 다시 쌓이는 것으로만 드러난다.
     """
     assert "category" in DEFAULT_ANALYZER_TYPES
-    assert "action_task" in DEFAULT_ANALYZER_TYPES
-    assert (DEFAULT_ANALYZER_TYPES.index("category")
-            < DEFAULT_ANALYZER_TYPES.index("action_task"))
+    for name in ("action_task", "features"):
+        assert name in DEFAULT_ANALYZER_TYPES
+        assert (DEFAULT_ANALYZER_TYPES.index("category")
+                < DEFAULT_ANALYZER_TYPES.index(name)), f"{name} 이 category 보다 앞이다"
 
 
 def test_다른_분석기는_영향받지_않는다():
@@ -117,6 +120,82 @@ def test_다른_분석기는_영향받지_않는다():
 
     assert reg["summary"].calls == 1
     assert reg["decision"].calls == 1
+
+
+class 과업분석기(부른것을_세는분석기):
+    field = "features"          # save_results 가 저장 경로를 고르는 열쇠
+
+
+@pytest.mark.parametrize("category", sorted(FEATURES_CATEGORIES))
+def test_과업은_할_일이_적힌_문서에서_돈다(category):
+    reg = {"category": 부른것을_세는분석기({"category": category, "reason": "-"}),
+           "features": 과업분석기({"features": [{"name": "운영", "summary": "설명"}]})}
+    asyncio.run(서비스(reg).analyze_text("본문", ["category", "features"]))
+    assert reg["features"].calls == 1
+
+
+@pytest.mark.parametrize("category", ["REPORT", "MEETING_NOTES", "ETC"])
+def test_보고서_회의록에서는_과업을_뽑지_않는다(category):
+    """⚠️ 정확도만이 아니라 **비용** 때문이다 — 구간마다 호출한다."""
+    reg = {"category": 부른것을_세는분석기({"category": category, "reason": "-"}),
+           "features": 과업분석기({"features": [{"name": "운영", "summary": "설명"}]})}
+    results = asyncio.run(서비스(reg).analyze_text("본문", ["category", "features"]))
+
+    assert reg["features"].calls == 0
+    결과 = dict(results)["features"].result
+    # 🔑 건너뛴 결과에도 **자기 필드**가 있어야 한다. save_results 가 키로
+    #   저장 경로를 고르므로, task_suggestions 를 넣으면 엉뚱한 곳으로 간다.
+    assert "features" in 결과 and 결과["features"] == []
+    assert "task_suggestions" not in 결과
+
+
+def test_제안요청서에서는_과업만_돌고_액션태스크는_안_돈다():
+    """실측에서 갈린 지점이다 — 제안요청서에서 action_task 는 0/10 이었다."""
+    reg = {"category": 부른것을_세는분석기({"category": "RFP", "reason": "-"}),
+           "action_task": 부른것을_세는분석기({"task_suggestions": []}),
+           "features": 과업분석기({"features": [{"name": "교통편 제공", "summary": "설명"}]})}
+    asyncio.run(서비스(reg).analyze_text("본문", ["category", "action_task", "features"]))
+
+    assert reg["action_task"].calls == 0
+    assert reg["features"].calls == 1
+
+
+# --- 과업 -> 태스크 제안 변환 ------------------------------------------------
+
+def test_과업이_제안_모양으로_바뀐다():
+    rows = _features_as_suggestions([
+        {"name": "고정수리센터 운영", "summary": "267㎡ 규모로 운영한다.",
+         "source_text": "○ 고정수리센터를 운영한다."}])
+    assert rows[0]["title"] == "고정수리센터 운영"
+    assert rows[0]["description"] == "267㎡ 규모로 운영한다."
+    # 사업 범위이지 기한 있는 의무가 아니다.
+    assert rows[0]["statement_type"] == "SCOPE"
+    assert "○ 고정수리센터를 운영한다." in rows[0]["evidence_text"]
+
+
+def test_같은_구간에서_나온_항목은_근거가_서로_달라야_한다():
+    """🔑 **승인이 깨지는 자리다.**
+
+    evidence_text 의 해시가 evidence_fingerprint 가 되고,
+    TaskSuggestionService.approve 는 그것으로 「이미 태스크를 만든 근거인가」를
+    본다. 항목마다 지문이 같으면 첫 승인만 태스크를 만들고 나머지는 그 태스크에
+    붙어버린다 — 사용자는 승인했는데 태스크가 안 생긴 것으로 보인다.
+    """
+    구간 = "○ 고정수리센터와 이동수리센터를 운영한다."
+    rows = _features_as_suggestions([
+        {"name": "고정수리센터 운영", "summary": "가", "source_text": 구간},
+        {"name": "이동수리센터 운영", "summary": "나", "source_text": 구간}])
+
+    근거들 = [r["evidence_text"] for r in rows]
+    assert len(set(근거들)) == 2, "같은 구간의 항목들이 같은 근거를 갖는다"
+    for 근거 in 근거들:
+        assert 구간 in 근거, "근거 구간은 여전히 들어 있어야 한다"
+
+
+def test_근거_구간이_없어도_비어_있지_않다():
+    """evidence_text 는 NOT NULL 이고 min_length=1 이다."""
+    rows = _features_as_suggestions([{"name": "운영", "summary": "설명"}])
+    assert rows[0]["evidence_text"].strip()
 
 
 def test_국소_오류_경로에서도_같은_규칙이_적용된다():
