@@ -42,7 +42,10 @@ from app.models.task import Task
 # 산출물에 넣는 AI 제안은 종류와 관계없이 「승인된 것만」 사용한다.
 # 금액 현황(amount-summary)이 이미 쓰는 기준을 재사용해 count와 list가 갈리지
 # 않게 한다.
-from app.repositories.amount_repository import APPROVED_DECISIONS
+from app.repositories.amount_repository import (
+    APPROVED_DECISIONS,
+    apply_effective_amount_snapshot,
+)
 
 __all__ = ["DeliverableRepository"]
 
@@ -332,15 +335,17 @@ class DeliverableRepository:
         기간은 **문서의 업로드 시각**으로 본다. 금액 항목 자체에는 날짜가
         `period_from`·`period_to` 뿐이고 그건 "그 금액이 적용되는 기간" 이라
         보고서의 "이번 주 변동" 과 다른 뜻이다.
+
+        현황·선례와 같은 유효 분석 스냅샷을 쓴다. 최신 분석에 PENDING이 남아
+        있으면 직전 완료 분석을 유지하고, 완료 뒤에는 새 분석의 승인 행만 센다.
         """
-        stmt = (
+        stmt = apply_effective_amount_snapshot(
             select(func.count())
             .select_from(AmountItem)
             .join(Document, Document.id == AmountItem.document_id)
-            .where(
-                Document.project_id == project_id,
-                AmountItem.decision.in_(APPROVED_DECISIONS),
-            )
+        ).where(
+            Document.project_id == project_id,
+            AmountItem.decision.in_(APPROVED_DECISIONS),
         )
         if since is not None:
             stmt = stmt.where(func.date(Document.created_at) >= since)
@@ -483,16 +488,15 @@ class DeliverableRepository:
 
         승인 전(`PENDING`)·거절(`REJECTED`) 항목은 뺀다 — 승인해야 어디에도
         반영된다는 원칙(`AMT-001-2`)이고, 금액 현황(`amount-summary`)이 집계하는
-        조건과 같아야 한다. 이 조건이 없어서 **거절한 금액이 산출물에 그대로
-        남던 버그**를 고친다. `count_amount_items` 와 같은 승인 조건을 쓴다.
+        승인 필터와 유효 분석 스냅샷을 그대로 쓴다. `count_amount_items`도 같은
+        공통 helper를 사용하므로 미리보기 건수와 본문 목록이 갈리지 않는다.
         """
-        stmt = (
+        stmt = apply_effective_amount_snapshot(
             select(AmountItem)
             .join(Document, Document.id == AmountItem.document_id)
-            .where(
-                Document.project_id == project_id,
-                AmountItem.decision.in_(APPROVED_DECISIONS),
-            )
+        ).where(
+            Document.project_id == project_id,
+            AmountItem.decision.in_(APPROVED_DECISIONS),
         )
         if since is not None:
             stmt = stmt.where(func.date(Document.created_at) >= since)

@@ -21,67 +21,103 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Sequence
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.amount import AmountItem
-from app.models.document import Document
+from app.models.document import Analysis, Document
 from app.models.project import Project
 
-# 선례로 인정할 승인 상태. PENDING(아직 사람이 안 본 것)과 REJECTED 는 제외한다.
-#
-# AMT-001-2 완료 판정이 "승인 전에는 어디에도 반영되지 않고" 다. 승인 안 된
-# 추출값을 다른 사업의 근거로 쓰면 그 원칙이 깨진다. EDITED 는 사람이 값을
-# 고쳐 확정한 것이라 포함한다 — 오히려 신뢰도가 더 높다.
+# 현황·선례·산출물에 실제로 담는 승인 상태. PENDING(아직 사람이 안 본 것)과
+# REJECTED 는 제외한다. EDITED 는 사람이 값을 고쳐 확정한 것이므로 포함한다.
 APPROVED_DECISIONS = ("APPROVED", "EDITED")
 
+# 분석 하나가 검토 완료됐다고 보는 상태. 승인된 항목이 0건이어도 REJECTED 로 모두
+# 결정했다면 그 분석은 유효 스냅샷이다. 그래야 과거 승인 금액으로 되돌아가지 않는다.
+FINALIZED_AMOUNT_DECISIONS = (*APPROVED_DECISIONS, "REJECTED")
+_AMOUNT_ANALYZER_TYPE = "amount"
 
-def _latest_approved_analysis():
-    """문서마다 **승인된 항목이 있는 가장 최신 분석**만 남기는 서브쿼리.
 
-    ### 왜 필요한가 — 없으면 금액이 두 배가 된다
+def effective_amount_analysis_subquery():
+    """문서마다 PENDING이 없는 가장 최신 금액 분석을 고른다.
 
-    문서를 다시 분석하면 `analyses` 에 새 행이 쌓이고(`DOC-006-2`) 금액 항목도
-    새로 생긴다. 옛 항목은 지워지지 않는다. 그래서 이 조건이 없으면 **같은 문서의
-    금액이 분석 횟수만큼 더해진다.**
+    금액 분석 한 번의 모든 행은 같은 ``analysis_id``를 가진 스냅샷이다. 최신 분석에
+    PENDING이 하나라도 있으면 아직 검토 중이므로 직전 완료 분석을 유지하고, 모든
+    행이 APPROVED·EDITED·REJECTED 중 하나가 된 뒤에만 새 분석으로 전환한다.
+    전부 REJECTED이거나 추출 결과가 0행인 분석도 완료 스냅샷이므로 ``analyses``를
+    기준으로 고른다. 승인 행을 기준으로 고르면 이 두 경우에 과거 값이 되살아난다.
+    단, 재분석 때 PENDING 행이 삭제되어 비어 버리거나 일부 승인 행만 남은 과거
+    분석과 구별하려고 현재 행 수가 ``result_json.items``의 원래 추출 건수와 같은
+    분석만 완료 후보로 인정한다.
 
-    에러가 나지 않고 합계만 조용히 커진다. 사업 규모를 잘못 보고하는 종류의
-    사고다. `models/amount.py` 의 `analysis_id` 주석이 *"이 값으로 최신 분석의
-    금액과 과거 것을 구별한다"* 고 적어 둔 것이 이 조건을 뜻한다 — **의도는
-    적혀 있었고 쿼리에 없었다.**
+    ``MAX(Analysis.id)``는 자동 증가 PK라 생성 순서를 나타낸다. ``created_at``은
+    같은 시각일 수 있어 최신 판정에 쓰지 않는다.
 
-    ### `MAX(analysis_id)` 로 최신을 고르는 근거
-
-    `analyses.id` 가 `BigInteger` 자동증가라 나중에 만든 행이 항상 크다.
-    `created_at` 으로 고르면 같은 초에 두 번 분석했을 때 순서가 흔들린다.
-
-    ### 승인 상태로 먼저 거르는 이유
-
-    분석 #2 를 돌렸지만 아직 아무도 승인하지 않았고 #1 은 승인돼 있다고 하자.
-    승인 여부를 보지 않고 최신(#2)을 고르면 승인 필터를 거친 뒤 **0건이 되어
-    금액이 화면에서 사라진다.** 사용자는 승인해 둔 값이 없어졌다고 읽는다.
-    그래서 "승인된 항목이 있는 분석 중 가장 최신" 을 고른다.
-
-    ### 다른 곳에서도 같은 조건을 써야 한다
-
-    `list_precedents` 와 `list_project_items` 가 **같은 서브쿼리를 쓴다.** 한쪽만
-    고치면 선례에는 같은 항목이 두 번 나오는데 집계는 한 번 세는, 설명할 수 없는
-    상태가 된다.
-
-    Spring 비교: JPQL 의 상관 서브쿼리(`WHERE a.analysisId = (SELECT MAX(...))`)를
-    조인 가능한 파생 테이블로 바꾼 것이다. 조인이라 문서마다 한 번만 계산된다.
+    Spring 비교: Analysis를 기준으로 ``NOT EXISTS (미결 AmountItem)``를 건 뒤
+    문서별 MAX(id)를 구하는 JPQL 파생 테이블과 같다.
     """
+    unresolved_item = (
+        select(AmountItem.id)
+        .where(
+            AmountItem.analysis_id == Analysis.id,
+            or_(
+                AmountItem.decision.is_(None),
+                AmountItem.decision.not_in(FINALIZED_AMOUNT_DECISIONS),
+            ),
+        )
+        .correlate(Analysis)
+        .exists()
+    )
+    persisted_item_count = (
+        select(func.count())
+        .select_from(AmountItem)
+        .where(AmountItem.analysis_id == Analysis.id)
+        .correlate(Analysis)
+        .scalar_subquery()
+    )
+    # AmountWriter는 재분석할 때 이전 PENDING 행만 지우고 Analysis 이력은 남긴다.
+    # 현재 행 수가 원래 추출한 result_json.items 수와 같아야만 완료 후보로 본다.
+    # 그래야 전부/일부 PENDING이 삭제된 과거 분석을 정상 완료본으로 오인하지 않고,
+    # 실제 0행 추출(0 == 0)은 새 0건 스냅샷으로 전환할 수 있다.
+    extracted_item_count = func.jsonb_array_length(
+        Analysis.result_json["items"].as_json()
+    )
     return (
         select(
-            AmountItem.document_id.label("document_id"),
-            func.max(AmountItem.analysis_id).label("analysis_id"),
+            Analysis.document_id.label("document_id"),
+            func.max(Analysis.id).label("analysis_id"),
         )
-        # 승인 상태만 여기서 거른다. unit_price 같은 «쓸 수 있는 값인가» 조건은
-        # 넣지 않는다 — 그것은 어느 분석이 최신인지와 무관하고, 넣으면 단가 없는
-        # 항목만 있는 최신 분석이 건너뛰어진다.
-        .where(AmountItem.decision.in_(APPROVED_DECISIONS))
-        .group_by(AmountItem.document_id)
+        .where(Analysis.analyzer_type == _AMOUNT_ANALYZER_TYPE)
+        .where(~unresolved_item)
+        .where(persisted_item_count == extracted_item_count)
+        .group_by(Analysis.document_id)
         .subquery()
+    )
+
+
+def apply_effective_amount_snapshot(stmt: Select) -> Select:
+    """금액 SELECT에 모든 소비처가 공유하는 유효 스냅샷 조건을 붙인다.
+
+    정식 스키마에서 ``analysis_id``는 NOT NULL이고 AmountWriter만 행을 만든다.
+    다만 제약 도입 전 수동 적재·스키마 드리프트로 NULL 행이 이미 있다면 독립 수동
+    항목으로 보존한다. 즉 승인된 NULL 행은 분석 교체 대상이 아니며 항상 포함하고,
+    분석에 속한 행만 문서별 유효 analysis 하나로 제한한다.
+
+    이 함수를 현황·선례·산출물 count/list가 함께 써야 숫자가 갈리지 않는다.
+    Spring 비교: 여러 Repository 메서드가 공유하는 Specification을 적용한 것이다.
+    """
+    effective = effective_amount_analysis_subquery()
+    return stmt.outerjoin(
+        effective,
+        and_(
+            AmountItem.document_id == effective.c.document_id,
+            AmountItem.analysis_id == effective.c.analysis_id,
+        ),
+    ).where(
+        or_(
+            AmountItem.analysis_id == effective.c.analysis_id,
+            AmountItem.analysis_id.is_(None),
+        )
     )
 
 
@@ -117,7 +153,7 @@ class AmountRepository:
         조건 넷이 모두 필요하다.
 
         조건 넷 말고 하나가 더 있다 — **재분석으로 쌓인 옛 항목을 뺀다**
-        (`_latest_approved_analysis`). 없으면 같은 문서를 두 번 분석했을 때 같은
+        (`apply_effective_amount_snapshot`). 없으면 같은 문서를 두 번 분석했을 때 같은
         항목이 목록에 두 번 나와 중앙값이 그쪽으로 끌린다.
 
         1. project_id IN project_ids
@@ -148,19 +184,11 @@ class AmountRepository:
         exact = item_name.strip()
         pattern = f"%{exact}%"
 
-        latest = _latest_approved_analysis()
         stmt: Select = (
-            select(AmountItem, Document.filename, Project.id, Project.name)
-            .join(Document, Document.id == AmountItem.document_id)
-            .join(Project, Project.id == Document.project_id)
-            # 재분석으로 쌓인 옛 항목을 뺀다. 없으면 같은 문서의 같은 항목이
-            # 선례 목록에 분석 횟수만큼 나와 중앙값을 끌어당긴다.
-            .join(
-                latest,
-                and_(
-                    AmountItem.document_id == latest.c.document_id,
-                    AmountItem.analysis_id == latest.c.analysis_id,
-                ),
+            apply_effective_amount_snapshot(
+                select(AmountItem, Document.filename, Project.id, Project.name)
+                .join(Document, Document.id == AmountItem.document_id)
+                .join(Project, Project.id == Document.project_id)
             )
             .where(Document.project_id.in_(project_ids))
             .where(AmountItem.decision.in_(APPROVED_DECISIONS))
@@ -251,7 +279,7 @@ class AmountRepository:
         3. **다른 프로젝트를 보지 않는다.** 선례는 "내 멤버십 − 현재 프로젝트"
            였지만 여기는 현재 프로젝트 하나뿐이다.
 
-        **재분석으로 쌓인 옛 항목은 뺀다** (`_latest_approved_analysis`). 이것이
+        **재분석으로 쌓인 옛 항목은 뺀다** (`apply_effective_amount_snapshot`). 이것이
         없으면 문서를 두 번 분석했을 때 금액이 두 배가 된다. 선례 조회도 같은
         조건을 쓴다 — 한쪽만 고치면 두 화면의 숫자가 설명할 수 없게 달라진다.
 
@@ -264,18 +292,10 @@ class AmountRepository:
         집계 결과가 나온다" 다. 합계는 순서와 무관하지만 **검산 불일치 목록은
         순서가 보이므로** 정렬이 없으면 호출마다 뒤바뀐다.
         """
-        latest = _latest_approved_analysis()
         stmt: Select = (
-            select(AmountItem, Document.id, Document.filename)
-            .join(Document, Document.id == AmountItem.document_id)
-            # 재분석으로 쌓인 옛 항목을 뺀다. 없으면 합계가 분석 횟수만큼
-            # 불어난다 — _latest_approved_analysis 주석 참고.
-            .join(
-                latest,
-                and_(
-                    AmountItem.document_id == latest.c.document_id,
-                    AmountItem.analysis_id == latest.c.analysis_id,
-                ),
+            apply_effective_amount_snapshot(
+                select(AmountItem, Document.id, Document.filename)
+                .join(Document, Document.id == AmountItem.document_id)
             )
             .where(Document.project_id == project_id)
             .where(AmountItem.decision.in_(APPROVED_DECISIONS))
@@ -298,12 +318,11 @@ class AmountRepository:
 
         1. **decision == 'PENDING'** 만 본다. 그쪽은 이미 승인된 것만 봤다.
 
-        2. **`_latest_approved_analysis` 로 거르지 않는다.** 그 서브쿼리는 "승인된
-           항목이 있는 최신 분석" 만 남기는데, 대기 항목은 아직 승인이 없어 그
-           분류에 들지 못한다. 대기 항목은 재분석 중복이 문제 되기 전 상태라
-           문서·항목 순서로만 정렬해 그대로 준다. (자동 추출 AMT-001-1 이 붙어
-           재분석으로 대기 항목이 쌓이게 되면, 그때 여기에도 최신 분석 필터를
-           더한다.)
+        2. **`apply_effective_amount_snapshot` 로 거르지 않는다.** 그 helper는
+           현황·선례·산출물처럼 승인된 현재값을 읽는 소비처용이다. 최신 분석에
+           PENDING이 있으면 직전 완료 분석으로 물러나므로, 대기 목록에 적용하면
+           사람이 지금 검토해야 할 최신 항목이 숨는다. 승인·거절 UI 동작을
+           유지하기 위해 모든 PENDING을 그대로 보여준다.
 
         `amount IS NULL` 인 항목도 가져온다 — 금액이 안 적힌 항목도 사람이 보고
         승인·거절해야 한다. 정렬을 고정하는 이유는 list_project_items 와 같다.
