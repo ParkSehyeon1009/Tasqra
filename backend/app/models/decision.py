@@ -105,11 +105,13 @@ class Decision(Base):
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)
+    evidence_text: Mapped[str | None] = mapped_column(Text)
 
     # 결정 **자체**의 상태다. AI 제안 승인 여부(decision)와 다르다 — 머리말 참고.
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="DECIDED"
     )
+    decision_type: Mapped[str | None] = mapped_column(String(40))
     # 뒤집힌 결정 추적. 앞 결정을 REVERSED 로 두고 이 컬럼이 뒤 결정을 가리킨다.
     # 결정을 지우지 않는 이유 — "왜 바뀌었는지" 가 인수인계에서 가장 필요한 정보다.
     superseded_by: Mapped[int | None] = mapped_column(

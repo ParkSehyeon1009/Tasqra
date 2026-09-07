@@ -101,7 +101,7 @@ class AmountTaskService:
                 "type": "DOCUMENT",
             },
             origin="AI_APPROVED",
-            source_suggestion_id=item.id,
+            source_amount_item_id=item.id,
         )
 
     # --- 내부 ---------------------------------------------------------------

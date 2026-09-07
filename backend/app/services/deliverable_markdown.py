@@ -157,7 +157,7 @@ def document_type_label(value: Any) -> str:
     if value is None or value == "":
         return "미분류"
     code = getattr(value, "value", value)
-    code = "ETC" if code == "BILLING" else str(code)
+    code = "ETC" if code in ("BILLING", "COST_SHEET") else str(code)
     return DOCUMENT_TYPE_LABELS.get(code, code)
 
 
@@ -170,6 +170,13 @@ def money(value: Decimal | int | None) -> str:
 
 def day(value: date | None) -> str:
     return value.isoformat() if value else EMPTY
+
+
+def schedule_moment(day_value, time_value=None, relative=None) -> str:
+    if day_value:
+        suffix = f" {time_value.strftime('%H:%M')}" if time_value else ""
+        return f"{day_value.isoformat()}{suffix}"
+    return clean(relative)
 
 
 def build_title(kind: str, period_from: date | None, period_to: date | None) -> str:
@@ -479,12 +486,29 @@ def _append_material_sections(
         Section(
             title="일정·기한",
             header=["제목", "종류", "시작", "종료"],
+            # ⚠️ day() 가 아니라 schedule_moment() 다. 날짜만 찍으면 「9월 1일
+            #   10:00 마감」이 「9월 1일」이 되어 **몇 시까지인지 사라진다.**
+            #   상대 기한(「계약일로부터 30일 이내」)도 마찬가지다.
+            #
+            #   상대 표현은 종류에 따라 붙는 쪽이 다르다 — DEADLINE 은 끝에,
+            #   나머지는 시작에 건다. 「계약일로부터 30일 이내」는 마감이고,
+            #   「착수일로부터 6개월」은 시작 기준이기 때문이다.
             rows=[
                 [
                     clean(item.title),
                     _schedule_kind_label(item.kind),
-                    day(item.starts_on),
-                    day(item.ends_on),
+                    schedule_moment(
+                        item.starts_on,
+                        getattr(item, "starts_time", None),
+                        getattr(item, "relative_expression", None)
+                        if item.kind != "DEADLINE" else None,
+                    ),
+                    schedule_moment(
+                        item.ends_on,
+                        getattr(item, "ends_time", None),
+                        getattr(item, "relative_expression", None)
+                        if item.kind == "DEADLINE" else None,
+                    ),
                 ]
                 for item in materials.schedule_items
             ],

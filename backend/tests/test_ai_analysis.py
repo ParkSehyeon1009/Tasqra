@@ -9,10 +9,12 @@ import pytest
 from app.ai.client_protocol import AIResult
 from app.ai.fake_client import FakeAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.output_schemas import CategoryOutput
 from app.analyzers.prompt_input import PromptBudget, byte_size, encoded_size, sample_input, split_document
 from app.analyzers.prompts import build_category_prompt, build_summary_prompt
 from app.analyzers.summary_analyzer import SummaryAnalyzer, facts_request
+from app.analyzers.schedule_analyzer import ScheduleAnalyzer
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 
@@ -367,6 +369,37 @@ def test_찾은_날짜는_앞뒤_문맥을_함께_준다():
     found = find_dates("○제안서평가일시: 2026/07/20   09:30 ○제안서평가장소: 나라장터")[0]
     assert "제안서평가일시" in found.context
     assert found.as_prompt_record()["date"] == "2026-07-20"
+    assert found.as_prompt_record()["time"] == "09:30"
+
+
+def test_일정_시각을_날짜와_함께_보존한다(config):
+    client = ScriptedAI(lambda *_: {"items": [_item(["d1"], "평가", "MEETING")]})
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "○ 제안서평가일시: 2026/07/20 오후 2시 30분"))
+
+    item = result.result["schedule_items"][0]
+    assert item["starts_on"] == "2026-07-20"
+    assert item["starts_time"] == "14:30:00"
+
+
+def test_절대날짜가_없는_상대기한도_보존한다(config):
+    client = ScriptedAI(lambda *_: pytest.fail("상대 기한만 있으면 모델을 부르지 않는다"))
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "선정 결과 통보일로부터 7일 이내에 협약서를 제출한다."))
+
+    item = result.result["schedule_items"][0]
+    assert item["kind"] == "DEADLINE"
+    assert item["ends_on"] is None
+    assert "통보일로부터 7일 이내" in item["relative_expression"]
+
+
+def test_절대일정과_상대기한을_함께_정렬한다(config):
+    client = ScriptedAI(lambda *_: {"items": [_item(["d1"], "설명회", "MEETING")]})
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "설명회는 2026/07/20에 연다. 결과 통보 후 3일 이내 서류를 제출한다."))
+
+    assert len(result.result["schedule_items"]) == 2
+    assert result.result["schedule_items"][1]["relative_expression"]
 
 
 @pytest.mark.parametrize("본문,기대", [
@@ -465,10 +498,73 @@ def test_결정사항도_같은_구조로_동작한다(config):
     client = ScriptedAI(lambda *_: {"decisions": [
         {"title": "우선협상대상자로 A사를 선정", "content": None, "status": "DECIDED",
          "decided_on": "2026-07-25", "confidence": 0.9, "reason": "낙찰 결과에 적혀 있다."}]})
-    result = asyncio.run(DecisionAnalyzer(client, config).analyze("결정 내용입니다.\n" * 200))
+    result = asyncio.run(DecisionAnalyzer(client, config).analyze(
+        "2026년 7월 25일 우선협상대상자로 A사를 선정하였다.\n" * 100))
 
     assert len(result.result["decisions"]) == 1
-    assert result.prompt_version == "decision-v1"
+    assert "A사를 선정" in result.result["decisions"][0]["evidence_text"]
+    assert result.prompt_version == "decision-v3"
+
+
+@pytest.mark.parametrize("item", [
+    {"title": "...", "content": "판매로 정한다.", "status": "PENDING",
+     "decided_on": None, "confidence": 0.9,
+     "reason": "문서는 결정사항을 포함하고 있지 않습니다.", "evidence_text": "판매로 정한다."},
+    {"title": "낙찰자 결정", "content": "가격점수와 기술점수를 합산한다.",
+     "status": "DECIDED", "decided_on": None, "confidence": 0.9,
+     "reason": "낙찰자 결정 기준이다.",
+     "evidence_text": "제12조(낙찰자 결정방법) 점수를 합산하여 낙찰자로 결정한다."},
+])
+def test_규정이나_결정이_아니라는_응답은_버린다(config, item):
+    client = ScriptedAI(lambda *_: {"decisions": [item]})
+    source = item["evidence_text"]
+    result = asyncio.run(DecisionAnalyzer(client, config).analyze(source))
+    assert result.result["decisions"] == []
+
+
+def test_생략된_연월이_있는_기간을_복원한다():
+    from app.analyzers.date_finder import find_dates
+
+    found = find_dates("접수기간: 2026. 8. 13. ~ 8. 31.")
+    assert [item.value.isoformat() for item in found] == ["2026-08-13", "2026-08-31"]
+
+
+def test_명확한_접수기간은_모델없이_하나로_묶는다(config):
+    client = ScriptedAI(lambda *_: pytest.fail("명확한 기간은 모델을 부르면 안 된다"))
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "접수기간: 2026. 8. 13. ~ 8. 31."))
+    item = result.result["schedule_items"][0]
+    assert (item["kind"], item["starts_on"], item["ends_on"]) == (
+        "PERIOD", "2026-08-13", "2026-08-31")
+    assert result.result["call_count"] == 0
+
+
+# 🔴 2026-09-07 병합: 첫 사례의 model_category 를 COST_SHEET -> ETC 로 바꿨다.
+#   이 테스트가 보려는 것은 **「제목이 명백히 모순되면 교정한다」** 이지 특정 코드가
+#   아니다. 그런데 COST_SHEET 은 이제 CategoryOutput 의 선택지에 없어서
+#   교정 단계에 닿기 전에 스키마 검증에서 걸린다(위 parametrize 주석 참고).
+#   교정 규칙은 「RFP 가 아니면 RFP 로」라 ETC 로도 같은 것을 잰다.
+@pytest.mark.parametrize(("text", "model_category", "reason", "expected"), [
+    ("조달물자 구매입찰 재공고 제안서 제출 안내", "ETC", "금액의 언급 없음", "RFP"),
+    ("협력 방안 제안서 상품 판매 협력업체를 모집합니다.", "ETC", "기타 문서", "PROPOSAL"),
+])
+def test_제목과_명백히_모순되는_분류는_교정한다(config, text, model_category, reason, expected):
+    client = ScriptedAI(lambda *_: {"category": model_category, "reason": reason})
+    result = asyncio.run(CategoryAnalyzer(client, config).analyze(text))
+    assert result.result["category"] == expected
+
+
+def test_모델_응답이_깨져도_명확한_마감일은_복구한다(config):
+    client = ScriptedAI(lambda *_: {"items": [{"date_ids": ["없는-id"],
+        "title": "오류", "kind": "DEADLINE", "confidence": 0.1, "reason": "오류"}]})
+
+    result = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "제안서 제출마감일시: 2026/07/15 10:00"))
+
+    assert result.result["schedule_items"][0]["ends_on"] == "2026-07-15"
+    # 강한 원문 라벨은 모델 호출 전에 확정하므로 깨진 모델 응답에 노출되지 않는다.
+    assert result.result["failed_groups"] == []
+    assert result.result["call_count"] == 0
 
 
 @pytest.mark.parametrize("category", ["RFP", "PROPOSAL", "CONTRACT", "CONTRACT_CHANGE", "REPORT", "MEETING_NOTES", "ETC"])
@@ -478,10 +574,32 @@ def test_seven_category_codes_are_accepted(config, category):
     assert result.result["category"] == category
 
 
+def test_new_document_classification_contract_has_seven_types():
+    from app.analyzers.prompts import CATEGORY_CANDIDATES
+    from app.models.enums import SelectableDocumentType
+
+    assert len(CATEGORY_CANDIDATES) == 7
+    assert len(SelectableDocumentType) == 7
+    assert "COST_SHEET" not in CATEGORY_CANDIDATES
+
+
 # ⚠️ COST_SHEET 은 **모델 선택지에서 빠졌지만 enums.DocumentType 에는 남아 있다.**
 #   사람이 직접 지정할 수 있어야 하기 때문이다(BILLING 과 같은 처리).
 #   그래서 모델이 이 값을 뱉으면 거부하는 것이 맞다 — 조용히 통과시키면
 #   「모델이 고를 수 있는 값」과 「저장 가능한 값」의 경계가 무너진다.
+#
+# 🔴 2026-09-07 병합: feat/schedule-extraction 에 있던
+#   test_legacy_cost_sheet_model_output_is_normalized_to_etc(모델이 COST_SHEET 를
+#   뱉으면 ETC 로 정규화한다)를 **버렸다.** 둘은 함께 성립할 수 없다.
+#
+#   스키마(CategoryOutput.CategoryCode)는 모델에게 **디코딩 제약으로 실려 간다**
+#   (runner.py 가 response_schema 를 얹는다). 정규화가 돌게 하려면 CategoryCode 에
+#   COST_SHEET 를 되살려야 하는데, 그러면 모델이 그 값을 **다시 고를 수 있게** 된다
+#   — PR #96 이 없앤 것이 정확히 그것이다.
+#
+#   그래서 category_analyzer._validate_category 의 COST_SHEET 분기는 지금
+#   **도달하지 않는다.** 스키마가 먼저 거른다. 지우지 않고 둔 것은 그 함수가
+#   순수 함수라 다른 경로에서 불릴 여지가 있어서다.
 @pytest.mark.parametrize("value", ["BILLING", "COST_SHEET", "계약서", "기타", None, []])
 def test_invalid_category_is_not_silently_converted_to_etc(config, value):
     client = ScriptedAI(lambda *_: {"category": value, "reason": "근거"})
@@ -556,6 +674,17 @@ def test_fake_client_satisfies_strict_contract(config):
     result = asyncio.run(CategoryAnalyzer(client, config).analyze("원문"))
     assert result.result["category"] == "ETC"
     assert "가짜" in result.result["reason"]
+
+
+def test_fake_client_satisfies_decision_and_schedule_contracts(config):
+    client = FakeAIClient()
+    decision = asyncio.run(DecisionAnalyzer(client, config).analyze("승인을 확정함"))
+    schedule = asyncio.run(ScheduleAnalyzer(client, config).analyze(
+        "제출마감: 2026-09-10"))
+
+    assert decision.result["decisions"] == []
+    assert schedule.result["schedule_items"][0]["ends_on"] == "2026-09-10"
+    assert schedule.result["call_count"] == 0
 
 
 @pytest.mark.parametrize("module_name,token_key", [("openai_client", "max_completion_tokens"), ("local_client", "max_tokens")])

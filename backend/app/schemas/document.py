@@ -30,6 +30,8 @@ class DocumentUploadResponse(BaseModel):
     file_type: str
     document_type: str | None
     document_type_source: str | None
+    package_key: str | None = None
+    package_role: str | None = None
     extraction_strategy: str
     status: str
     processing_error: str | None
@@ -84,6 +86,7 @@ class AnalysisJobResponse(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     analyses: list[AnalysisResponse] = Field(default_factory=list)
+    analyzer_errors: list[dict] = Field(default_factory=list)
 
 
 class DocumentListItem(BaseModel):
@@ -94,6 +97,8 @@ class DocumentListItem(BaseModel):
     file_type: str
     document_type: str | None
     document_type_source: str | None = None
+    package_key: str | None = None
+    package_role: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str
@@ -128,6 +133,8 @@ class DocumentDetailResponse(BaseModel):
     file_type: str
     document_type: str | None
     document_type_source: str | None = None
+    package_key: str | None = None
+    package_role: str | None = None
     status: str
     processing_error: str | None = None
     review_status: str

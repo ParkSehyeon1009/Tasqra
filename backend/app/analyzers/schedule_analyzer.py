@@ -13,6 +13,8 @@
 만들 수 없다.** 요약의 evidence_ids 와 같은 방식이다.
 """
 import re
+import logging
+from datetime import date, time
 
 from app.analyzers.date_finder import find_dates
 from app.analyzers.output_schemas import DatedItemsOutput
@@ -21,7 +23,35 @@ from app.analyzers.prompts import SCHEDULE_PROMPT_VERSION, build_schedule_prompt
 from app.analyzers.protocol import AnalyzeResult
 from app.analyzers.runner import Runner
 from app.core.config import settings
+from app.core.exceptions import BusinessError
 from app.schemas.extraction import ScheduleItemExtraction, ScheduleKind
+
+logger = logging.getLogger(__name__)
+MAX_DATES_PER_GROUP = 12
+_RELATIVE_DEADLINE = re.compile(
+    r"(?P<expression>(?P<reference>[가-힣A-Za-z0-9·\s]{2,40}?)"
+    r"(?:일|시점)?(?:로부터|부터|후)\s*(?P<amount>\d{1,3})\s*"
+    r"(?P<unit>영업일|일|주|개월|달)\s*(?:이내|안에|까지))"
+)
+_RELATIVE_DURATION = re.compile(
+    r"(?P<label>[가-힣A-Za-z0-9·ㆍ()\s]{2,50}?(?:기간|기한))\s*(?:은|는|:)?\s*"
+    r"(?P<expression>[가-힣A-Za-z0-9·ㆍ()\s]{1,50}?(?:일|시점)?(?:로부터|부터|후)\s*"
+    r"\d{1,3}\s*(?:영업일|일|주|개월|달|년)\s*(?:동안|으로\s*한다|로\s*한다|이다))"
+)
+_RECURRENCE = re.compile(
+    r"(?P<expression>(?:매일|매주|매월|월별|주간|정기적으로)"
+    r"[^.!?\n]{0,100}?(?:제출|보고|지급|검사|회의|점검|확인))"
+)
+_MONTH_ONLY = re.compile(r"(?P<expression>20\d{2}\s*년\s*\d{1,2}\s*월)\s*(?P<tentative>예정)?")
+_MONTH_RANGE = re.compile(
+    r"(?P<expression>[’']?(?P<year>\d{2,4})\s*[.]?\s*(?P<start>\d{1,2})\s*월?"
+    r"\s*(?:~|～|−|–|—)\s*(?P<end>\d{1,2})\s*월)"
+)
+_BEFORE_DEADLINE = re.compile(
+    r"(?P<expression>(?P<reference>[가-힣A-Za-z0-9·ㆍ\s]{2,40}?)\s*"
+    r"(?P<amount>\d{1,3})\s*(?P<unit>영업일|일|주|개월|달)\s*이전)"
+)
+_TBD = re.compile(r"(?P<expression>(?:발표|회의|평가|선정|납품|계약|일정)[^.!?\n]{0,60}?(?:추후|별도)\s*통보)")
 
 
 # 이름에서 종류를 읽는 규칙. **순서가 곧 우선순위다.**
@@ -64,19 +94,31 @@ class ScheduleAnalyzer:
         budget = PromptBudget(self._settings)
         runner = Runner(self._ai_client, self._settings, budget, progress)
         dates = find_dates(text)
+        total_date_count = len(dates)
+        relative_items = self._extract_relative_items(text)
 
         if not dates:
             # 날짜가 없는 문서다. 모델을 부를 이유가 없다 — 부르면 없는 일정을
             # 지어낼 기회만 준다. 호출 0회로 끝내되 그 사실을 남긴다.
             return AnalyzeResult(
-                result={"schedule_items": [], "date_count": 0, "labeled_count": 0,
+                result={"schedule_items": [item.model_dump(mode="json") for item in relative_items],
+                        "date_count": 0, "labeled_count": len(relative_items),
                         "call_count": 0},
                 provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
                 model_name=self._ai_client.model_name, latency_ms=0)
 
+        periods, dates = self._extract_clear_schedules(dates)
         groups = self._split_by_budget(dates, budget)
-        items: list[ScheduleItemExtraction] = []
-        labeled = 0
+        items: list[ScheduleItemExtraction] = [*periods, *relative_items]
+        labeled = len(periods) * 2
+        failed_groups: list[int] = []
+        if not groups:
+            return AnalyzeResult(
+                result={"schedule_items": [item.model_dump(mode="json") for item in items],
+                        "date_count": total_date_count, "labeled_count": labeled,
+                        "call_count": 0, "failed_groups": []},
+                provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
+                model_name=self._ai_client.model_name, latency_ms=0)
         for i, group in enumerate(groups):
             stage = f"일정 라벨링 {i + 1}/{len(groups)}" if len(groups) > 1 else "일정 라벨링"
             runner.progress(stage, i, len(groups))
@@ -89,10 +131,29 @@ class ScheduleAnalyzer:
                     if len(set(item.date_ids)) != len(item.date_ids):
                         raise ValueError("duplicated date id")
 
-            parsed = await runner.call(
-                build_schedule_prompt([found.as_prompt_record() for found in group]),
-                DatedItemsOutput, validate=verify, stage=stage)
+            try:
+                parsed = await runner.call(
+                    build_schedule_prompt([found.as_prompt_record() for found in group]),
+                    DatedItemsOutput, validate=verify, stage=stage)
+            except BusinessError:
+                # 명확한 원문 라벨까지 모델 형식 오류 때문에 함께 버리지 않는다.
+                # 모호한 날짜는 추측하지 않고 제외한다.
+                failed_groups.append(i + 1)
+                logger.warning("일정 라벨링 실패, 명확한 원문 라벨만 복구 stage=%s", stage)
+                recovered = self._recover_labeled(group)
+                if not recovered:
+                    raise
+                items.extend(recovered)
+                labeled += sum(2 if item.kind is ScheduleKind.PERIOD else 1 for item in recovered)
+                runner.progress(stage, i + 1, len(groups))
+                continue
             for item in parsed.items:
+                chosen = [allowed[value] for value in item.date_ids]
+                # 모델이 별지의 예시·과거 이력을 골라도 실제 일정으로 저장하지 않는다.
+                # 본문 여부는 날짜 후보를 만들 때 문서 구조로 이미 판정했다.
+                if any(found.context_type in {"example", "history_or_form", "form_or_appendix"}
+                       for found in chosen):
+                    continue
                 built = self._build(item, allowed)
                 if built is not None:
                     items.append(built)
@@ -100,13 +161,14 @@ class ScheduleAnalyzer:
             runner.progress(stage, i + 1, len(groups))
 
         # 원문 순서가 아니라 **날짜 순서**로 준다. 화면에서 그대로 일정이 된다.
-        items.sort(key=lambda item: (item.starts_on or item.ends_on, item.title))
+        items = self._deduplicate(items)
+        items.sort(key=lambda item: (item.starts_on or item.ends_on or date.max, item.title))
         return AnalyzeResult(
             result={"schedule_items": [item.model_dump(mode="json") for item in items],
                     # 찾은 날짜 중 몇 개가 일정이 됐는지. 이 비율이 낮으면
                     # 프롬프트가 문맥을 못 읽고 있다는 신호다.
-                    "date_count": len(dates), "labeled_count": labeled,
-                    "call_count": runner.calls},
+                    "date_count": total_date_count, "labeled_count": labeled,
+                    "call_count": runner.calls, "failed_groups": failed_groups},
             provider=self._ai_client.provider, prompt_version=SCHEDULE_PROMPT_VERSION,
             **runner.metadata())
 
@@ -115,8 +177,8 @@ class ScheduleAnalyzer:
         groups, group = [], []
         for found in dates:
             candidate = group + [found]
-            if group and not budget.fits(
-                    build_schedule_prompt([f.as_prompt_record() for f in candidate])):
+            if group and (len(candidate) > MAX_DATES_PER_GROUP or not budget.fits(
+                    build_schedule_prompt([f.as_prompt_record() for f in candidate]))):
                 groups.append(group)
                 group = [found]
             else:
@@ -124,6 +186,106 @@ class ScheduleAnalyzer:
         if group:
             groups.append(group)
         return groups
+
+    @staticmethod
+    def _extract_clear_schedules(dates):
+        """원문 라벨과 범위가 명확한 일정은 모델에게 역할을 다시 추측시키지 않는다."""
+        by_range = {}
+        for found in dates:
+            if found.range_key is not None:
+                by_range.setdefault(found.range_key, []).append(found)
+        consumed, periods = set(), []
+        for grouped in by_range.values():
+            if len(grouped) != 2:
+                continue
+            label = grouped[0].label or grouped[1].label
+            label_kind = kind_from_label(label)
+            if label_kind is not ScheduleKind.PERIOD and not (
+                    label and re.search(r"개시|시작", label)):
+                continue
+            picked = sorted(grouped, key=lambda item: (item.value, item.time_value or time.min))
+            if picked[0].value == picked[1].value and picked[0].time_value == picked[1].time_value:
+                continue
+            consumed.update(item.id for item in grouped)
+            title = re.sub(r"(?:개시|시작)\s*일시", "기간", label or "기간")
+            periods.append(ScheduleItemExtraction(
+                title=title[:70], evidence_text=grouped[0].context.strip(),
+                kind=ScheduleKind.PERIOD, starts_on=picked[0].value, ends_on=picked[1].value,
+                starts_time=picked[0].time_value, ends_time=picked[1].time_value,
+                temporal_type="ABSOLUTE_RANGE",
+                precision="MINUTE" if any(item.time_value for item in picked) else "DAY",
+                confidence=1.0, reason="원문에서 시작일과 종료일이 하나의 기간으로 연결됨"))
+        # 콜론 바로 앞 라벨은 표·행의 강한 구조 신호다. 시작을 마감으로 바꾸는
+        # 모델 오류를 막기 위해 단일 시점도 여기서 확정한다.
+        for found in dates:
+            if found.id in consumed or found.context_type != "body":
+                continue
+            kind = kind_from_label(found.label)
+            if kind is None or kind is ScheduleKind.PERIOD:
+                continue
+            consumed.add(found.id)
+            deadline = kind is ScheduleKind.DEADLINE
+            periods.append(ScheduleItemExtraction(
+                title=(found.label or "일정")[:70], evidence_text=found.context.strip(),
+                kind=kind,
+                starts_on=None if deadline else found.value,
+                ends_on=found.value if deadline else None,
+                starts_time=None if deadline else found.time_value,
+                ends_time=found.time_value if deadline else None,
+                temporal_type="ABSOLUTE_INSTANT",
+                precision="MINUTE" if found.time_value else "DAY",
+                tentative=bool(re.search(r"예정|추후", found.context)),
+                confidence=1.0, reason="원문 일정 라벨과 날짜 역할을 규칙으로 확인함"))
+        return periods, [found for found in dates if found.id not in consumed]
+
+    @staticmethod
+    def _deduplicate(items):
+        """같은 의미·날짜의 반복 결과만 합치고 같은 날의 다른 일정은 보존한다."""
+        unique, seen = [], set()
+        for item in items:
+            title = re.sub(r"[^0-9A-Za-z가-힣]", "", item.title).lower()
+            relative = re.sub(r"\s+", "", item.relative_expression or "")
+            relative = re.sub(r"(?:일)?(?:로부터|부터|후)", "후", relative)
+            key = (title, item.kind, item.starts_on, item.ends_on, item.starts_time,
+                   item.ends_time, relative, item.anchor_event)
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
+        return unique
+
+    @staticmethod
+    def _recover_labeled(dates) -> list[ScheduleItemExtraction]:
+        """모델 실패 시 의미가 이름에 명시된 날짜만 보수적으로 복구한다."""
+        recovered, used = [], set()
+        for index, found in enumerate(dates):
+            if index in used:
+                continue
+            kind = kind_from_label(found.label)
+            if kind is None:
+                continue
+            chosen = [found]
+            if kind is ScheduleKind.PERIOD:
+                for other_index in range(index + 1, min(index + 3, len(dates))):
+                    other = dates[other_index]
+                    if other.label == found.label and other.value != found.value:
+                        chosen.append(other)
+                        used.add(other_index)
+                        break
+                if len(chosen) != 2:
+                    continue
+            picked = sorted(item.value for item in chosen)
+            recovered.append(ScheduleItemExtraction(
+                title=(found.label or "일정")[:70], evidence_text=found.context.strip(),
+                kind=kind,
+                starts_on=picked[0] if kind is not ScheduleKind.DEADLINE else None,
+                ends_on=picked[-1] if kind in (ScheduleKind.DEADLINE, ScheduleKind.PERIOD) else None,
+                starts_time=chosen[0].time_value if kind is not ScheduleKind.DEADLINE else None,
+                ends_time=chosen[-1].time_value if kind in (ScheduleKind.DEADLINE, ScheduleKind.PERIOD) else None,
+                temporal_type="ABSOLUTE_RANGE" if kind is ScheduleKind.PERIOD else "ABSOLUTE_INSTANT",
+                precision="MINUTE" if any(item.time_value for item in chosen) else "DAY",
+                tentative=bool(re.search(r"예정|추후", found.context)),
+                confidence=1.0, reason="원문 일정 라벨과 날짜를 규칙으로 확인함"))
+        return recovered
 
     @staticmethod
     def _title(item, picked_dates) -> str:
@@ -137,7 +299,10 @@ class ScheduleAnalyzer:
           넣거나 한 가지 이름으로 무너졌다. 기계가 아는 것은 기계가 쓴다.
         """
         labels = [found.label for found in picked_dates if found.label]
-        return labels[0] if labels else item.title
+        title = labels[0] if labels else item.title
+        title = re.sub(r"\d{4}\s*[./년-]\s*\d{1,2}\s*[./월-]\s*\d{1,2}\s*일?", "", title)
+        title = re.sub(r"\s+", " ", title).strip(" :-·")
+        return title[:70].rstrip() or "일정"
 
     @staticmethod
     def _build(item, allowed) -> ScheduleItemExtraction | None:
@@ -159,8 +324,14 @@ class ScheduleAnalyzer:
             kind = ScheduleKind.DEADLINE
 
         if kind is ScheduleKind.PERIOD:
+            ordered = sorted(chosen, key=lambda found: (found.value, found.time_value or time.min))
             return ScheduleItemExtraction(
-                title=title, kind=kind, starts_on=picked[0], ends_on=picked[-1],
+                title=title, evidence_text=chosen[0].context.strip(),
+                kind=kind, starts_on=picked[0], ends_on=picked[-1],
+                starts_time=ordered[0].time_value, ends_time=ordered[-1].time_value,
+                temporal_type="ABSOLUTE_RANGE",
+                precision="MINUTE" if any(found.time_value for found in chosen) else "DAY",
+                tentative=any(re.search(r"예정|추후", found.context) is not None for found in chosen),
                 confidence=item.confidence, reason=item.reason)
 
         # ⚠️ 한 시점을 **kind 가 지정하는 컬럼**에 담아야 한다. models/schedule.py
@@ -174,10 +345,150 @@ class ScheduleAnalyzer:
         #   반대로 양쪽에 같은 날짜를 넣어 안전하게 가는 것도 안 된다. CHECK 는
         #   통과하지만 「하루짜리 기간」이라는 없던 뜻이 생긴다.
         when = picked[-1]        # 둘을 골랐으면 늦은 쪽을 그 시점으로 본다
+        selected = max(chosen, key=lambda found: (found.value, found.time_value or time.min))
         if kind is ScheduleKind.DEADLINE:
-            starts_on, ends_on = None, when
+            starts_on, ends_on, starts_time, ends_time = None, when, None, selected.time_value
         else:
-            starts_on, ends_on = when, None
+            starts_on, ends_on, starts_time, ends_time = when, None, selected.time_value, None
         return ScheduleItemExtraction(
-            title=title, kind=kind, starts_on=starts_on, ends_on=ends_on,
+            title=title, evidence_text=chosen[-1].context.strip(),
+            kind=kind, starts_on=starts_on, ends_on=ends_on,
+            starts_time=starts_time, ends_time=ends_time,
+            temporal_type="ABSOLUTE_INSTANT",
+            precision="MINUTE" if selected.time_value else "DAY",
+            tentative=bool(re.search(r"예정|추후", selected.context)),
             confidence=item.confidence, reason=item.reason)
+
+    @staticmethod
+    def _extract_relative_items(text: str) -> list[ScheduleItemExtraction]:
+        """기준일을 모르는 상대 기한·기간을 계산하지 않고 원문 표현으로 보존한다."""
+        items = []
+        for found in _RELATIVE_DEADLINE.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            reference = ScheduleAnalyzer._clean_reference(found.group("reference"))
+            if not reference or len(expression) > 300:
+                continue
+            start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            label = ScheduleAnalyzer._nearby_action_label(text, found.start(), reference)
+            items.append(ScheduleItemExtraction(
+                title=(label or f"{reference} 후 기한")[:70], evidence_text=text[start:end].strip(),
+                kind=ScheduleKind.DEADLINE, relative_expression=expression,
+                temporal_type="RELATIVE_DEADLINE", anchor_event=reference,
+                calendar_rule="BUSINESS_DAY" if "영업일" in expression else "CALENDAR_DAY",
+                condition=ScheduleAnalyzer._condition(text[start:end]),
+                confidence=1.0, reason="원문에 기준 시점과 상대 기한이 명시됨"))
+        for found in _BEFORE_DEADLINE.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            reference = ScheduleAnalyzer._clean_reference(found.group("reference"))
+            if not reference:
+                continue
+            start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            label = ScheduleAnalyzer._nearby_action_label(text, found.start(), reference)
+            items.append(ScheduleItemExtraction(
+                title=(label or f"{reference} 이전 기한")[:70],
+                evidence_text=text[start:end].strip(), kind=ScheduleKind.DEADLINE,
+                relative_expression=expression, temporal_type="RELATIVE_DEADLINE",
+                anchor_event=reference,
+                calendar_rule="BUSINESS_DAY" if "영업일" in expression else "CALENDAR_DAY",
+                confidence=1.0, reason="원문에 기준 시점 이전의 상대 기한이 명시됨"))
+        for found in _RELATIVE_DURATION.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            label = re.sub(r"\s+", " ", found.group("label")).strip(" ·,-")
+            start, end = max(0, found.start() - 80), min(len(text), found.end() + 80)
+            items.append(ScheduleItemExtraction(
+                title=label[-70:], evidence_text=text[start:end].strip(),
+                kind=ScheduleKind.PERIOD, relative_expression=expression,
+                temporal_type="RELATIVE_DURATION",
+                anchor_event=ScheduleAnalyzer._anchor(expression),
+                calendar_rule="BUSINESS_DAY" if "영업일" in expression else "CALENDAR_DAY",
+                condition=ScheduleAnalyzer._condition(text[start:end]),
+                confidence=1.0, reason="원문에 기준 시점과 지속 기간이 명시됨"))
+        for found in _RECURRENCE.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
+            items.append(ScheduleItemExtraction(
+                title=ScheduleAnalyzer._recurrence_title(expression),
+                evidence_text=text[start:end].strip(), kind=ScheduleKind.PERIOD,
+                relative_expression=expression, temporal_type="RECURRENCE",
+                precision="RECURRENCE", condition=ScheduleAnalyzer._condition(text[start:end]),
+                confidence=0.9, reason="원문에 반복 수행 주기가 명시됨"))
+        for found in _MONTH_ONLY.finditer(text):
+            # 완전한 일자가 포함된 표현은 find_dates가 담당한다.
+            if re.match(r"\s*\d{1,2}\s*일", text[found.end():found.end()+10]):
+                continue
+            start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
+            context = text[start:end]
+            if not re.search(r"발표|착수|완료|보고|선정|납품|계약|예정", context):
+                continue
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            items.append(ScheduleItemExtraction(
+                title=ScheduleAnalyzer._month_title(context), evidence_text=context.strip(),
+                kind=ScheduleKind.MILESTONE, relative_expression=expression,
+                temporal_type="MONTH_ONLY", precision="MONTH",
+                tentative=bool(found.group("tentative") or re.search(r"예정", context)),
+                confidence=0.9, reason="원문에는 월까지만 명시되어 임의의 일자를 만들지 않음"))
+        for found in _MONTH_RANGE.finditer(text):
+            start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
+            context = text[start:end]
+            if not re.search(r"기간|수행|추진|계약|공고|연구", context):
+                continue
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            items.append(ScheduleItemExtraction(
+                title=ScheduleAnalyzer._month_title(context), evidence_text=context.strip(),
+                kind=ScheduleKind.PERIOD, relative_expression=expression,
+                temporal_type="MONTH_RANGE", precision="MONTH", tentative=True,
+                confidence=0.9, reason="원문에 월 단위 시작과 종료 범위가 명시됨"))
+        for found in _TBD.finditer(text):
+            expression = re.sub(r"\s+", " ", found.group("expression")).strip()
+            start, end = max(0, found.start() - 60), min(len(text), found.end() + 60)
+            items.append(ScheduleItemExtraction(
+                title=ScheduleAnalyzer._month_title(expression),
+                evidence_text=text[start:end].strip(), kind=ScheduleKind.MILESTONE,
+                relative_expression=expression, temporal_type="TBD", precision="UNKNOWN",
+                tentative=True, confidence=0.9,
+                reason="원문이 일자를 확정하지 않고 추후 또는 별도 통보로 명시함"))
+        return ScheduleAnalyzer._deduplicate(items)
+
+    @staticmethod
+    def _anchor(expression: str) -> str | None:
+        found = re.search(r"([가-힣A-Za-z0-9· ]{2,40}?)(?:일|시점)?(?:로부터|부터|후)", expression)
+        return ScheduleAnalyzer._clean_reference(found.group(1)) if found else None
+
+    @staticmethod
+    def _condition(context: str) -> str | None:
+        found = re.search(r"([^.!?\n]{0,100}(?:경우|요청\s*시|필요\s*시)[^.!?\n]{0,120})", context)
+        return re.sub(r"\s+", " ", found.group(1)).strip() if found else None
+
+    @staticmethod
+    def _recurrence_title(expression: str) -> str:
+        action = next((word for word in ("보고", "제출", "지급", "검사", "회의", "점검", "확인")
+                       if word in expression), "반복 일정")
+        cycle = next((word for word in ("매일", "매주", "매월", "월별", "주간", "정기적으로", "수시")
+                      if word in expression), "반복")
+        return f"{cycle} {action}"
+
+    @staticmethod
+    def _month_title(context: str) -> str:
+        name = next((word for word in ("선정자 발표", "최종보고", "중간보고", "착수", "완료", "납품", "계약")
+                     if word in context), "월 단위 일정")
+        return name
+
+    @staticmethod
+    def _nearby_action_label(text: str, at: int, reference: str) -> str | None:
+        line = text[max(0, text.rfind("\n", 0, at) + 1):at]
+        line = re.split(r"[.!?]", line)[-1]
+        line = re.sub(r"^[\s○●◦·∙*■□▪▶〉>\-–—]+", "", line).strip()
+        label = re.split(r"[:：]", line, maxsplit=1)[0].strip()
+        if label and label != reference and len(label) <= 70 and re.search(
+                r"보고|제출|납품|접수|평가|회의|수행|작성", label):
+            return label
+        return None
+
+    @staticmethod
+    def _clean_reference(value: str) -> str:
+        value = re.sub(r"\s+", " ", value).strip(" ·,-")
+        # 정규식의 가변 앞 문맥이 「경우에는 상품공급」처럼 문장 일부를 포함할 수
+        # 있다. 마지막 주제 경계 뒤의 명사구만 기준 사건으로 사용한다.
+        parts = re.split(r"(?:경우에는?|때에는?|[은는이가을를])\s+", value)
+        value = parts[-1].strip(" ·,-")
+        return value[-40:]

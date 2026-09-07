@@ -247,11 +247,7 @@ def create_task_from_amount_mismatch(
 
     ### 만들어진 태스크
 
-    `origin='AI_APPROVED'`, `source_suggestion_id=<금액 항목 id>` 입니다.
-
-    ⚠ `source_suggestion_id` 는 원래 「제안 테이블의 id」 자리인데 그 테이블이 아직
-    없어서 **빌려 쓰고 있습니다.** `task_suggestions` 를 만드는 리비전에서 컬럼을
-    갈라야 합니다 — 자세한 것은 `models/task.py` 의 그 컬럼 주석에 있습니다.
+    `origin='AI_APPROVED'`, `source_amount_item_id=<금액 항목 id>` 입니다.
 
     ### 오류
 

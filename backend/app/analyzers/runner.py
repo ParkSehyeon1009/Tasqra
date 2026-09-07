@@ -44,9 +44,18 @@ class Runner:
                     if validate:
                         validate(parsed)
                     return parsed
-                except (ValidationError, ValueError, TypeError):
+                except (ValidationError, ValueError, TypeError) as exc:
                     # 원문 응답이나 문서 본문은 로그에 노출하지 않는다.
-                    logger.warning("AI 응답 검증 실패 stage=%s attempt=%s", stage, attempt + 1)
+                    if isinstance(exc, ValidationError):
+                        detail = ",".join(".".join(str(p) for p in error["loc"])
+                                          for error in exc.errors()[:3]) or "schema"
+                        failure = "schema"
+                    else:
+                        detail = str(exc)[:120]
+                        failure = "custom"
+                    logger.warning(
+                        "AI 응답 검증 실패 stage=%s attempt=%s type=%s detail=%s",
+                        stage, attempt + 1, failure, detail)
                     code = ErrorCode.AI_INVALID_RESPONSE
             if attempt < self.settings.AI_CHUNK_RETRIES:
                 self.progress(f"{stage} 재시도", attempt + 1, self.settings.AI_CHUNK_RETRIES)

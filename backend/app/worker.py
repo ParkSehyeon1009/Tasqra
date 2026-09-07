@@ -158,16 +158,11 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
     import asyncio
     from app.analyzers.summary_analyzer import SummaryAnalyzer
     from app.analyzers.category_analyzer import CategoryAnalyzer
-    from app.analyzers.extraction_analyzer import DecisionAnalyzer
-    from app.analyzers.features_analyzer import FeaturesAnalyzer
-    from app.analyzers.schedule_analyzer import ScheduleAnalyzer
     from app.repositories.analysis_job_repository import AnalysisJobRepository
     from app.repositories.analysis_repository import AnalysisRepository
-    from app.repositories.decision_schedule_repository import DecisionScheduleRepository
     from app.repositories.document_repository import DocumentRepository
     from app.services.analysis_service import AnalysisService
     from app.services.analysis_job_service import AnalysisJobService
-    from app.services.decision_schedule_writer import DecisionScheduleWriter
     from app.core.transaction import transactional
 
     bind_request_id(request_id)
@@ -184,6 +179,14 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
         from app.ai.fake_client import FakeAIClient
         from app.ai.local_client import LocalAIClient
         from app.ai.openai_client import OpenAIClient
+        from app.analyzers.extraction_analyzer import DecisionAnalyzer
+        from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
+        from app.analyzers.features_analyzer import FeaturesAnalyzer
+        from app.analyzers.schedule_analyzer import ScheduleAnalyzer
+        from app.repositories.decision_schedule_repository import DecisionScheduleRepository
+        from app.repositories.task_suggestion_repository import TaskSuggestionRepository
+        from app.services.decision_schedule_writer import DecisionScheduleWriter
+        from app.services.task_suggestion_writer import TaskSuggestionWriter
 
         def make_client(model):
             if settings.USE_FAKE_AI:
@@ -199,31 +202,31 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
             category_client = make_client(settings.AI_MODEL_CATEGORY)
             if hasattr(category_client, "aclose"):
                 stack.push_async_callback(category_client.aclose)
-            extraction_client = make_client(None)
-            if hasattr(extraction_client, "aclose"):
-                stack.push_async_callback(extraction_client.aclose)
+            decision_client = make_client(settings.AI_MODEL_DECISION)
+            if hasattr(decision_client, "aclose"):
+                stack.push_async_callback(decision_client.aclose)
+            schedule_client = make_client(settings.AI_MODEL_SCHEDULE)
+            if hasattr(schedule_client, "aclose"):
+                stack.push_async_callback(schedule_client.aclose)
             with SessionLocal() as db:
                 documents = DocumentRepository(db)
                 analysis_repository = AnalysisRepository(db)
-                decision_schedule_writer = DecisionScheduleWriter(
-                    analysis_repository,
-                    DecisionScheduleRepository(db),
-                )
-                analysis = AnalysisService(
-                    db,
-                    documents,
-                    analysis_repository,
-                    {
-                        "summary": SummaryAnalyzer(summary_client),
-                        "category": CategoryAnalyzer(category_client),
-                        "decision": DecisionAnalyzer(extraction_client),
-                        "schedule": ScheduleAnalyzer(extraction_client),
-                        # 요약과 같은 클라이언트를 쓴다 — 어댑터 하나가 두 태스크를
-                        # 배웠다(dependencies.py 의 같은 줄 주석 참고).
-                        "features": FeaturesAnalyzer(summary_client),
-                    },
-                    decision_schedule_writer,
-                )
+                writer = DecisionScheduleWriter(
+                    analysis_repository, DecisionScheduleRepository(db))
+                task_writer = TaskSuggestionWriter(
+                    analysis_repository, TaskSuggestionRepository(db))
+                analysis = AnalysisService(db, documents, analysis_repository, {
+                    "summary": SummaryAnalyzer(summary_client),
+                    "category": CategoryAnalyzer(category_client),
+                    "decision": DecisionAnalyzer(decision_client),
+                    "schedule": ScheduleAnalyzer(schedule_client),
+                    "action_task": ActionTaskAnalyzer(summary_client),
+                    # 요약과 같은 클라이언트를 쓴다 — 어댑터 하나가 두 태스크를
+                    # 배웠다(dependencies.py 의 같은 줄 주석 참고).
+                    # ⚠️ 레지스트리에는 있지만 기본 분석에는 없다
+                    #   (analysis_service.DEFAULT_ANALYZER_TYPES 주석 참고).
+                    "features": FeaturesAnalyzer(summary_client),
+                }, writer, task_writer)
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)
     asyncio.run(run())

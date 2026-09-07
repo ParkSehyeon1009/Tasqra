@@ -203,3 +203,6 @@ def test_document_type_is_normalized_and_validated():
         ExtractionService._validate_document_type("UNKNOWN")
 
     assert caught.value.error_code is ErrorCode.INVALID_DOCUMENT_TYPE
+    with pytest.raises(BusinessError) as legacy:
+        ExtractionService._validate_document_type("COST_SHEET")
+    assert legacy.value.error_code is ErrorCode.INVALID_DOCUMENT_TYPE

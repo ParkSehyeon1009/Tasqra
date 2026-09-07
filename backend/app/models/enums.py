@@ -95,9 +95,8 @@ class ExtractionStrategy(str, Enum):
 # =============================================================================
 # 문서 유형 — 도메인: 공공 SI · 용역 사업
 #
-# 사용자가 새로 선택할 수 있는 유형은 8종이다. BILLING은 과거 저장값을 읽기 위한
-# 호환 코드이며 신규 입력에서는 ETC로 통합한다. DocumentType은 조회 호환 계약,
-# SelectableDocumentType은 업로드·수정 쓰기 계약으로 역할을 분리한다.
+# 사용자가 새로 선택할 수 있는 유형은 7종이다. COST_SHEET와 BILLING은 과거
+# 저장값을 읽기 위한 호환 코드이며 신규 입력에서는 ETC로 통합한다.
 # =============================================================================
 class DocumentType(str, Enum):
     RFP = "RFP"                          # 제안요청서 · 입찰공고
@@ -114,7 +113,6 @@ class DocumentType(str, Enum):
 class SelectableDocumentType(str, Enum):
     RFP = "RFP"
     PROPOSAL = "PROPOSAL"
-    COST_SHEET = "COST_SHEET"
     CONTRACT = "CONTRACT"
     CONTRACT_CHANGE = "CONTRACT_CHANGE"
     REPORT = "REPORT"

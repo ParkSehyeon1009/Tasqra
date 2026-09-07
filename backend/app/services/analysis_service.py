@@ -4,45 +4,46 @@
 
 import json
 
-from app.analyzers.extraction_parser import (
-    parse_decision_extractions,
-    parse_schedule_item_extractions,
-)
+from pydantic import ValidationError
+
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
-from app.services.decision_schedule_writer import DecisionScheduleWriter
+from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
-# ⚠️ "features" 는 **평가하려고 켜 둔 것이다.** 아직 결과를 읽는 화면도, 태스크로
-#   만드는 승인 흐름도 없다(task_suggestions 테이블이 없다). 지금은 실제 문서에서
-#   과업이 어떻게 뽑히는지 보려고 analyses 에 쌓기만 한다.
+# ⚠️ **"features" 는 일부러 빠져 있다.** 레지스트리에는 등록돼 있으므로
+#   types=["features"] 로 부르면 돌지만 기본으로는 돌지 않는다.
 #
-#   ⚠️ **비용이 있다.** 과업 분석기는 구간마다 호출한다 — 실측(실제 문서 22건)으로
-#     문서당 중앙 8회·4초, 최대 48회·114초다. 문서 분석 전체가 그만큼 느려진다.
-#     결과를 다 봤으면 이 목록에서 "features" 를 빼면 된다(한 줄).
+#   같은 목적(문서에서 할 일을 뽑아 태스크 제안으로)을 가진 분석기가 둘이다:
 #
-#   ⚠️ **품질이 아직 확정되지 않았다.** 2026-09-04·09-07 측정에서 22건 중 2건에
-#     「발주기관의 입찰 절차」를 과업으로 뽑았다(공고서 작성·개찰·자격 등록 등).
-#     그래서 태스크를 **자동으로 만들지 않는다** — 사람이 보고 정할 자리다.
-DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "features"]
+#     action_task  후보를 파이썬 규칙으로 찾고(action_candidate_finder) 모델은
+#                  **그중에서 고른다.** 없는 것을 만들 수 없다. 제안 저장·승인
+#                  흐름(task_suggestions)이 여기에 붙어 있다 -> **기본값**
+#     features     모델이 과업을 **생성한다.** 사업 범위를 분해하는 쪽에 가깝다
+#                  (「현황 및 수요분석」·「통계 대시보드 개발」) -> 필요할 때만
+#
+#   ⚠️ features 를 기본에서 뺀 이유는 둘이다. (1) 둘 다 켜면 문서마다 서로 다른
+#     태스크 목록이 두 개 나온다. (2) 생성 방식이라 **지어낼 수 있다** — 실측
+#     22건 중 2건에서 「공고서 작성·개찰·자격 등록」같은 발주기관의 입찰 절차를
+#     과업으로 뽑았다. 구간 단위 재학습으로도 못 고쳤다(2026-09-07 패치노트).
+#     action_task 의 후보 찾기는 그 부류를 규칙으로 제외한다(_EXCLUDE).
+#
+#   ⚠️ 비용도 다르다. features 는 구간마다 호출해 문서당 중앙 8회·4초,
+#     긴 문서는 48회·114초다.
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
 
 
 class AnalysisService:
-    def __init__(
-        self,
-        db,
-        document_repository,
-        analysis_repository,
-        analyzer_registry,
-        decision_schedule_writer: DecisionScheduleWriter | None = None,
-    ):
+    def __init__(self, db, document_repository, analysis_repository, analyzer_registry,
+                 decision_schedule_writer, task_suggestion_writer):
         self._db = db
         self._document_repository = document_repository
         self._analysis_repository = analysis_repository
         self._analyzer_registry = analyzer_registry
         self._decision_schedule_writer = decision_schedule_writer
+        self._task_suggestion_writer = task_suggestion_writer
 
     def validate_types(self, analyzer_types):
         types = list(dict.fromkeys(analyzer_types or DEFAULT_ANALYZER_TYPES))
@@ -58,6 +59,24 @@ class AnalysisService:
             result = await analyzer.analyze(content, progress=progress)
             results.append((name, result))
         return results
+
+    async def analyze_text_isolated(self, content, types, progress=None):
+        """분석기 하나의 국소 오류가 다른 분석 결과를 폐기하지 않게 한다."""
+        results, errors = [], []
+        for name in types:
+            analyzer = self._analyzer_registry[name]
+            try:
+                result = await analyzer.analyze(content, progress=progress)
+            except BusinessError as exc:
+                errors.append({"analyzer": name, "code": exc.error_code.code,
+                    "message": exc.detail or exc.error_code.message})
+                continue
+            results.append((name, result))
+            failed_units = result.result.get("failed_groups") or result.result.get("failed_chunks")
+            if failed_units:
+                errors.append({"analyzer": name, "code": "AI_PARTIAL_RESULT",
+                    "message": f"일부 구간을 처리하지 못했습니다: {failed_units}"})
+        return results, errors
 
     @staticmethod
     def _apply_ai_document_type(document, results):
@@ -77,51 +96,57 @@ class AnalysisService:
 
     def save_results(self, document, revision, results):
         self._apply_ai_document_type(document, results)
-        saved = []
+        rows = []
         for name, result in results:
-            if name == "decision":
-                writer = self._require_decision_schedule_writer()
-                extractions = parse_decision_extractions(
-                    json.dumps(result.result.get("decisions", []), ensure_ascii=False)
-                )
-                analysis, _ = writer.write_decisions(
-                    project_id=document.project_id,
-                    document_id=document.id,
+            if "decisions" in result.result:
+                # 분석기가 model_dump(mode="json")로 날짜·Enum을 문자열로
+                # 넘긴다. strict DTO에 파이썬 dict를 바로 넣지 말고 JSON 경계에서
+                # 다시 검증해 서비스가 받은 계약을 유지한다.
+                try:
+                    items = DecisionExtractionList.model_validate_json(
+                        json.dumps(result.result["decisions"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._decision_schedule_writer.write_decisions(
+                    project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision,
-                    source_ocr_revision=document.ocr_revision,
-                    analyzer_type=name,
-                    result=result,
-                    extractions=extractions,
-                )
-            elif name == "schedule":
-                writer = self._require_decision_schedule_writer()
-                extractions = parse_schedule_item_extractions(
-                    json.dumps(result.result.get("schedule_items", []), ensure_ascii=False)
-                )
-                analysis, _ = writer.write_schedule_items(
-                    project_id=document.project_id,
-                    document_id=document.id,
+                    source_ocr_revision=document.ocr_revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            if "schedule_items" in result.result:
+                try:
+                    items = ScheduleItemExtractionList.model_validate_json(
+                        json.dumps(result.result["schedule_items"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._decision_schedule_writer.write_schedule_items(
+                    project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision,
-                    source_ocr_revision=document.ocr_revision,
-                    analyzer_type=name,
-                    result=result,
-                    extractions=extractions,
-                )
-            else:
-                analysis = self._analysis_repository.create(Analysis(
-                    document_id=document.id, analyzer_type=name, result_json=result.result,
-                    provider=result.provider, model_name=result.model_name,
-                    prompt_version=result.prompt_version, tokens_in=result.tokens_in,
-                    tokens_out=result.tokens_out, latency_ms=result.latency_ms,
-                    source_text_revision=revision,
-                ))
-            saved.append(analysis)
-        return saved
-
-    def _require_decision_schedule_writer(self) -> DecisionScheduleWriter:
-        if self._decision_schedule_writer is None:
-            raise RuntimeError("결정·일정 분석 결과 저장기가 연결되지 않았습니다.")
-        return self._decision_schedule_writer
+                    source_ocr_revision=document.ocr_revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            if "task_suggestions" in result.result:
+                try:
+                    items = TaskSuggestionExtractionList.model_validate_json(
+                        json.dumps(result.result["task_suggestions"])).root
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                analysis, _ = self._task_suggestion_writer.write(
+                    project_id=document.project_id, document_id=document.id,
+                    source_text_revision=revision, analyzer_type=name,
+                    result=result, extractions=items)
+                rows.append(analysis)
+                continue
+            rows.append(self._analysis_repository.create(Analysis(
+                document_id=document.id, analyzer_type=name, result_json=result.result,
+                provider=result.provider, model_name=result.model_name,
+                prompt_version=result.prompt_version, tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out, latency_ms=result.latency_ms,
+                source_text_revision=revision,
+            )))
+        return rows
 
     async def analyze_document(self, project_id, document_id, analyzer_types):
         """직접 호출용. HTTP 경로는 AnalysisJobService가 워커에 등록한다."""

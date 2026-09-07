@@ -41,6 +41,7 @@ def upload_document(file: UploadFile = File(...), extraction_strategy: str = For
         id=document.id, project_id=document.project_id, filename=document.filename,
         file_type=document.file_type, document_type=document.document_type,
         document_type_source=document.document_type_source,
+        package_key=document.package_key, package_role=document.package_role,
         extraction_strategy=document.extraction_strategy,
         status=document.status, review_status=document.review_status, page_count=None,
         char_count=None, text_char_count=0, ocr_char_count=0,

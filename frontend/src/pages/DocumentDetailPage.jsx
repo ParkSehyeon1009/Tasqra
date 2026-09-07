@@ -20,13 +20,15 @@ import DocumentHeader from '../features/document-detail/DocumentHeader'
 import DocumentHistoryTab from '../features/document-detail/DocumentHistoryTab'
 import DocumentReviewTab from '../features/document-detail/DocumentReviewTab'
 import DecisionScheduleReviewPanel from '../features/decision-schedule/DecisionScheduleReviewView'
+import TaskSuggestionReviewPanel from '../features/decision-schedule/TaskSuggestionReviewView'
 import ProjectSidebar from '../features/projects/ProjectSidebar'
 import { useProjectsQuery } from '../hooks/useProjectsQuery'
-import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
+import { DOCUMENT_TYPES, LEGACY_BILLING_DOCUMENT_TYPE, LEGACY_COST_SHEET_DOCUMENT_TYPE, normalizeDocumentTypeValue } from '../utils/documentType'
 import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
 const TABS = [['content', '문서 내용'], ['review', 'OCR 검수'], ['analysis', '분석 결과'], ['history', '변경 이력']]
+const ANALYZER_LABELS = { summary: '요약', category: '문서 분류', decision: '결정사항', schedule: '일정', action_task: '액션 태스크' }
 
 function getDocumentListUrl(projectId, candidate) {
   const fallback = `/projects/${projectId}/documents`
@@ -70,12 +72,15 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const previousJob = useRef(null)
   const completedJob = useRef(null)
   useEffect(() => {
-    if (job?.status === 'COMPLETED' && completedJob.current !== job.job_id) {
+    if (['COMPLETED', 'PARTIAL'].includes(job?.status) && completedJob.current !== job.job_id) {
       completedJob.current = job.job_id
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'decision-review'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'schedule-review'] })
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'task-suggestion-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
-      if (previousJob.current === job.job_id) notify('success', '문서 분석 완료', '분석 결과를 생성했습니다.')
+      if (previousJob.current === job.job_id) notify(job.status === 'PARTIAL' ? 'warning' : 'success', job.status === 'PARTIAL' ? '문서 일부 분석 완료' : '문서 분석 완료', job.status === 'PARTIAL' ? '일부 단계는 처리하지 못했지만 정상 결과는 저장했습니다.' : '분석 결과를 생성했습니다.')
     }
     previousJob.current = ['PENDING', 'RUNNING'].includes(job?.status) ? job.job_id : null
   }, [job?.status, job?.job_id, projectId, documentId, queryClient, notify])
@@ -107,17 +112,18 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
     <ProjectSidebar projects={projects} activeProjectId={projectId} activeTab="documents" onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${projectId}/${key}`)} onCreate={() => navigate('/projects')}/>
     <div className="standalone-workspace-content"><div className="document-detail-shell">
       <DocumentHeader document={document} canEdit={canEdit} busy={deleteMutation.isPending || downloadMutation.isPending || retryMutation.isPending} onBack={() => navigate(documentListUrl)} onDownload={() => downloadMutation.mutate()} onRetry={() => retryMutation.mutate()} onDelete={() => setDeleteOpen(true)}/>
-      {canEdit && (['AI', 'USER_CORRECTED'].includes(document.document_type_source) || document.document_type === LEGACY_BILLING_DOCUMENT_TYPE) && <DocumentTypeCorrection document={document} pending={documentTypeMutation.isPending} onSave={documentType => documentTypeMutation.mutate(documentType)}/>}
+      {canEdit && (['AI', 'USER_CORRECTED'].includes(document.document_type_source) || [LEGACY_BILLING_DOCUMENT_TYPE, LEGACY_COST_SHEET_DOCUMENT_TYPE].includes(document.document_type)) && <DocumentTypeCorrection document={document} pending={documentTypeMutation.isPending} onSave={documentType => documentTypeMutation.mutate(documentType)}/>}
       <nav className="document-detail-tabs">{TABS.map(([key, label]) => <button className={activeTab === key ? 'active' : ''} key={key} onClick={() => setParams({ tab: key }, { state: { documentListUrl } })}>{label}</button>)}</nav>
       <main className="document-tab-body">
         {analysisRunning && <section className="detail-card" role="status"><strong>AI 분석: {job.stage}</strong>{job.total_units > 0 && <p>현재 단계 {job.completed_units}/{job.total_units}</p>}<p>화면을 닫아도 분석은 계속됩니다.</p></section>}
         {job?.status === 'FAILED' && <section className="detail-card" role="alert"><strong>AI 분석 실패: {job.stage}</strong><p>{job.error_message}</p></section>}
+        {job?.status === 'PARTIAL' && <section className="detail-card" role="status"><strong>AI 분석 일부 완료</strong><p>정상적으로 처리된 결과는 저장했습니다. 아래 항목은 다시 분석할 수 있습니다.</p><ul>{(job.analyzer_errors ?? []).map((error, index) => <li key={`${error.analyzer}-${index}`}>{ANALYZER_LABELS[error.analyzer] ?? error.analyzer}: {error.message}</li>)}</ul></section>}
         {jobQuery.error && <p role="alert">분석 상태 조회 실패: {jobQuery.error.message}</p>}
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
         {activeTab === 'analysis' && <div className="document-analysis-layout">
           <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
-          <DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/>
+          <div><TaskSuggestionReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/><DecisionScheduleReviewPanel projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/></div>
         </div>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}
       </main>

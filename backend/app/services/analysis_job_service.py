@@ -45,6 +45,7 @@ class AnalysisJobService:
             job_id=job.id, document_id=job.document_id, status=job.status,
             stage=job.stage, completed_units=job.completed_units, total_units=job.total_units,
             error_code=job.error_code, error_message=job.error_message,
+            analyzer_errors=getattr(job, "analyzer_errors", None) or [],
             analyses=[AnalysisResponse.model_validate(row) for row in self.jobs.results(job)],
         )
 
@@ -69,6 +70,7 @@ class AnalysisJobService:
                 source_text_hash=hashlib.sha256(document.extracted_text.content.encode("utf-8")).hexdigest(),
                 analyzer_types=types, status="PENDING", stage="대기 중",
                 completed_units=0, total_units=0, analysis_ids=[], created_at=now,
+                analyzer_errors=[],
                 expires_at=now + timedelta(seconds=settings.AI_ANALYSIS_TIMEOUT_SECONDS)))
             job_id = job.id
         # 커밋 후 전달한다. 큐 등록 실패를 성공 응답으로 숨기지 않는다.
@@ -111,7 +113,8 @@ class AnalysisJobService:
             seconds = (job.expires_at - datetime.now(timezone.utc)).total_seconds()
             job.status, job.stage = "RUNNING", "분석 준비"
         try:
-            results = await asyncio.wait_for(self.analysis.analyze_text(content, types, progress), max(0, seconds))
+            results, analyzer_errors = await asyncio.wait_for(
+                self.analysis.analyze_text_isolated(content, types, progress), max(0, seconds))
             with transactional(self.db):
                 document = self.documents.get_by_id_for_update(project_id, document_id)
                 job = self.jobs.get(project_id, document_id, job_id, lock=True)
@@ -121,10 +124,16 @@ class AnalysisJobService:
                 if not self._same_source(document, job):
                     self._fail(job, ErrorCode.ANALYSIS_SOURCE_CHANGED)
                     return
+                if not results:
+                    first = analyzer_errors[0] if analyzer_errors else None
+                    raise BusinessError(ErrorCode.AI_ANALYZER_FAILED,
+                        first["message"] if first else "모든 분석 단계가 실패했습니다.")
                 rows = self.analysis.save_results(document, revision, results)
                 self.db.flush()
                 job.analysis_ids = [row.id for row in rows]
-                job.status, job.stage = "COMPLETED", "완료"
+                job.analyzer_errors = analyzer_errors
+                job.status = "PARTIAL" if analyzer_errors else "COMPLETED"
+                job.stage = "일부 완료" if analyzer_errors else "완료"
                 job.completed_units = job.total_units = 1
         except Exception as exc:
             logger.exception("분석 작업 실패 job_id=%s", job_id)

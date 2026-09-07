@@ -5,7 +5,7 @@
 # Spring 비교: @RequestBody + Bean Validation DTO와 조회 전용 Response DTO다.
 # =============================================================================
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Literal
 
@@ -35,16 +35,28 @@ class SuggestionRow(BaseModel):
 class DecisionRow(SuggestionRow):
     title: str
     content: str | None
+    evidence_text: str | None
     status: DecisionStatus
+    decision_type: str | None
     superseded_by: int | None
     decided_on: date | None
 
 
 class ScheduleItemRow(SuggestionRow):
     title: str
+    evidence_text: str | None
     kind: ScheduleKind
     starts_on: date | None
     ends_on: date | None
+    starts_time: time | None
+    ends_time: time | None
+    relative_expression: str | None
+    temporal_type: str | None
+    precision: str | None
+    anchor_event: str | None
+    calendar_rule: str | None
+    condition: str | None
+    tentative: bool
 
 
 class DecisionListResponse(BaseModel):
@@ -91,6 +103,9 @@ class ScheduleItemUpdateRequest(BaseModel):
     kind: ScheduleKind | None = None
     starts_on: date | None = None
     ends_on: date | None = None
+    starts_time: time | None = None
+    ends_time: time | None = None
+    relative_expression: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def validate_change(self) -> "ScheduleItemUpdateRequest":

@@ -25,6 +25,7 @@ from app.ai.fake_client import FakeAIClient
 from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
+from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.extraction_analyzer import DecisionAnalyzer
 from app.analyzers.features_analyzer import FeaturesAnalyzer
 from app.analyzers.protocol import Analyzer
@@ -58,6 +59,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_suggestion_repository import TaskSuggestionRepository
 from app.models.enums import MemberRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
@@ -79,6 +81,8 @@ from app.services.search_service import SearchService
 from app.services.token_counting import Utf8ByteTokenCounter
 from app.services.document_service import DocumentService
 from app.services.task_service import TaskService
+from app.services.task_suggestion_service import TaskSuggestionService
+from app.services.task_suggestion_writer import TaskSuggestionWriter
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -194,11 +198,17 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
     registry: dict[str, Analyzer] = {
         "summary": SummaryAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
         "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
-        "decision": DecisionAnalyzer(get_ai_client()),
-        "schedule": ScheduleAnalyzer(get_ai_client()),
-        # ⚠️ 과업은 **요약과 같은 모델**을 쓴다. 어댑터 하나(sumfeat-v1)가 두
-        #   태스크를 배웠고 프롬프트로 구분된다. 따로 두면 VRAM 8GB 에 3.3GB
+        "decision": DecisionAnalyzer(get_ai_client(settings.AI_MODEL_DECISION or None)),
+        "schedule": ScheduleAnalyzer(get_ai_client(settings.AI_MODEL_SCHEDULE or None)),
+        # 액션 태스크는 별도 학습 모델이 없어 요약 모델의 선택 능력을 재사용한다.
+        "action_task": ActionTaskAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
+        # ⚠️ 과업(features)은 **요약과 같은 모델**을 쓴다. 어댑터 하나(sumfeat-v2)가
+        #   두 태스크를 배웠고 프롬프트로 구분된다. 따로 두면 VRAM 8GB 에 3.3GB
         #   짜리가 셋이 되어 호출마다 모델을 바꿔 싣게 된다.
+        #
+        # ⚠️ 등록만 해 두고 **기본 분석에는 넣지 않는다** — action_task 와 목적이
+        #   겹치기 때문이다. 어느 쪽을 언제 쓰는지는 analysis_service 의
+        #   DEFAULT_ANALYZER_TYPES 주석에 있다.
         "features": FeaturesAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
     }
     return registry
@@ -224,11 +234,23 @@ def get_task_repository(db: Session = Depends(get_db)) -> TaskRepository:
     return TaskRepository(db)
 
 
+def get_task_suggestion_repository(db: Session = Depends(get_db)) -> TaskSuggestionRepository:
+    return TaskSuggestionRepository(db)
+
+
 def get_task_service(
     db: Session = Depends(get_db),
     task_repository: TaskRepository = Depends(get_task_repository),
 ) -> TaskService:
     return TaskService(db, task_repository)
+
+
+def get_task_suggestion_service(
+    db: Session = Depends(get_db),
+    repository: TaskSuggestionRepository = Depends(get_task_suggestion_repository),
+    task_service: TaskService = Depends(get_task_service),
+) -> TaskSuggestionService:
+    return TaskSuggestionService(db, repository, task_service)
 
 
 # get_search_service 는 get_project_repository 아래에 두어야 한다.
@@ -283,6 +305,13 @@ def get_decision_schedule_repository(
     db: Session = Depends(get_db),
 ) -> DecisionScheduleRepository:
     return DecisionScheduleRepository(db)
+
+
+def get_decision_schedule_writer(
+    analysis_repository: AnalysisRepository = Depends(get_analysis_repository),
+    repository: DecisionScheduleRepository = Depends(get_decision_schedule_repository),
+) -> DecisionScheduleWriter:
+    return DecisionScheduleWriter(analysis_repository, repository)
 
 
 def get_decision_schedule_review_service(
@@ -427,21 +456,17 @@ def get_analysis_service(
     db: Session = Depends(get_db),
     document_repository: DocumentRepository = Depends(get_document_repository),
     analysis_repository: AnalysisRepository = Depends(get_analysis_repository),
-    decision_schedule_repository: DecisionScheduleRepository = Depends(
-        get_decision_schedule_repository
-    ),
     analyzer_registry: dict[str, Analyzer] = Depends(get_analyzer_registry),
+    decision_schedule_writer: DecisionScheduleWriter = Depends(get_decision_schedule_writer),
+    task_suggestion_repository: TaskSuggestionRepository = Depends(get_task_suggestion_repository),
 ) -> AnalysisService:
-    decision_schedule_writer = DecisionScheduleWriter(
-        analysis_repository,
-        decision_schedule_repository,
-    )
     return AnalysisService(
         db=db,
         document_repository=document_repository,
         analysis_repository=analysis_repository,
         analyzer_registry=analyzer_registry,
         decision_schedule_writer=decision_schedule_writer,
+        task_suggestion_writer=TaskSuggestionWriter(analysis_repository, task_suggestion_repository),
     )
 
 

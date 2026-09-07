@@ -15,13 +15,24 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, replace
+from datetime import date, time
 
 # 공공 문서에 실제로 나오는 형태. 추출기가 공백을 여러 칸 뱉으므로 사이를 허용한다.
 _PATTERNS = (
     re.compile(r"(\d{4})\s*[./\-]\s*(\d{1,2})\s*[./\-]\s*(\d{1,2})"),
     re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일"),
+)
+# 기간의 뒤쪽에서 연도(또는 연도·월)를 생략하는 공공문서 표기를 보완한다.
+# 예: 2026. 8. 3. ~ 8. 31. / 2026. 7. 13. ~ 15.
+_ABBREVIATED_RANGE = re.compile(
+    r"(?P<year>\d{4})\s*[./\-]\s*(?P<month>\d{1,2})\s*[./\-]\s*(?P<day>\d{1,2})\s*\.?"
+    + r"\s*(?:~|～|−|–|—|부터)\s*"
+    + r"(?!\d{4}\s*[./\-])"
+    + r"(?:(?P<end_month>\d{1,2})\s*[./\-]\s*)?(?P<end_day>\d{1,2})(?:\s*일)?"
+)
+_TIME_AFTER_DATE = re.compile(
+    r"^[\s.,]*(?:\([^)]{0,10}\)\s*)?(?:(오전|오후)\s*)?(\d{1,2})(?:\s*[:시]\s*(\d{1,2}))?\s*(?:분)?"
 )
 # 앞쪽을 넉넉히 본다 — 「제안서평가일시: 2026/07/20」처럼 **날짜 앞에** 무슨
 # 날짜인지가 적히기 때문이다. 뒤쪽은 시각과 「~까지」 정도만 필요하다.
@@ -39,16 +50,23 @@ _LABEL = re.compile(
 )
 # 이름처럼 보이지만 아닌 것. 「1) 입찰의 일시 및 장소」 같은 목차 번호가 섞인다.
 _NOT_LABEL = re.compile(r"[.。]\s|다\s*$|습니다|바랍니다")
+_PERIOD_LABEL = re.compile(r"(?:^|[○●◦·∙*■□▪▶〉>\-–—)])\s*([^:：\n]{2,40}?기간)\s*[:：][^:：\n]{0,100}$")
 
 
-def _label_before(context: str, raw: str) -> str | None:
-    at = context.find(raw)
+def _label_before(context: str, raw: str, at: int | None = None) -> str | None:
+    # 같은 날짜가 가까이 반복될 수 있으므로 문자열 검색보다 원문 위치를 우선한다.
+    at = context.find(raw) if at is None else at
     if at < 0:
         return None
-    found = _LABEL.search(context[:at])
+    label_matches = list(_LABEL.finditer(context[:at]))
+    found = label_matches[-1] if label_matches else None
     if not found:
-        return None
-    label = re.sub(r"\s+", " ", found.group("label")).strip()
+        period = _PERIOD_LABEL.search(context[:at])
+        if not period:
+            return None
+        label = re.sub(r"\s+", " ", period.group(1)).strip()
+    else:
+        label = re.sub(r"\s+", " ", found.group("label")).strip()
     # context 가 문장 중간에서 잘리면 글머리표가 앞에 남는다(「- 제출기한」).
     # 화면에 그대로 뜨므로 걷어낸다.
     label = re.sub(r"^[\s○●◦·∙*■□▪▶〉>\-–—.·]+", "", label).strip()
@@ -66,13 +84,32 @@ class FoundDate:
     value: date
     context: str     # 앞뒤를 잘라낸 문맥
     label: str | None = None   # 콜론 앞에서 잡은 이름. 없으면 모델이 정한다
+    context_type: str = "body"  # 예시·이력은 삭제하지 않고 판단 힌트만 준다
+    range_key: int | None = None  # 원문에서 ~·부터/까지로 연결된 같은 기간
+    time_value: time | None = None
 
     def as_prompt_record(self) -> dict:
         # ⚠️ label 은 **모델에게 보내지 않는다.** 힌트로 줘 봤더니 오히려 나빠졌다
         #   (제목에 날짜를 넣거나, 한 가지 이름으로 무너졌다). 모델은 context 만
         #   보고 판단하게 두고, label 이 있으면 파이썬이 결과를 덮어쓴다.
         #   schedule_analyzer._build() 를 보라.
-        return {"id": self.id, "date": self.value.isoformat(), "context": self.context}
+        return {"id": self.id, "date": self.value.isoformat(),
+                "time": self.time_value.isoformat(timespec="minutes") if self.time_value else None,
+                "context": self.context,
+                "context_type": self.context_type,
+                "range_id": f"r{self.range_key}" if self.range_key is not None else None}
+
+
+def _context_type(context: str, *, document_prefix: str = "") -> str:
+    # 별지·붙임이 시작된 뒤의 날짜는 대개 빈 서식이나 작성 예시다. 날짜 바로
+    # 주변에 "예시"가 없더라도 문서 구조상 본문 일정과 구분해야 한다.
+    if re.search(r"(?:^|\n)\s*(?:\[?별지|붙임\s*\d*)", document_prefix, re.I):
+        return "form_or_appendix"
+    if re.search(r"홍\s*길\s*동|작성\s*예시|기재\s*예시|예\s*\)", context, re.I):
+        return "example"
+    if re.search(r"경력|이력|과거|발급일자|심사위원\s*참여", context):
+        return "history_or_form"
+    return "body"
 
 
 def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
@@ -92,6 +129,17 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
                 continue          # 2026/13/45 같은 것은 날짜가 아니다
             matches.append((found.start(), found.end(), found.group(0), value))
 
+    for found in _ABBREVIATED_RANGE.finditer(text):
+        year = int(found.group("year"))
+        month = int(found.group("end_month") or found.group("month"))
+        day = int(found.group("end_day"))
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            continue
+        start, end = found.span("end_day")
+        matches.append((start, end, text[start:end], value))
+
     matches.sort()
     dates: list[FoundDate] = []
     last_end = -1
@@ -99,9 +147,41 @@ def find_dates(text: str, *, limit: int = 60) -> list[FoundDate]:
         if start < last_end:
             continue              # 앞선 match 와 겹친다
         last_end = end
-        context = text[max(0, start - BEFORE):end + AFTER].replace("\n", " ")
+        context_start = max(0, start - BEFORE)
+        # 줄바꿈은 표 행·라벨의 경계다. 공백으로 지우면 다음 행의
+        # `제출마감일시:`가 앞 행 문장에 붙어 라벨을 잃는다.
+        context = text[context_start:end + AFTER]
+        time_value = _time_after(text[end:end + AFTER])
         dates.append(FoundDate(f"d{len(dates) + 1}", start, raw, value, context,
-                               _label_before(context, raw)))
+                               _label_before(context, raw, start - context_start),
+                               _context_type(context, document_prefix=text[:start]),
+                               time_value=time_value))
         if len(dates) >= limit:
             break
+    for index in range(1, len(dates)):
+        previous, current = dates[index - 1], dates[index]
+        between = text[previous.at + len(previous.raw):current.at]
+        if len(between) <= 100 and re.search(r"(?:~|～|−|–|—|부터)", between):
+            key = previous.range_key if previous.range_key is not None else previous.at
+            # 「제출시작일시: A ~ B」에서 B에 시작 라벨을 복사하면 종료일이
+            # 시작일로 표시된다. 양 끝이 같은 '기간'일 때만 라벨을 계승한다.
+            inherited = previous.label if previous.label and "기간" in previous.label else None
+            label = current.label or inherited
+            dates[index - 1] = replace(previous, range_key=key)
+            dates[index] = replace(current, label=label, range_key=key)
     return dates
+
+
+def _time_after(value: str) -> time | None:
+    found = _TIME_AFTER_DATE.match(value)
+    if not found:
+        return None
+    meridiem, hour_text, minute_text = found.groups()
+    hour, minute = int(hour_text), int(minute_text or 0)
+    if meridiem:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if meridiem == "오후" else 0)
+    if hour > 23 or minute > 59:
+        return None
+    return time(hour, minute)

@@ -1,5 +1,5 @@
 // =============================================================================
-// 이 파일의 책임: 문서에서 추출한 결정사항·일정을 하나의 액션 아이템 카드 목록으로 검토한다.
+// 이 파일의 책임: 문서에서 추출한 결정사항·일정을 카드 목록으로 검토한다.
 // 다른 파일과의 관계: api/decisionSchedule.js의 두 도메인 API를 문서 ID로 조회해
 //   화면에서 합치고, 상태 변경 뒤 문서별 목록·대시보드·산출물 query를 무효화한다.
 // Spring 비교: 서로 다른 두 Controller 응답을 하나의 화면 DTO처럼 조립하는 하위
@@ -75,9 +75,9 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
   const approvedQueries = reviews.map(review => review.approved)
   const rejectedQueries = reviews.map(review => review.rejected)
   const stateViews = {
-    pending: { label: '승인 대기', items: pendingItems, queries: pendingQueries, empty: '승인 대기 액션 아이템이 없습니다.' },
-    approved: { label: '반영됨', items: approvedItems, queries: approvedQueries, empty: '산출물에 반영된 액션 아이템이 없습니다.' },
-    rejected: { label: '거절됨', items: rejectedItems, queries: rejectedQueries, empty: '거절된 액션 아이템이 없습니다.' },
+    pending: { label: '승인 대기', items: pendingItems, queries: pendingQueries, empty: '승인 대기 결정사항·일정이 없습니다.' },
+    approved: { label: '반영됨', items: approvedItems, queries: approvedQueries, empty: '산출물에 반영된 결정사항·일정이 없습니다.' },
+    rejected: { label: '거절됨', items: rejectedItems, queries: rejectedQueries, empty: '거절된 결정사항·일정이 없습니다.' },
   }
   const activeView = stateViews[activeState]
   const totalItems = Object.values(stateViews).reduce((sum, view) => sum + sumTotal(view.queries), 0)
@@ -122,16 +122,16 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
   const editingKey = itemKey(editing)
   const reviewLocked = actionMutation.isPending || updateMutation.isPending
 
-  return <section className='decision-schedule-panel' aria-label='이 문서에서 추출한 액션 아이템'>
+  return <section className='decision-schedule-panel' aria-label='이 문서에서 추출한 결정사항과 일정'>
     <header className='decision-schedule-panel__heading'>
       <div className='review-title-line'>
-        <div><span>AI 추출 결과</span><h2>추출된 액션 아이템 <b>{totalItems}</b></h2></div>
+        <div><span>AI 추출 결과</span><h2>결정사항·일정 <b>{totalItems}</b></h2></div>
         {!canEdit && <strong>읽기 전용</strong>}
       </div>
       <p>결정사항과 일정을 카드별로 검토합니다.</p>
     </header>
 
-    <nav className='review-state-tabs' aria-label='액션 아이템 상태'>
+    <nav className='review-state-tabs' aria-label='결정사항과 일정 상태'>
       {Object.entries(stateViews).map(([key, view]) => <button
         type='button'
         key={key}
@@ -156,22 +156,21 @@ export default function DecisionScheduleReviewPanel({ projectId, documentId, can
           onEdit={() => setEditing(item)}
           onCancel={() => actionMutation.mutate({ item, action: 'cancel' })}
           onRestore={() => actionMutation.mutate({ item, action: 'cancel' })}
+          editForm={editingKey === itemKey(item) ? <EditForm
+            type={item.resource.key}
+            row={item.row}
+            saving={updateMutation.isPending}
+            notify={notify}
+            onClose={() => setEditing(null)}
+            onSave={changes => updateMutation.mutate({ item, changes })}
+          /> : null}
         />)}
-        {activeState === 'approved' && editing && <EditForm
-          key={`edit-${itemKey(editing)}`}
-          type={editing.resource.key}
-          row={editing.row}
-          saving={updateMutation.isPending}
-          notify={notify}
-          onClose={() => setEditing(null)}
-          onSave={changes => updateMutation.mutate({ item: editing, changes })}
-        />}
       </ReviewList>
     </section>
 
     <ConfirmDialog
       open={Boolean(rejectTarget)}
-      title='이 액션 아이템을 거절할까요?'
+      title='이 제안을 거절할까요?'
       message={rejectTarget ? `“${rejectTarget.row.title}”은 산출물에서 제외되며 거절함에서 되살릴 수 있습니다.` : ''}
       confirmLabel='거절'
       danger
@@ -231,7 +230,7 @@ function ReviewList({ queries, items, empty, children }) {
   </div>
 }
 
-function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove, onReject, onEdit, onCancel, onRestore }) {
+function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove, onReject, onEdit, onCancel, onRestore, editForm }) {
   const { resource, row } = item
   const locked = disabled || busy || !canEdit
   const confidence = confidenceLabel(row.confidence)
@@ -249,7 +248,8 @@ function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove
         {confidence && <span>{confidence}</span>}
       </div>
       {resource.key === 'decision' && row.content && <p>{row.content}</p>}
-      {row.reason && <small className='review-card-reason'><b>근거</b>{row.reason}</small>}
+      {row.evidence_text && <details className='review-evidence'><summary>원문 근거 보기</summary><blockquote>{row.evidence_text}</blockquote></details>}
+      {row.reason && <small className='review-card-reason'><b>AI 판단</b>{row.reason}</small>}
       {row.filename && <small className='review-card-source'>{row.filename}</small>}
       {row.stale && <em>{actions === 'rejected'
         ? '원문이 수정된 뒤의 오래된 제안입니다. 다시 분석하기 전에는 되살릴 수 없습니다.'
@@ -266,6 +266,7 @@ function ReviewCard({ item, canEdit, disabled, busy, actions, editing, onApprove
       </>}
       {actions === 'rejected' && <button type='button' disabled={locked || row.stale} onClick={onRestore}>{busy ? '처리 중…' : '되살리기'}</button>}
     </div>}
+    {editForm}
   </article>
 }
 
@@ -285,17 +286,21 @@ function itemTypeLabel(item) {
 function EditForm({ type, row, saving, notify, onClose, onSave }) {
   const [form, setForm] = useState(type === 'decision'
     ? { title: row.title, content: row.content ?? '', status: row.status, decided_on: row.decided_on ?? '' }
-    : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '' })
+    : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '',
+        starts_time: row.starts_time?.slice(0, 5) ?? '', ends_time: row.ends_time?.slice(0, 5) ?? '',
+        relative_expression: row.relative_expression ?? '' })
   const set = (field, value) => setForm(current => ({ ...current, [field]: value }))
   const submit = event => {
     event.preventDefault()
     const initial = type === 'decision'
       ? { title: row.title, content: row.content ?? '', status: row.status, decided_on: row.decided_on ?? '' }
-      : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '' }
+      : { title: row.title, kind: row.kind, starts_on: row.starts_on ?? '', ends_on: row.ends_on ?? '',
+          starts_time: row.starts_time?.slice(0, 5) ?? '', ends_time: row.ends_time?.slice(0, 5) ?? '',
+          relative_expression: row.relative_expression ?? '' }
     const changes = {}
     for (const [field, value] of Object.entries(form)) {
       if (value === initial[field]) continue
-      changes[field] = ['content', 'decided_on', 'starts_on', 'ends_on'].includes(field) && value === '' ? null : value
+      changes[field] = ['content', 'decided_on', 'starts_on', 'ends_on', 'starts_time', 'ends_time', 'relative_expression'].includes(field) && value === '' ? null : value
     }
     if (Object.keys(changes).length === 0) {
       notify?.('info', '바뀐 값이 없습니다', '고칠 값을 하나 이상 바꿔 주세요.')
@@ -317,7 +322,10 @@ function EditForm({ type, row, saving, notify, onClose, onSave }) {
         {Object.entries(KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select></label>
       <label><span>시작일</span><input type='date' value={form.starts_on} onChange={event => set('starts_on', event.target.value)}/></label>
+      <label><span>시작 시각</span><input type='time' value={form.starts_time} onChange={event => set('starts_time', event.target.value)}/></label>
       <label><span>종료일</span><input type='date' value={form.ends_on} onChange={event => set('ends_on', event.target.value)}/></label>
+      <label><span>종료 시각</span><input type='time' value={form.ends_time} onChange={event => set('ends_time', event.target.value)}/></label>
+      <label><span>상대 기한</span><input maxLength={300} placeholder='예: 통보일로부터 7일 이내' value={form.relative_expression} onChange={event => set('relative_expression', event.target.value)}/></label>
     </>}
     <p>저장하면 사람이 확인한 값(EDITED)으로 남고 기존 산출물 count/list에 반영됩니다.</p>
     <div><button type='submit' className='is-primary' disabled={saving}>{saving ? '저장 중…' : '수정 승인'}</button><button type='button' disabled={saving} onClick={onClose}>닫기</button></div>
@@ -325,7 +333,9 @@ function EditForm({ type, row, saving, notify, onClose, onSave }) {
 }
 
 function scheduleDates(row) {
-  if (!row.starts_on && !row.ends_on) return null
-  if (row.starts_on && row.ends_on) return `${row.starts_on} ~ ${row.ends_on}`
-  return row.starts_on ? `시작 ${row.starts_on}` : `종료 ${row.ends_on}`
+  const start = row.starts_on ? `${row.starts_on}${row.starts_time ? ` ${row.starts_time.slice(0, 5)}` : ''}` : null
+  const end = row.ends_on ? `${row.ends_on}${row.ends_time ? ` ${row.ends_time.slice(0, 5)}` : ''}` : null
+  if (start && end) return `${start} ~ ${end}`
+  if (start || end) return start ? `시작 ${start}` : `종료 ${end}`
+  return row.relative_expression || null
 }

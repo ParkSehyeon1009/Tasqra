@@ -28,7 +28,7 @@
 #   CHECK 는 순서만 본다(starts_on <= ends_on).
 # =============================================================================
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -42,6 +42,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -90,11 +91,21 @@ class ScheduleItem(Base):
     )
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
+    evidence_text: Mapped[str | None] = mapped_column(Text)
     # MILESTONE · DEADLINE · MEETING · PERIOD. 머리말의 날짜 쓰임 표를 볼 것.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     # 문서에 없으면 NULL 이다. 만들어 채우지 않는다.
     starts_on: Mapped[date | None] = mapped_column(Date)
     ends_on: Mapped[date | None] = mapped_column(Date)
+    starts_time: Mapped[time | None] = mapped_column(Time)
+    ends_time: Mapped[time | None] = mapped_column(Time)
+    relative_expression: Mapped[str | None] = mapped_column(String(300))
+    temporal_type: Mapped[str | None] = mapped_column(String(40))
+    precision: Mapped[str | None] = mapped_column(String(20))
+    anchor_event: Mapped[str | None] = mapped_column(String(120))
+    calendar_rule: Mapped[str | None] = mapped_column(String(30))
+    condition: Mapped[str | None] = mapped_column(Text)
+    tentative: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     # --- AI 제안 공통 컬럼 (amount_items · decisions 와 같은 모양) ------------
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))

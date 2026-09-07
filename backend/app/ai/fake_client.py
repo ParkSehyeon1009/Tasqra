@@ -48,10 +48,11 @@ class FakeAIClient(AIClientProtocol):
             )
 
         data = json.loads(prompt.user)
-        if prompt.prompt_version.startswith("decision"):
-            payload = {"decisions": []}
-        elif prompt.prompt_version.startswith("schedule"):
-            payload = {"items": []}
+        # ⚠️ action-task 와 features 는 **아래 'selected_ids' 검사보다 먼저** 와야
+        #   한다. ActionSelectionOutput 도 selected_ids 를 쓰기 때문에 순서가
+        #   뒤바뀌면 엉뚱한 분기로 빠진다.
+        if prompt.prompt_version.startswith("action-task"):
+            payload = {"selected_ids": [data["candidates"][0]["id"]] if data.get("candidates") else []}
         elif prompt.prompt_version.startswith("features"):
             # 빈 배열로 둔다 — decision·schedule 과 같다. 과업에서는 빈 배열이
             # **정상 응답**이라 이것으로도 경로가 끝까지 돈다.
@@ -61,6 +62,10 @@ class FakeAIClient(AIClientProtocol):
         elif 'facts' in prompt.system:
             quote = data.get("document", "").strip()[:120]
             payload = {"facts": [{"quote": quote, "status": "불명"}] if quote else []}
+        elif prompt.prompt_version.startswith("decision"):
+            payload = {"decisions": []}
+        elif prompt.prompt_version.startswith("schedule"):
+            payload = {"items": []}
         elif prompt.prompt_version.startswith("category"):
             payload = {"category": "ETC", "reason": "테스트용 가짜 분류 결과입니다."}
         elif 'evidence_ids' in prompt.system:
