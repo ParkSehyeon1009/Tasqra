@@ -102,12 +102,20 @@ def _title(text: str) -> str:
     value = re.sub(r"(하여야\s*합니다|해야\s*합니다|하여야\s*한다|해야\s*한다|하여야\s*함|해야\s*함|할\s*것입니다|할\s*것|바랍니다)\.?$", "", value)
     # 카드 제목은 한눈에 읽히는 실행명이어야 한다. 조건·근거 전문은 별도 필드에 둔다.
     value = re.split(r"(?:하여야|해야|바랍니다|주시기|주시면|할\s*것)", value, maxsplit=1)[0].strip()
-    if len(value) > 90:
-        action = list(_ACTION.finditer(value))
-        if action:
-            value = value[max(0, action[-1].start() - 65):action[-1].end()]
-            value = re.sub(r"^\S+\s+", "", value) if len(value) > 70 else value
-    return value[:90].rstrip(" ,·;:").strip()
+    # 🔴 2026-09-07: 여기 있던 **글자 수 기준 재단을 걷어냈다.**
+    #
+    #   90자를 넘으면 마지막 동작 낱말 앞뒤로 잘라냈는데, 낱말 경계를 안 봐서
+    #   말 가운데를 끊었다. 실측으로 이런 제목이 나왔다:
+    #
+    #       「용역 착수신고서를 …」  ->  「역 착수신고서를 …」
+    #       「고정수리 일부 장비는 …」 ->  「정수리 일부 장비는 …」
+    #
+    #   앞의 조각을 한 번 더 버리는 규칙(^\S+\s+)까지 겹쳐 더 심해졌다.
+    #   길어도 온전한 문장이 잘린 조각보다 낫다 — 카드에서 읽을 수 있어야 한다.
+    #
+    # ⚠️ 상한은 스키마를 따른다. TaskSuggestionExtraction.title 과
+    #   TaskSuggestion.title 이 300자다. 여기서 넘기면 검증에서 걸린다.
+    return value[:300].rstrip(" ,·;:").strip()
 
 
 def _actor(text: str) -> str | None:

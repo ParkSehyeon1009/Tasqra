@@ -3,6 +3,7 @@
 # Spring 비교: 분석 결과 저장과 자동 분류 정책을 묶는 @Service 계층이다.
 
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -86,7 +87,52 @@ _CATEGORY_SCOPE = {"action_task": ACTION_TASK_CATEGORIES,
 FEATURE_QUALITY_SCORE = 0.5
 
 
-def _features_as_suggestions(features):
+def _낱말(text):
+    """제목 비교용 낱말. 두 글자 이상만 본다 — 조사·한 글자는 우연히 겹친다."""
+    빼는말 = {"관리", "운영", "수행", "제공", "실시", "진행", "관련", "경우", "위해", "따라"}
+    return {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", text or "") if w not in 빼는말}
+
+
+def _이미_나왔나(title, 기존제목들):
+    """같은 일을 action_task 가 이미 냈는가.
+
+    ⚠️ **한쪽 방향으로만 본다.** features 제목은 짧은 명사구(「작업 사진 제출」)이고
+      action_task 제목은 원문 문장이라, 짧은 쪽의 낱말이 긴 쪽에 **전부 들어 있으면**
+      같은 일로 본다. 반대 방향(긴 쪽이 짧은 쪽에 포함)은 성립하지 않는다.
+
+    ⚠️ 낱말 2개 이상일 때만 본다. 한 낱말이면(「보고」) 무관한 문장에도 걸린다.
+
+    ⚠️ **덜 합치는 쪽으로 기운다.** 과하게 합치면 과업이 사라지고 아무도 못
+      알아채지만, 덜 합치면 비슷한 카드가 둘 떠서 승인 화면에서 지우면 된다.
+      그래서 「전부 포함」만 같다고 보고 부분 겹침은 놔둔다.
+
+    ⚠️ 낱말 **집합 비교가 아니라 부분 문자열**로 본다. 한국어는 조사가 붙어
+      「사진」과 「사진을」이 다른 낱말로 잡히기 때문이다. 집합으로 짰다가
+      실제 중복(「작업 사진 제출」 대 「…각 작업 사진을 촬영하여 제출」)을
+      못 잡았다.
+    """
+    내낱말 = _낱말(title)
+    if len(내낱말) < 2:
+        return False
+    return any(all(w in 기존 for w in 내낱말) for 기존 in 기존제목들)
+
+
+def _앞서_나온_제목들(results):
+    """이번 분석에서 **이미 태스크 제안으로 저장될** 제목들.
+
+    features 는 DEFAULT_ANALYZER_TYPES 에서 action_task 뒤에 온다. 그래서
+    features 를 변환할 때 앞의 결과를 볼 수 있다 — 순서에 기대는 자리다.
+    """
+    제목 = []
+    for _, result in results:
+        for item in (result.result.get("task_suggestions") or []):
+            값 = item.get("title") if isinstance(item, dict) else getattr(item, "title", None)
+            if 값:
+                제목.append(값)
+    return 제목
+
+
+def _features_as_suggestions(features, 기존제목들=()):
     """과업 항목을 TaskSuggestionExtraction 모양으로 바꾼다.
 
     ⚠️ **evidence_text 에 과업 이름을 함께 넣는 이유가 있다.** 그 값의 해시가
@@ -103,6 +149,10 @@ def _features_as_suggestions(features):
     """
     rows = []
     for item in features:
+        # 같은 일을 action_task 가 이미 냈으면 카드를 둘 만들지 않는다.
+        # 실측: 과업지시서에서 「작업 사진 제출」이 양쪽에 나왔다.
+        if _이미_나왔나(item["name"], 기존제목들):
+            continue
         구간 = (item.get("source_text") or "").strip()
         rows.append({
             "title": item["name"][:300],
@@ -263,7 +313,8 @@ class AnalysisService:
                 # 과업(features)을 태스크 제안으로 옮긴다. 저장·승인 흐름은
                 # action_task 와 **같은 것을 쓴다** — 사람이 보는 화면이 하나여야 한다.
                 items = TaskSuggestionExtractionList.model_validate_json(
-                    json.dumps(_features_as_suggestions(result.result["features"]))).root
+                    json.dumps(_features_as_suggestions(
+                        result.result["features"], _앞서_나온_제목들(results)))).root
                 analysis, _ = self._task_suggestion_writer.write(
                     project_id=document.project_id, document_id=document.id,
                     source_text_revision=revision, analyzer_type=name,

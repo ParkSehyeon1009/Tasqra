@@ -192,6 +192,59 @@ def test_같은_구간에서_나온_항목은_근거가_서로_달라야_한다(
         assert 구간 in 근거, "근거 구간은 여전히 들어 있어야 한다"
 
 
+# --- 분석기 간 중복 제거 --------------------------------------------------
+
+def test_액션태스크가_이미_낸_일은_과업으로_또_만들지_않는다():
+    """실측: 과업지시서에서 「작업 사진 제출」이 양쪽에 나왔다.
+
+    features 제목은 짧은 명사구, action_task 제목은 원문 문장이라
+    **짧은 쪽의 낱말이 긴 쪽에 전부 있으면** 같은 일로 본다.
+    """
+    이미 = ['“계약당사자”는 주요 수리 장소별로 각 작업 사진을 촬영하여 제출']
+    rows = _features_as_suggestions(
+        [{"name": "작업 사진 제출", "summary": "가", "source_text": "본문"},
+         {"name": "고정수리 운영", "summary": "나", "source_text": "본문"}], 이미)
+
+    assert [r["title"] for r in rows] == ["고정수리 운영"]
+
+
+def test_낱말이_하나면_합치지_않는다():
+    """⚠️ 「보고」 하나로 합치면 무관한 문장에도 걸린다."""
+    이미 = ["시설물을 손괴하였을 경우 즉시 발주처에게 보고하고 복구"]
+    rows = _features_as_suggestions(
+        [{"name": "보고", "summary": "가", "source_text": "본문"}], 이미)
+    assert len(rows) == 1, "낱말 하나짜리를 합쳐버렸다"
+
+
+def test_일부만_겹치면_합치지_않는다():
+    """🔑 **덜 합치는 쪽으로 기운다.**
+
+    과하게 합치면 과업이 사라지고 아무도 못 알아채지만, 덜 합치면 비슷한
+    카드가 둘 떠서 승인 화면에서 지우면 된다.
+    """
+    이미 = ["시설물을 손괴하였을 경우 즉시 발주처에게 보고하고 복구"]
+    rows = _features_as_suggestions(
+        [{"name": "시설물 안전 점검", "summary": "가", "source_text": "본문"}], 이미)
+    assert len(rows) == 1, "「시설물」만 겹치는데 합쳐버렸다"
+
+
+def test_흔한_낱말은_비교에서_뺀다():
+    """「관리」·「운영」같은 말은 어느 문장에나 있어 겹침이 의미가 없다."""
+    이미 = ["용역 수행과 관련하여 발주처의 지시에 따라 시설을 관리하고 운영"]
+    rows = _features_as_suggestions(
+        [{"name": "수리물품 관리", "summary": "가", "source_text": "본문"}], 이미)
+    assert len(rows) == 1
+
+
+def test_앞서_나온_제목을_결과에서_모은다():
+    from app.services.analysis_service import _앞서_나온_제목들
+
+    results = [("action_task", AnalyzeResult(
+        result={"task_suggestions": [{"title": "착수신고서 제출"}, {"title": "월간 보고"}]},
+        provider="t", model_name="t", prompt_version="t"))]
+    assert _앞서_나온_제목들(results) == ["착수신고서 제출", "월간 보고"]
+
+
 def test_근거_구간이_없어도_비어_있지_않다():
     """evidence_text 는 NOT NULL 이고 min_length=1 이다."""
     rows = _features_as_suggestions([{"name": "운영", "summary": "설명"}])
