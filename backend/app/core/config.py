@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     AI_MAX_CHUNKS: int = Field(default=256, ge=1)
     AI_CHUNK_RETRIES: int = Field(default=1, ge=0, le=2)
     AI_ANALYSIS_TIMEOUT_SECONDS: int = Field(default=1800, ge=60)
+    # 문서 하나에서 뽑을 과업의 **전체** 상한. FeaturesOutput 의 max_length 12 는
+    # 구간당 값이라, 구간이 20개면 그것만으로 240개가 될 수 있다.
+    #
+    # ⚠️ 이 상한이 필요한 이유는 실측이다 — 입찰공고문의 절차성 구간을 주면 모델이
+    #   12개를 꽉 채우고 그 전부가 입찰 유의사항·제출서류·법령 조항이었다.
+    #   구간을 나누면 그런 기회가 구간마다 생긴다.
+    # ⚠️ 상한에 걸리면 결과의 capped_at 에 남는다. 조용히 버리면 「원래 그만큼」과
+    #   구별할 수 없다.
+    AI_MAX_FEATURES: int = Field(default=40, ge=1)
 
     # --- 임베딩 (RAG-001-1 청킹 · RAG-001-2 임베딩) --------------------------------
     # USE_FAKE_EMBEDDING 기본값은 반드시 True로 둔다 — USE_FAKE_AI와 같은 이유의

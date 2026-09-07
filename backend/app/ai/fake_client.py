@@ -52,6 +52,10 @@ class FakeAIClient(AIClientProtocol):
             payload = {"decisions": []}
         elif prompt.prompt_version.startswith("schedule"):
             payload = {"items": []}
+        elif prompt.prompt_version.startswith("features"):
+            # 빈 배열로 둔다 — decision·schedule 과 같다. 과업에서는 빈 배열이
+            # **정상 응답**이라 이것으로도 경로가 끝까지 돈다.
+            payload = {"features": []}
         elif 'selected_ids' in prompt.system:
             payload = {"selected_ids": [data["records"][0]["id"]]}
         elif 'facts' in prompt.system:

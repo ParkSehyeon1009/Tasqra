@@ -159,6 +159,7 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
     from app.analyzers.summary_analyzer import SummaryAnalyzer
     from app.analyzers.category_analyzer import CategoryAnalyzer
     from app.analyzers.extraction_analyzer import DecisionAnalyzer
+    from app.analyzers.features_analyzer import FeaturesAnalyzer
     from app.analyzers.schedule_analyzer import ScheduleAnalyzer
     from app.repositories.analysis_job_repository import AnalysisJobRepository
     from app.repositories.analysis_repository import AnalysisRepository
@@ -217,6 +218,9 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
                         "category": CategoryAnalyzer(category_client),
                         "decision": DecisionAnalyzer(extraction_client),
                         "schedule": ScheduleAnalyzer(extraction_client),
+                        # 요약과 같은 클라이언트를 쓴다 — 어댑터 하나가 두 태스크를
+                        # 배웠다(dependencies.py 의 같은 줄 주석 참고).
+                        "features": FeaturesAnalyzer(summary_client),
                     },
                     decision_schedule_writer,
                 )

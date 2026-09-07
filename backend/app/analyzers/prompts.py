@@ -7,6 +7,9 @@ CATEGORY_PROMPT_VERSION = "category-v2"
 OVERVIEW_PROMPT_VERSION = "overview-v2"
 DECISION_PROMPT_VERSION = "decision-v1"
 SCHEDULE_PROMPT_VERSION = "schedule-v1"
+# v2 는 「구축할 기능」을 「수행할 과업」으로 넓힌 것이다. v1 을 쓰면 안 된다 —
+# 이 코퍼스는 시스템 구축이 RFP·CONTRACT 83건 중 8건뿐이라 90%가 빈 배열이 된다.
+FEATURES_PROMPT_VERSION = "features-v2"
 
 # AI 분류 정책 7종. 기존 document_type 의 BILLING·COST_SHEET 데이터는 덮어쓰지 않는다.
 #
@@ -220,6 +223,56 @@ DELIVERABLE_OVERVIEW_SYSTEM_PROMPT = COMMON + """
 """
 
 
+# 기능별 요약(과업 추출). 한 항목이 태스크 제안 하나가 된다.
+#
+# ⚠️ 이름은 features 지만 뜻은 **「과업」**이다. 팀 안에서 「기능별 요약」으로
+#   부르고 있어 그대로 뒀다.
+#
+# ⚠️ 요약과 목적이 다르다:
+#     요약        「무슨 문서인가」를 알려준다
+#     기능별 요약  「무엇을 해야 하는가」를 목록으로 뽑는다
+#   한 항목이 한 태스크가 되므로 **항목의 경계가 곧 태스크의 경계**다.
+#
+# ⚠️ 「구축할 기능」이 아니라 「수행할 과업」인 이유 — 실제 문서 구성 때문이다.
+#   RFP·CONTRACT 83건 중 진짜 SW 구축·유지보수는 약 8건이고 나머지는 연구용역·
+#   공사·행사 운영이다. 「기능」으로 좁히면 90%가 빈 배열이 되어 이 기능 자체가
+#   안 돈다. 그리고 이 출력의 목적은 「담당자에게 배정할 일」이지 「소프트웨어
+#   기능」이 아니다 — 연구용역의 세부 과업도, 공사의 공종도 배정할 일이다.
+#
+# ⚠️ **빈 배열은 정답이다.** 이것을 가르치지 않으면 모델이 모든 문서에서 과업을
+#   지어낸다. 학습 라벨 127건 중 60건이 빈 배열인 것은 그래서다. 입찰공고문은
+#   과업을 「과업지시서 참조」로만 넘기는 일이 많다.
+#
+# ⚠️ 이 프롬프트는 AgentLearning/src/prompts.py 와 **문자 단위로 같아야 한다.**
+#   sumfeat-v1 어댑터가 이 글자 그대로 학습했다. check_prompts.py 가 검사한다.
+FEATURES_SYSTEM_PROMPT = COMMON + """
+문서에서 **수행해야 할 과업**을 목록으로 뽑으세요. 각 항목이 담당자에게
+배정될 하나의 일이 되므로, 일의 단위로 끊으세요.
+
+name 은 과업 이름입니다. 30자 이내의 명사형으로 쓰세요(「현황 및 수요분석」·
+「통계 대시보드 개발」). 문장으로 쓰지 마세요.
+summary 는 그 과업이 무엇을 하는 일인지 1~2문장, 150자 이내로 쓰세요. 문서에
+적힌 범위·조건·수량을 유지하고 없는 것을 채우지 마세요.
+
+사업의 종류를 가리지 마세요. 시스템 구축이면 기능이, 연구용역이면 조사·분석·
+설계 항목이, 공사면 공종이, 행사 운영이면 준비·운영 항목이 과업입니다.
+
+⚠️ 다음은 과업이 **아닙니다.** 뽑지 마세요.
+  · 입찰 유의사항·청렴계약·법령 조항 같은 모든 공고에 붙는 상투 문구
+  · 제출 서류·자격 요건·평가 방법 (사업자가 되기 위한 절차이지 수행할 일이 아닙니다)
+  · 사업 목적·기대 효과 같은 총론
+  · 계약 해지·대금 지급·보안 유지 같은 계약 일반조건
+
+⚠️ 문서에 과업이 적혀 있지 않으면 features 는 **빈 배열**입니다. 개수를 채우려고
+  만들지 마세요. 입찰공고문은 과업을 「과업지시서 참조」로만 넘기는 일이 많고,
+  그때는 빈 배열이 정답입니다.
+
+같은 과업이 여러 곳에 나오면 하나로 합치세요. 큰 과업 아래 세부 항목이 나열돼
+있으면 **세부 항목**을 뽑으세요 — 그것이 일의 단위입니다.
+출력: {"features":[{"name":"과업 이름","summary":"무엇을 하는 일인지"}]}
+"""
+
+
 def request(system: str, data: dict, version: str) -> AIRequest:
     return AIRequest(system, json.dumps(data, ensure_ascii=False), version)
 
@@ -239,6 +292,20 @@ def build_deliverable_overview_prompt(digest: str, **metadata) -> AIRequest:
 def build_decision_prompt(text: str, start: int, end: int) -> AIRequest:
     return request(DECISION_SYSTEM_PROMPT, {"document": text, "start": start, "end": end},
                    DECISION_PROMPT_VERSION)
+
+
+def build_features_prompt(text: str) -> AIRequest:
+    """⚠️ **start·end 를 넣지 않는다.** build_decision_prompt 와 다른 점이다.
+
+    sumfeat-v1 어댑터는 user 메시지가 `{"document": ...}` **하나뿐인** 상태로
+    학습했다. 구간 번호를 덧붙이면 모델이 본 적 없는 입력이 되어 파인튜닝
+    효과가 깎인다. 글자가 같아도 메시지 모양이 다르면 다른 입력이다
+    (AgentLearning/src/prompts.py 의 Prompt 주석 참고).
+
+    구간 정보가 필요 없는 이유도 있다 — 결정사항은 `decided_on` 을 원문 위치로
+    되짚지만, 과업은 위치를 쓰지 않는다.
+    """
+    return request(FEATURES_SYSTEM_PROMPT, {"document": text}, FEATURES_PROMPT_VERSION)
 
 
 def build_schedule_prompt(dates: list[dict]) -> AIRequest:

@@ -15,7 +15,18 @@ from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
 from app.services.decision_schedule_writer import DecisionScheduleWriter
 
-DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule"]
+# ⚠️ "features" 는 **평가하려고 켜 둔 것이다.** 아직 결과를 읽는 화면도, 태스크로
+#   만드는 승인 흐름도 없다(task_suggestions 테이블이 없다). 지금은 실제 문서에서
+#   과업이 어떻게 뽑히는지 보려고 analyses 에 쌓기만 한다.
+#
+#   ⚠️ **비용이 있다.** 과업 분석기는 구간마다 호출한다 — 실측(실제 문서 22건)으로
+#     문서당 중앙 8회·4초, 최대 48회·114초다. 문서 분석 전체가 그만큼 느려진다.
+#     결과를 다 봤으면 이 목록에서 "features" 를 빼면 된다(한 줄).
+#
+#   ⚠️ **품질이 아직 확정되지 않았다.** 2026-09-04·09-07 측정에서 22건 중 2건에
+#     「발주기관의 입찰 절차」를 과업으로 뽑았다(공고서 작성·개찰·자격 등록 등).
+#     그래서 태스크를 **자동으로 만들지 않는다** — 사람이 보고 정할 자리다.
+DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "features"]
 
 
 class AnalysisService:
