@@ -26,6 +26,7 @@ from app.ai.local_client import LocalAIClient
 from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
 from app.analyzers.extraction_analyzer import DecisionAnalyzer
+from app.analyzers.features_analyzer import FeaturesAnalyzer
 from app.analyzers.protocol import Analyzer
 from app.analyzers.schedule_analyzer import ScheduleAnalyzer
 from app.analyzers.summary_analyzer import SummaryAnalyzer
@@ -195,6 +196,10 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
         "category": CategoryAnalyzer(get_ai_client(settings.AI_MODEL_CATEGORY or None)),
         "decision": DecisionAnalyzer(get_ai_client()),
         "schedule": ScheduleAnalyzer(get_ai_client()),
+        # ⚠️ 과업은 **요약과 같은 모델**을 쓴다. 어댑터 하나(sumfeat-v1)가 두
+        #   태스크를 배웠고 프롬프트로 구분된다. 따로 두면 VRAM 8GB 에 3.3GB
+        #   짜리가 셋이 되어 호출마다 모델을 바꿔 싣게 된다.
+        "features": FeaturesAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
     }
     return registry
 
