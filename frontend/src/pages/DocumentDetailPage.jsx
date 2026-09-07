@@ -27,7 +27,7 @@ import '../styles/document-detail-page.css'
 import '../styles/document-detail-updates.css'
 
 const TABS = [['content', '문서 내용'], ['review', 'OCR 검수'], ['analysis', '분석 결과'], ['history', '변경 이력']]
-const ANALYZER_LABELS = { summary: '요약', category: '문서 분류', decision: '결정사항', schedule: '일정', action_task: '액션 태스크' }
+const ANALYZER_LABELS = { summary: '요약', category: '문서 분류', decision: '결정사항', schedule: '일정', action_task: '액션 태스크', amount: '금액' }
 
 function getDocumentListUrl(projectId, candidate) {
   const fallback = `/projects/${projectId}/documents`
@@ -78,7 +78,10 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'schedule-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents', documentId, 'task-suggestion-review'] })
       queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] })
-      queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] })
+      for (const key of ['amount-pending', 'amount-summary', 'amount-items', 'amount-rejected', 'dashboard', 'deliverable-preview', 'deliverable-content']) {
+        queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), key] })
+      }
+      queryClient.invalidateQueries({ queryKey: ['portfolio-dashboard'] })
       if (previousJob.current === job.job_id) notify(job.status === 'PARTIAL' ? 'warning' : 'success', job.status === 'PARTIAL' ? '문서 일부 분석 완료' : '문서 분석 완료', job.status === 'PARTIAL' ? '일부 단계는 처리하지 못했지만 정상 결과는 저장했습니다.' : '분석 결과를 생성했습니다.')
     }
     previousJob.current = ['PENDING', 'RUNNING'].includes(job?.status) ? job.job_id : null
@@ -86,6 +89,9 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
   const analyzeMutation = useMutation({ mutationFn: () => startDocumentAnalysis(projectId, documentId),
     onSuccess: data => { queryClient.setQueryData(jobKey, data); notify('success', '문서 분석 접수', '화면을 닫아도 분석은 계속됩니다.') },
     onError: error => notify('error', '문서 분석 실패', error.message) })
+  const amountAnalyzeMutation = useMutation({ mutationFn: () => startDocumentAnalysis(projectId, documentId, ['amount']),
+    onSuccess: data => { queryClient.setQueryData(jobKey, data); notify('success', '금액 추출 접수', '화면을 닫아도 금액 추출은 계속됩니다.') },
+    onError: error => notify('error', '금액 추출 실패', error.message) })
   const deleteMutation = useMutation({ mutationFn: () => deleteDocument(projectId, documentId), onSuccess: () => { queryClient.removeQueries({ queryKey: documentKey }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'documents'] }); queryClient.invalidateQueries({ queryKey: ['projects', Number(projectId), 'dashboard'] }); notify('success', '문서 삭제 완료', `${document.filename} 문서를 삭제했습니다.`); navigate(documentListUrl, { replace: true }) }, onError: error => notify('error', '문서 삭제 실패', error.message) })
   const downloadMutation = useMutation({ mutationFn: () => downloadDocumentSource(projectId, documentId, document.filename), onError: error => notify('error', '원본 다운로드 실패', error.message) })
   const summaryDownloadMutation = useMutation({ mutationFn: () => downloadSummary(projectId, documentId, `${document.filename.replace(/\.[^.]+$/, '')}_요약.txt`), onSuccess: () => notify('success', '분석 결과 다운로드 완료', '최신 요약과 분류 결과를 저장했습니다.'), onError: error => notify('error', '분석 결과 다운로드 실패', error.message) })
@@ -121,7 +127,7 @@ export default function DocumentDetailPage({ user, onLogout, notify }) {
         {activeTab === 'content' && <DocumentContentTab document={document}/>}
         {activeTab === 'review' && <DocumentReviewTab document={document} onOpenReview={() => navigate(`/projects/${projectId}/documents/${documentId}/review`, { state: { documentListUrl } })}/>}
         {activeTab === 'analysis' && <div className="document-analysis-layout">
-          <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
+          <DocumentAnalysisTab document={document} canAnalyze={canEdit} analyzing={analyzeMutation.isPending || amountAnalyzeMutation.isPending || analysisRunning} onAnalyze={() => analyzeMutation.mutate()} onAnalyzeAmount={() => amountAnalyzeMutation.mutate()} hasAmountAnalysis={(document.analyses ?? []).some(analysis => analysis.analyzer_type === 'amount')} downloading={summaryDownloadMutation.isPending} onDownload={() => summaryDownloadMutation.mutate()}/>
           <div><AnalysisSidePanels projectId={projectId} documentId={documentId} canEdit={canEdit} notify={notify}/></div>
         </div>}
         {activeTab === 'history' && <DocumentHistoryTab projectId={projectId} document={document}/>}

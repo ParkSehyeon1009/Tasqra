@@ -45,7 +45,7 @@ export default function PortfolioDashboard({ user, projects, invitations, onCrea
     total.openTasks += data?.open_tasks ?? 0
     total.failed += data?.documents?.failed ?? 0
     total.review += data?.review_pending ?? 0
-    total.amounts += data?.pending_amount_items ?? 0
+    if (row.project.role !== 'VIEWER') total.amounts += data?.pending_amount_items ?? 0
     total.completed += data?.documents?.completed ?? 0
     total.extracted += data?.documents?.extracted ?? 0
     total.processing += data?.documents?.processing ?? 0
@@ -129,11 +129,12 @@ function ProjectRow({ project, dashboard, marker, onOpen }) {
 
 function AttentionCard({ invitations, rows, onOpen }) {
   const definitions = [
-    ['OCR 검수', data => data?.review_pending ?? 0, 'documents', '?document_state=REVIEW_REQUIRED'],
-    ['금액 승인', data => data?.pending_amount_items ?? 0, 'amounts', ''],
-    ['처리 실패', data => data?.documents?.failed ?? 0, 'documents', '?document_state=FAILED'],
+    ['OCR 검수', data => data?.review_pending ?? 0, 'documents', '?document_state=REVIEW_REQUIRED', () => true],
+    ['금액 승인', data => data?.pending_amount_items ?? 0, 'amounts', '', project => project.role !== 'VIEWER'],
+    ['처리 실패', data => data?.documents?.failed ?? 0, 'documents', '?document_state=FAILED', () => true],
   ]
   const items = rows.flatMap(({ project, dashboard }) => definitions
+    .filter(([, , , , isVisible]) => isVisible(project))
     .map(([label, countOf, tab, query]) => ({ project, label, count:countOf(dashboard), tab, query }))
     .filter(item => item.count > 0))
     .sort((a,b) => b.count - a.count || a.project.name.localeCompare(b.project.name, 'ko'))

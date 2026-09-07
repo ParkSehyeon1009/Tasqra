@@ -29,7 +29,7 @@ import { getDocumentTypeLabel, isSupportedDocumentTypeFilter, UNCLASSIFIED_DOCUM
 import { formatDateShort, formatNumber } from '../../utils/format'
 import ActionTaskPanel from './ActionTaskPanel'
 
-export default function DashboardView({ projectId, documents }) {
+export default function DashboardView({ projectId, documents, canEdit }) {
   const navigate = useNavigate()
   const dashboardQuery = useQuery({
     queryKey: ['projects', projectId, 'dashboard'],
@@ -60,7 +60,7 @@ export default function DashboardView({ projectId, documents }) {
   const needsReview = documents.filter(document => ['PENDING', 'IN_PROGRESS'].includes(document.review_status))
   const reviewPending = data ? data.review_pending : needsReview.length
   const attentionTasks = (tasksQuery.data ?? []).filter(task => task.status !== 'DONE' && isDueSoon(task.due_on)).length
-  const attentionTotal = (counts?.failed ?? 0) + (reviewPending ?? 0) + (data?.pending_amount_items ?? 0) + attentionTasks
+  const attentionTotal = (counts?.failed ?? 0) + (reviewPending ?? 0) + (canEdit ? data?.pending_amount_items ?? 0 : 0) + attentionTasks
 
   return <>
     <PageHeading eyebrow='PROJECT OVERVIEW' title='대시보드' description='지금 확인할 문서와 우선 처리할 액션 태스크를 확인하세요.'/>
@@ -84,7 +84,7 @@ export default function DashboardView({ projectId, documents }) {
         <div className='dashboard-attention-summary'>
           <AttentionRow kind='문서' title='처리 실패' description='원인을 확인하고 문서를 다시 처리합니다.' count={counts?.failed} action='확인하기' onOpen={goDocuments}/>
           <AttentionRow kind='문서' title='OCR 검수' description='검수 후 최종 본문에 반영됩니다.' count={reviewPending} action='검수하기' onOpen={goDocuments}/>
-          <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기' onOpen={goAmounts}/>
+          {canEdit && <AttentionRow kind='금액' title='승인 대기' description='승인 전에는 산출물에 반영되지 않습니다.' count={data?.pending_amount_items} action='검토하기' onOpen={goAmounts}/>}
           <AttentionRow kind='태스크' title='마감 임박' description='7일 이내 마감되는 열린 태스크입니다.' count={attentionTasks} action='보드 보기' onOpen={() => navigate(`/projects/${projectId}/board`)}/>
         </div>
       </section>
