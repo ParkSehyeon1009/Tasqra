@@ -301,41 +301,61 @@ def _content_service(*, documents=1, rows=None, ai_client=None):
     repo.list_decisions.return_value = rows.get("decisions", [])
     repo.list_schedule_items.return_value = rows.get("schedule_items", [])
     repo.list_amount_items.return_value = rows.get("amount_items", [])
+    repo.get_project_overview.return_value = SimpleNamespace(
+        name="테스트 프로젝트",
+        started_on=date(2026, 8, 1),
+        due_on=date(2026, 12, 31),
+        owner=SimpleNamespace(name="프로젝트 책임자"),
+    )
+    repo.count_task_progress.return_value = (0, 0)
+    repo.count_overdue_tasks.return_value = 0
+    repo.list_recent_completed_tasks.return_value = []
+    repo.list_overdue_tasks.return_value = []
+    repo.list_milestones.return_value = []
+    repo.list_upcoming_tasks.return_value = []
+    repo.list_upcoming_schedule_items.return_value = []
     return DeliverableService(repo, None, ai_client), repo
 
 
 def _content(service, **kwargs):
-    """preview_content 는 async(개요 LLM)라 asyncio.run 으로 부른다."""
+    """프로젝트 현황 본문 미리보기는 async API라 asyncio.run으로 부른다."""
     return asyncio.run(
         service.preview_content(1, kind="PROJECT_STATUS", deliverable_format="MD", **kwargs)
     )
 
 
-def test_preview_content_fills_overview_with_one_llm_call():
-    ai = _FakeAI(text='{"summary": "문서 1건이 반영된 현황입니다."}')
+def test_preview_content_builds_structured_status_without_llm_call():
+    ai = _FakeAI(text='{"summary": "사용하면 안 되는 LLM 개요"}')
     service, _ = _content_service(ai_client=ai)
     out = _content(service)
 
-    assert ai.calls == 1  # 만들기와 같은 "개요 1회"
-    assert "## 개요" in out.body
-    assert "문서 1건이 반영된 현황입니다." in out.body
-    assert "아직" not in out.body  # 미연결 안내 문구가 아니다
-    assert "과업지시서.pdf" in out.body  # 표는 실제 자료
+    assert ai.calls == 0
+    for title in (
+        "프로젝트 기본 정보",
+        "진행 상태 요약",
+        "주요 성과",
+        "이슈 및 리스크",
+        "향후 계획",
+    ):
+        assert f"## {title}" in out.body
+    assert "사용하면 안 되는 LLM 개요" not in out.body
+    assert "테스트 프로젝트" in out.body
+    assert "과업지시서.pdf" in out.body
 
 
-def test_preview_content_uses_placeholder_without_llm():
-    """LLM 이 없으면 미리보기도 개요를 지어내지 않는다(만들기와 같은 판단)."""
+def test_preview_content_is_structured_without_ai_client():
     service, _ = _content_service(ai_client=None)
     out = _content(service)
-    assert "## 개요" in out.body
-    assert "아직" in out.body
+    assert "## 프로젝트 기본 정보" in out.body
+    assert "## 개요" not in out.body
+    assert "아직" not in out.body
 
 
-def test_preview_content_blocks_when_nothing_to_include():
-    """담을 것이 없으면 미리보기도 막는다 — 개요 LLM 을 부르기 전에 막힌다."""
+def test_preview_content_allows_project_basics_without_other_materials():
+    """현황은 문서·완료 작업이 없어도 프로젝트 기본정보로 만들 수 있다."""
     ai = _FakeAI()
     service, _ = _content_service(documents=0, rows={"documents": []}, ai_client=ai)
-    with pytest.raises(BusinessError) as err:
-        _content(service)
-    assert err.value.error_code is ErrorCode.DELIVERABLE_EMPTY
-    assert ai.calls == 0  # 막힌 뒤엔 헛 호출을 하지 않는다
+    out = _content(service)
+    assert "테스트 프로젝트" in out.body
+    assert "## 프로젝트 기본 정보" in out.body
+    assert ai.calls == 0

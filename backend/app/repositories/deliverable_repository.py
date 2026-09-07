@@ -28,13 +28,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.amount import AmountItem
 from app.models.decision import Decision
 from app.models.deliverable import Deliverable
 from app.models.document import Document
+from app.models.project import Project
 from app.models.schedule import ScheduleItem
 from app.models.task import Task
 
@@ -49,6 +50,155 @@ __all__ = ["DeliverableRepository"]
 class DeliverableRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
+
+    # --- 프로젝트 현황 개요 -------------------------------------------------
+
+    def get_project_overview(self, project_id: int) -> Project | None:
+        """프로젝트 기본 정보와 책임자(owner)를 한 번에 읽는다.
+
+        프로젝트 현황의 이름·기간·책임자는 LLM이 요약할 값이 아니라 DB 원값이다.
+        Spring/JPA의 `join fetch project.owner`와 같은 조회다.
+        """
+        stmt = (
+            select(Project)
+            .options(joinedload(Project.owner))
+            .where(Project.id == project_id)
+        )
+        return self._db.execute(stmt).unique().scalar_one_or_none()
+
+    def count_task_progress(self, project_id: int) -> tuple[int, int]:
+        """전체 태스크와 완료 태스크 수를 돌려준다.
+
+        업무 완료율은 이 두 수로 서비스가 계산한다. 태스크별 가중치나 계획 기준선이
+        없으므로 이 값을 프로젝트 공정률이라고 부르지 않는다.
+        """
+        total_stmt = select(func.count()).select_from(Task).where(
+            Task.project_id == project_id
+        )
+        done_stmt = select(func.count()).select_from(Task).where(
+            Task.project_id == project_id,
+            Task.status == "DONE",
+        )
+        total = int(self._db.execute(total_stmt).scalar() or 0)
+        done = int(self._db.execute(done_stmt).scalar() or 0)
+        return total, done
+
+    def list_recent_completed_tasks(
+        self, project_id: int, *, limit: int = 5
+    ) -> list[Task]:
+        """주요 성과에 넣을 최근 완료 작업을 완료일 역순으로 읽는다."""
+        stmt = (
+            select(Task)
+            .options(joinedload(Task.assignee))
+            .where(Task.project_id == project_id, Task.status == "DONE")
+            .order_by(Task.completed_at.desc().nullslast(), Task.id.desc())
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).unique().scalars())
+
+    def count_overdue_tasks(self, project_id: int, *, as_of: date) -> int:
+        """기준일 전에 기한이 지났지만 완료되지 않은 태스크 수."""
+        stmt = select(func.count()).select_from(Task).where(
+            Task.project_id == project_id,
+            Task.status != "DONE",
+            Task.due_on.is_not(None),
+            Task.due_on < as_of,
+        )
+        return int(self._db.execute(stmt).scalar() or 0)
+
+    def list_overdue_tasks(
+        self, project_id: int, *, as_of: date, limit: int = 200
+    ) -> list[Task]:
+        """기준일 전에 기한이 지났지만 완료되지 않은 태스크를 읽는다."""
+        stmt = (
+            select(Task)
+            .options(joinedload(Task.assignee))
+            .where(
+                Task.project_id == project_id,
+                Task.status != "DONE",
+                Task.due_on.is_not(None),
+                Task.due_on < as_of,
+            )
+            .order_by(Task.due_on, Task.id)
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).unique().scalars())
+
+    def list_upcoming_tasks(
+        self,
+        project_id: int,
+        *,
+        since: date,
+        until: date,
+        limit: int = 200,
+    ) -> list[Task]:
+        """향후 계획에 넣을 미완료 태스크를 기한 범위로 읽는다."""
+        stmt = (
+            select(Task)
+            .options(joinedload(Task.assignee))
+            .where(
+                Task.project_id == project_id,
+                Task.status != "DONE",
+                Task.due_on.is_not(None),
+                Task.due_on >= since,
+                Task.due_on <= until,
+            )
+            .order_by(Task.due_on, Task.id)
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).unique().scalars())
+
+    def list_milestones(
+        self, project_id: int, *, as_of: date, limit: int = 200
+    ) -> list[ScheduleItem]:
+        """기준일까지 도달한 승인 마일스톤을 읽는다.
+
+        일정 모델에는 달성 여부가 없으므로 날짜만 반환하고 달성으로 추정하지 않는다.
+        미래 마일스톤은 향후 계획에서만 보여 중복하지 않는다.
+        """
+        stmt = (
+            select(ScheduleItem)
+            .where(
+                ScheduleItem.project_id == project_id,
+                ScheduleItem.decision.in_(APPROVED_DECISIONS),
+                ScheduleItem.kind == "MILESTONE",
+                ScheduleItem.starts_on.is_not(None),
+                ScheduleItem.starts_on <= as_of,
+            )
+            .order_by(ScheduleItem.starts_on.desc().nullslast(), ScheduleItem.id.desc())
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars())
+
+    def list_upcoming_schedule_items(
+        self,
+        project_id: int,
+        *,
+        since: date,
+        until: date,
+        limit: int = 200,
+    ) -> list[ScheduleItem]:
+        """향후 계획 기간에 기한이 오는 승인 일정을 읽는다."""
+        due_on = case(
+            (
+                ScheduleItem.kind.in_(("MILESTONE", "MEETING")),
+                ScheduleItem.starts_on,
+            ),
+            else_=func.coalesce(ScheduleItem.ends_on, ScheduleItem.starts_on),
+        )
+        stmt = (
+            select(ScheduleItem)
+            .where(
+                ScheduleItem.project_id == project_id,
+                ScheduleItem.decision.in_(APPROVED_DECISIONS),
+                due_on.is_not(None),
+                due_on >= since,
+                due_on <= until,
+            )
+            .order_by(due_on, ScheduleItem.id)
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars())
 
     # --- 문서 ---------------------------------------------------------------
 

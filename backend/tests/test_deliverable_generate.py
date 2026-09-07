@@ -117,12 +117,10 @@ def _read(row) -> str:
 
 
 def _gen(service, **kwargs):
-    """`generate` 는 async 다(개요 LLM 호출 때문). 이 파일은 DB 없이 도는 단위
-    테스트라 asyncio.run 으로 직접 부른다 — test_error_response_format.py 가 async
-    핸들러를 부르는 방식과 같다. project_id 는 이 파일에서 늘 1 이다.
+    """`generate`는 async라 DB 없는 단위 테스트에서 asyncio.run으로 직접 부른다.
 
-    `_service()` 는 ai_client 를 주지 않으므로 개요는 SUMMARY_PLACEHOLDER 로 남는다
-    (LLM 을 부르지 않는다). 개요 LLM 경로는 test_overview_* 에서 따로 검증한다.
+    project_id는 이 파일에서 늘 1이다. 주간 보고서는 실제 DB 자료로 요약하므로
+    AI 클라이언트를 주입해도 호출하지 않는다.
     """
     return asyncio.run(service.generate(1, **kwargs))
 
@@ -248,125 +246,78 @@ def test_body_contains_real_rows():
     # 제목과 기간이 머리에 있다.
     assert body.startswith("# 주간 보고서 2026-08-14 ~ 2026-08-20")
     assert "2026-08-14 ~ 2026-08-20" in body
+    # 개요 대신 실제 자료만 모은 주간 요약 표를 둔다.
+    assert "## 주간 요약" in body
+    assert "## 개요" not in body
+    assert "| 실적 | 문서 1건 등록 · 태스크 1건 완료 |" in body
+    assert "| 결정 | 이관 범위 확정 |" in body
+    assert "| 일정 | 2026-08-20 착수 보고 |" in body
+    assert "| 금액 | 승인 금액 항목 1건 · 단순 합계 6,000,000원 |" in body
 
 
-def test_body_marks_summary_as_not_written_without_llm():
-    """LLM 이 없으면 개요를 지어내지 않고 비었다고 적는다(SUMMARY_PLACEHOLDER)."""
+def test_weekly_summary_has_only_rows_with_actual_materials():
     service, _ = _service(documents=1, rows={"documents": [_document()]})
     body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
-    assert "## 개요" in body
-    assert "아직" in body
+    summary = body.split("## 주간 요약", 1)[1].split("## 문서", 1)[0]
+
+    assert "| 실적 | 문서 1건 등록 |" in summary
+    assert "| 결정 |" not in summary
+    assert "| 일정 |" not in summary
+    assert "| 금액 |" not in summary
 
 
-# --- 개요(LLM 1회) DLV-002-1·DLV-002-2 --------------------------------------
-
-
-class _FakeAI:
-    """개요 LLM 경로를 검증하기 위한 최소 클라이언트.
-
-    실제 어댑터(fake_client·local_client)와 같은 계약(generate_with_meta)만
-    만족시킨다. 호출 횟수를 세어 "LLM 호출은 개요 1회" 를 검사한다.
-    """
-
-    provider = "fake"
-
-    def __init__(self, *, text='{"summary": "이번 주 핵심 개요입니다."}', fail=False):
-        self._text = text
-        self._fail = fail
-        self.calls = 0
-        self.prompts: list[str] = []
-
-    async def generate(self, prompt: str) -> str:  # 계약상 존재해야 한다
-        result = await self.generate_with_meta(prompt)
-        return result.text
-
-    async def generate_with_meta(self, prompt: str):
-        from app.ai.client_protocol import AIResult
-
-        self.calls += 1
-        self.prompts.append(prompt)
-        if self._fail:
-            raise RuntimeError("provider down")
-        return AIResult(text=self._text, model_name="fake-model")
-
-
-def test_overview_is_filled_by_one_llm_call():
-    """개요를 LLM 1회 호출로 채운다 — 완료 판정 "LLM 호출은 개요 1회"."""
-    ai = _FakeAI(text='{"summary": "문서 1건과 결정 1건이 반영됐습니다."}')
+def test_weekly_summary_limits_names_and_keeps_remaining_counts():
+    decisions = [_decision(f"결정 {number}") for number in range(1, 4)]
+    schedules = [_schedule(f"일정 {number}") for number in range(1, 4)]
+    amounts = [_amount(f"금액 {number}", amount=number * 1_000) for number in range(1, 4)]
     service, _ = _service(
-        documents=1, decisions=1,
-        rows={"documents": [_document("과업지시서.pdf")], "decisions": [_decision()]},
+        decisions=3,
+        schedules=3,
+        amounts=3,
+        rows={
+            "decisions": decisions,
+            "schedule_items": schedules,
+            "amount_items": amounts,
+        },
+    )
+    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+    summary = body.split("## 주간 요약", 1)[1].split("## 문서", 1)[0]
+
+    assert "결정 1 · 결정 2 · 외 1건" in summary
+    assert "결정 3" not in summary
+    assert "2026-08-20 일정 1 · 2026-08-20 일정 2 · 외 1건" in summary
+    assert "일정 3" not in summary
+    assert "승인 금액 항목 3건 · 단순 합계 6,000원" in summary
+
+
+def test_weekly_summary_does_not_call_ai():
+    ai = _FakeAI()
+    service, _ = _service(
+        documents=1,
+        rows={"documents": [_document("과업지시서.pdf")]},
         ai_client=ai,
     )
     body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
 
-    assert ai.calls == 1  # 정확히 한 번
-    assert "문서 1건과 결정 1건이 반영됐습니다." in body
-    # 개요가 채워졌으므로 미연결 안내 문구(SUMMARY_PLACEHOLDER)는 없다.
-    assert "아직" not in body
-    # 표는 여전히 실제 자료다.
+    assert ai.calls == 0
+    assert "## 주간 요약" in body
     assert "과업지시서.pdf" in body
 
 
-def test_overview_llm_not_called_for_kinds_without_overview():
-    """결정 대장·회의 안건에는 개요 절이 없다. 헛 호출을 하지 않는다."""
-    ai = _FakeAI()
-    service, _ = _service(decisions=2, rows={"decisions": [_decision()]}, ai_client=ai)
-    _gen(service, kind="DECISION_LOG", deliverable_format="MD", **WEEK)
-    assert ai.calls == 0
+# --- 주간 요약은 LLM을 호출하지 않는다 --------------------------------------
 
 
-def test_overview_falls_back_to_placeholder_when_llm_fails():
-    """개요 하나 때문에 보고서 전체를 막지 않는다. 실패하면 안내 문구로 되돌아간다."""
-    ai = _FakeAI(fail=True)
-    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
-    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
+class _FakeAI:
+    """호출되면 횟수를 남기는 최소 AI 클라이언트."""
 
-    assert ai.calls == 1
-    assert "## 개요" in body
-    assert "아직" in body  # SUMMARY_PLACEHOLDER 로 되돌아간다
-    # 표는 정상적으로 만들어진다(제목이 머리에 있다).
-    assert body.startswith("# 주간 보고서")
+    provider = "fake"
 
+    def __init__(self):
+        self.calls = 0
 
-def test_overview_uses_placeholder_when_json_broken():
-    """JSON 검증 실패 시 원문 응답을 노출하지 않고 표 생성을 계속한다."""
-    ai = _FakeAI(text="그냥 평문 개요입니다")
-    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
-    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
-    assert "그냥 평문 개요입니다" not in body
-    assert "아직" in body
-
-
-@pytest.mark.parametrize("text", ['{"summary":null}', '{"summary":[]}', '{"summary":42}', '{"summary":" "}', '{"summary":"' + '가' * 251 + '"}'])
-def test_overview_invalid_values_do_not_break_artifact(text):
-    ai = _FakeAI(text=text)
-    service, _ = _service(documents=1, rows={"documents": [_document()]}, ai_client=ai)
-    body = _read(_gen(service, kind="WEEKLY_REPORT", deliverable_format="MD", **WEEK))
-    assert "아직" in body
-    assert "계약서.pdf" in body
-
-
-def test_overview_compacts_names_without_cutting_counts(monkeypatch):
-    import json
-    from app.core.config import settings
-    from app.analyzers.prompt_input import byte_size
-    from app.analyzers.prompts import build_deliverable_overview_prompt
-
-    materials = DeliverableMaterials(documents=[_document("매우긴파일명" * 30) for _ in range(5)],
-        amount_items=[_amount()])
-    digest = DeliverableService._overview_digest("제목", None, None, materials, include_names=False)
-    compact = build_deliverable_overview_prompt(digest, representative_names_omitted=True)
-    monkeypatch.setattr(settings, "AI_CONTEXT_TOKENS", byte_size(compact.system) + byte_size(compact.user) + settings.AI_MAX_OUTPUT_TOKENS + 256 + 10)
-    ai = _FakeAI()
-    service, _ = _service(ai_client=ai)
-    result = asyncio.run(service._overview("PROJECT_STATUS", "제목", None, None, materials))
-    assert result == "이번 주 핵심 개요입니다."
-    assert ai.calls == 1
-    data = json.loads(ai.prompts[0].user)
-    assert data["representative_names_omitted"] is True
-    assert "문서 5건" in data["materials"]
-    assert "6,000,000원" in data["materials"]
+    async def generate_with_meta(self, _prompt):
+        self.calls += 1
+        raise AssertionError("주간 보고서 생성 중 AI를 호출하면 안 됩니다.")
 
 
 def test_empty_section_says_so_instead_of_empty_table():
