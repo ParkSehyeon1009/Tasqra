@@ -108,5 +108,20 @@
 .document-review-action { min-width: 96px; }
 .document-state-note { grid-column: 1 / -1; margin: -4px 0 0 48px; color: #65748a; font-size: 12px; }
 .processing-document p { margin: 4px 0 0; color: #66748a; }
+
+/* 문서 목록 페이지 이동 — 20건을 넘으면 목록 아래에 붙는다 */
+.document-pager { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; padding: 14px 16px; border-top: 1px solid #e2e8f1; }
+.document-pager-step { min-height: 34px; padding: 0 12px; border: 1px solid #d9e0eb; border-radius: 8px; background: #fff; color: #4a5768; cursor: pointer; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.document-pager-step:hover:not(:disabled) { border-color: #b9c4d4; color: #2f3b4c; }
+.document-pager-step:disabled { color: #a6afbd; cursor: default; }
+.document-pager-numbers { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.document-pager-number { min-width: 34px; min-height: 34px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #59677a; cursor: pointer; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.document-pager-number:hover { border-color: #d9e0eb; background: #f4f6f9; color: #2f3b4c; }
+.document-pager-number.is-current { border-color: #5148c8; background: #5148c8; color: #fff; }
+.document-pager-gap { display: inline-block; padding: 0 2px; color: #a6afbd; }
+/* 건수 안내는 흐름에서 빼 오른쪽에 띄운다. 흐름에 두면 그 너비만큼
+   버튼 묶음이 왼쪽으로 밀려 가운데가 아니게 된다. */
+.document-pager-summary { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); color: #758197; font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .document-pager-summary { position: static; width: 100%; margin-top: 2px; transform: none; text-align: center; } }
 @media (max-width: 900px) { .document-list .document-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; } .document-state-stack { grid-column: 1; grid-row: 2; grid-auto-flow: column; justify-items: start; } .document-secondary-meta { grid-column: 1; grid-row: 3; grid-auto-flow: column; align-items: center; } .document-actions { grid-column: 2; grid-row: 1 / span 3; } .document-state-note { grid-column: 1 / -1; margin-left: 0; } }
 @media (max-width: 560px) { .document-filter-bar { align-items: stretch; flex-direction: column; padding: 12px 13px; } .document-filter-bar select { width: 100%; min-width: 0; } .document-filter-bar > button { width: 100%; } .document-row { padding: 13px; } .document-state-stack { grid-auto-flow: row; } .document-secondary-meta { grid-auto-flow: row; gap: 4px; } .document-open { align-self: end; } }

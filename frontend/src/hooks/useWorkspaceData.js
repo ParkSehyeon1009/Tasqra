@@ -5,22 +5,27 @@
 // Spring 비교: 여러 Application Service 호출을 화면 단위로 조합하는 Facade에 가깝다.
 // =============================================================================
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cancelProjectInvitation, inviteMember, listMembers, listProjectInvitations, removeMember, updateMember, updateProject, uploadProjectDocument } from '../api/project'
 import { listDocuments, retryDocumentProcessing } from '../api/document'
 
 const FALLBACK_ERROR = '요청 처리 중 오류가 발생했습니다.'
 
-export function useWorkspaceData(project, notify, { documentType = '', documentState = '' } = {}) {
+export function useWorkspaceData(project, notify, { documentType = '', documentState = '', documentsPage = 1 } = {}) {
   const queryClient = useQueryClient()
   const membersKey = ['projects', project.id, 'members']
   const documentsPrefix = ['projects', project.id, 'documents']
-  const documentsKey = [...documentsPrefix, documentType || 'all', documentState || 'all']
+  // 페이지도 캐시 키에 넣는다. 빼면 2페이지 응답이 1페이지 자리를 덮어써서
+  // 뒤로 갔을 때 엉뚱한 목록이 남는다.
+  const documentsKey = [...documentsPrefix, documentType || 'all', documentState || 'all', documentsPage]
   const invitationsKey = ['projects', project.id, 'invitations']
   const membersQuery = useQuery({ queryKey: membersKey, queryFn: () => listMembers(project.id) })
   const documentsQuery = useQuery({
     queryKey: documentsKey,
-    queryFn: () => listDocuments(project.id, { documentType, documentState }),
+    queryFn: () => listDocuments(project.id, { documentType, documentState, page: documentsPage }),
+    // 페이지를 넘기는 동안 이전 목록을 남겨 둔다. 없으면 빈 화면이 한 번 깜빡이며
+    // "등록된 문서가 없습니다" 안내가 스쳐 지나간다.
+    placeholderData: keepPreviousData,
     refetchInterval: query => query.state.data?.items?.some(item => ['PENDING', 'EXTRACTING'].includes(item.status)) ? 3_000 : false,
   })
   const invitationsQuery = useQuery({ queryKey: invitationsKey, queryFn: () => listProjectInvitations(project.id), enabled: project.role === 'OWNER' })
@@ -101,7 +106,7 @@ export function useWorkspaceData(project, notify, { documentType = '', documentS
   }
 
   return {
-    members: membersQuery.data ?? [], documents: documentsQuery.data?.items ?? [], documentsTotal: documentsQuery.data?.total ?? 0, invitations: invitationsQuery.data ?? [],
+    members: membersQuery.data ?? [], documents: documentsQuery.data?.items ?? [], documentsTotal: documentsQuery.data?.total ?? 0, documentsPage: documentsQuery.data?.page ?? documentsPage, documentsTotalPages: documentsQuery.data?.total_pages ?? 0, invitations: invitationsQuery.data ?? [],
     loading: membersQuery.isPending || documentsQuery.isPending,
     error: membersQuery.error || documentsQuery.error,
     invite, cancelInvitation: invitation => cancelInvitationMutation.mutate(invitation),

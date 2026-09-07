@@ -18,7 +18,7 @@ import './DocumentReviewBadge.css'
 
 const DOCUMENT_STATE_FILTERS = [['PROCESSING', '처리 중'], ['REVIEW_REQUIRED', '검수 필요'], ['COMPLETED', '완료'], ['FAILED', '실패']]
 
-export default function DocumentsView({ projectId, documents, documentsTotal, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearFilters, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
+export default function DocumentsView({ projectId, documents, documentsTotal, documentsPage, documentsTotalPages, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearFilters, onPageChange, canEdit, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onRetry, retryingDocumentId }) {
   const [dragging, setDragging] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -68,11 +68,18 @@ export default function DocumentsView({ projectId, documents, documentsTotal, do
         {hasFilter && <button type='button' onClick={onClearFilters}>필터 해제</button>}
       </div>
       {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onRetry={onRetryUpload} onClear={onClearUploadQueue}/>}
+      {/* 목록이 비었을 때는 세 갈래다. 전체 건수가 0보다 큰데 이 페이지만 비었다면
+          범위 밖 페이지다 — 주소에 ?page=9를 직접 넣었거나, 보고 있는 사이 문서가
+          지워져 분량이 줄어든 경우. 여기서 "등록된 문서가 없습니다"를 띄우면
+          머리말에 적힌 건수와 정면으로 어긋난다. */}
       {documents.length
         ? <DocumentList documents={documents} canEdit={canEdit} onOpen={openDocument} onPrimaryAction={openPrimaryAction} onRetry={onRetry} retryingDocumentId={retryingDocumentId}/>
-        : hasFilter
-          ? <EmptyFilteredDocuments label={[selectedTypeLabel, selectedStateLabel].filter(Boolean).join(' / ')} onClear={onClearFilters}/>
-          : !uploadQueue.some(item => ['QUEUED', 'UPLOADING'].includes(item.status)) && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+        : documentsTotal > 0
+          ? <EmptyDocumentPage onFirstPage={() => onPageChange(1)}/>
+          : hasFilter
+            ? <EmptyFilteredDocuments label={[selectedTypeLabel, selectedStateLabel].filter(Boolean).join(' / ')} onClear={onClearFilters}/>
+            : !uploadQueue.some(item => ['QUEUED', 'UPLOADING'].includes(item.status)) && <EmptyDocuments onUpload={onUpload} canEdit={canEdit}/>}
+      {documentsTotalPages > 1 && <DocumentPager page={documentsPage} totalPages={documentsTotalPages} total={documentsTotal} onChange={onPageChange}/>}
     </section>
   </>
 }
@@ -98,6 +105,29 @@ function DocumentList({ documents, canEdit, onOpen, onPrimaryAction, onRetry, re
       {(processing || document.status === 'FAILED') && <p className='document-state-note' role='status'>{document.processing_error || documentStatus.description}</p>}
     </li>
   })}</ul>
+}
+
+// 페이지가 많아도 번호 버튼은 최대 7개만 그린다. 현재 위치를 가운데 두고 창을 민다.
+function pageWindow(page, totalPages, span = 7) {
+  if (totalPages <= span) return Array.from({ length: totalPages }, (_, index) => index + 1)
+  const start = Math.min(Math.max(page - Math.floor(span / 2), 1), totalPages - span + 1)
+  return Array.from({ length: span }, (_, index) => start + index)
+}
+
+function DocumentPager({ page, totalPages, total, onChange }) {
+  const pages = pageWindow(page, totalPages)
+  return <nav className='document-pager' aria-label='문서 목록 페이지'>
+    <button type='button' className='document-pager-step' disabled={page <= 1} onClick={() => onChange(page - 1)}>← 이전</button>
+    <ol className='document-pager-numbers'>
+      {pages[0] > 1 && <li><span className='document-pager-gap' aria-hidden='true'>…</span></li>}
+      {pages.map(number => <li key={number}>
+        <button type='button' className={'document-pager-number' + (number === page ? ' is-current' : '')} aria-current={number === page ? 'page' : undefined} onClick={() => onChange(number)}>{number}</button>
+      </li>)}
+      {pages[pages.length - 1] < totalPages && <li><span className='document-pager-gap' aria-hidden='true'>…</span></li>}
+    </ol>
+    <button type='button' className='document-pager-step' disabled={page >= totalPages} onClick={() => onChange(page + 1)}>다음 →</button>
+    <span className='document-pager-summary'>{page} / {totalPages} 페이지 · 전체 {formatNumber(total)}건</span>
+  </nav>
 }
 
 function StatusBadge({ label, description, tone }) {
@@ -131,6 +161,10 @@ function uploadState(status) {
 
 function EmptyDocuments({ onUpload, canEdit }) {
   return <div className='drop-zone'><b aria-hidden='true'>↑</b><h2>아직 등록된 문서가 없습니다.</h2><p>PDF, DOCX, HWPX, JPG 또는 PNG 파일을 업로드하면 처리와 검수 상태를 이곳에서 확인할 수 있습니다.</p>{canEdit && <button onClick={onUpload}>파일 선택</button>}</div>
+}
+
+function EmptyDocumentPage({ onFirstPage }) {
+  return <div className='document-filter-empty'><strong>이 페이지에는 문서가 없습니다.</strong><p>문서가 지워졌거나 주소의 페이지 번호가 범위를 벗어났습니다.</p><button type='button' onClick={onFirstPage}>첫 페이지로</button></div>
 }
 
 function EmptyFilteredDocuments({ label, onClear }) {

@@ -69,11 +69,17 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   const documentType = normalizeDocumentTypeFilter(searchParams.get('document_type'))
   const requestedDocumentState = searchParams.get('document_state') ?? ''
   const documentState = DOCUMENT_STATES.has(requestedDocumentState) ? requestedDocumentState : ''
+  // 페이지를 URL에 둔다. 목록에서 문서 상세로 들어갔다 돌아올 때 DocumentsView가
+  // location.search를 그대로 복원하므로, 여기 없으면 늘 1페이지로 떨어진다.
+  const requestedPage = Number.parseInt(searchParams.get('page') ?? '1', 10)
+  const documentsPage = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
   // 문서 탭에서만 query를 목록 조회에 적용한다. 다른 탭의 URL에 같은 query가
   // 붙어도 대시보드 OCR 미리보기까지 유형별로 좁아지면 안 된다.
   const activeDocumentType = tab === 'documents' ? documentType : ''
   const activeDocumentState = tab === 'documents' ? documentState : ''
-  const data = useWorkspaceData(project, notify, { documentType: activeDocumentType, documentState: activeDocumentState })
+  // 대시보드도 이 목록을 쓴다. 문서 탭이 아닐 때는 늘 1페이지여야 지금 동작이 그대로다.
+  const activeDocumentsPage = tab === 'documents' ? documentsPage : 1
+  const data = useWorkspaceData(project, notify, { documentType: activeDocumentType, documentState: activeDocumentState, documentsPage: activeDocumentsPage })
   const fileInputRef = useRef(null)
   const uploadSequenceRef = useRef(Promise.resolve())
   const scheduledUploadIdsRef = useRef(new Set())
@@ -141,22 +147,34 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
       navigate('/projects', { replace: true })
     } catch { /* 공통 토스트에서 처리 */ }
   }
+  // 필터가 바뀌면 페이지를 버린다. 3페이지에서 결과가 2건인 조건으로 좁히면
+  // 서버는 빈 목록을 주고 화면에는 "문서가 없습니다"만 남는다.
   function changeDocumentType(documentType) {
     const nextSearchParams = new URLSearchParams(searchParams)
     if (documentType) nextSearchParams.set('document_type', documentType)
     else nextSearchParams.delete('document_type')
+    nextSearchParams.delete('page')
     setSearchParams(nextSearchParams)
   }
   function changeDocumentState(documentState) {
     const nextSearchParams = new URLSearchParams(searchParams)
     if (documentState) nextSearchParams.set('document_state', documentState)
     else nextSearchParams.delete('document_state')
+    nextSearchParams.delete('page')
     setSearchParams(nextSearchParams)
   }
   function clearDocumentFilters() {
     const nextSearchParams = new URLSearchParams(searchParams)
     nextSearchParams.delete('document_type')
     nextSearchParams.delete('document_state')
+    nextSearchParams.delete('page')
+    setSearchParams(nextSearchParams)
+  }
+  function changeDocumentPage(page) {
+    const nextSearchParams = new URLSearchParams(searchParams)
+    // 1페이지는 URL에 남기지 않는다 — 기본값이라 주소만 지저분해진다.
+    if (page > 1) nextSearchParams.set('page', String(page))
+    else nextSearchParams.delete('page')
     setSearchParams(nextSearchParams)
   }
 
@@ -164,7 +182,7 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
     <div className="workspace-shell">
       <ProjectSidebar projects={projects} activeProjectId={project.id} activeTab={tab} onOpenPortfolio={() => navigate('/projects')} onSelect={selected => navigate(`/projects/${selected.id}/dashboard`)} onNavigateTab={key => navigate(`/projects/${project.id}/${key}`)} onCreate={() => setCreating(true)}/>
       <section className="workspace-content">
-        <main className="workspace-main">{waitsForWorkspaceData && data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} documentType={documentType} documentState={documentState} onDocumentTypeChange={changeDocumentType} onDocumentStateChange={changeDocumentState} onClearDocumentFilters={clearDocumentFilters} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
+        <main className="workspace-main">{waitsForWorkspaceData && data.loading ? <LoadingState label="프로젝트 데이터를 불러오는 중..."/> : <TabContent tab={tab} project={project} data={data} documentType={documentType} documentState={documentState} onDocumentTypeChange={changeDocumentType} onDocumentStateChange={changeDocumentState} onClearDocumentFilters={clearDocumentFilters} onDocumentPageChange={changeDocumentPage} canEdit={canEdit} notify={notify} onUpload={openUpload} onFileDrop={requestUpload} uploadQueue={uploadQueue.filter(item => item.projectId === project.id)} onRetryUpload={scheduleUpload} onClearUploadQueue={() => setUploadQueue(current => current.filter(item => item.projectId !== project.id || ['QUEUED', 'UPLOADING'].includes(item.status)))} onDeleteProject={deleteCurrentProject} deleting={deleteMutation.isPending}/>}</main>
       </section>
     </div>
     <ProjectCreateModal open={creating} recentInvitees={recentInvitees} pending={createMutation.isPending} onClose={() => setCreating(false)} onSubmit={createNewProject}/>
@@ -172,8 +190,8 @@ function WorkspaceContent({ project, projects, tab, navigate, notify, user, onLo
   </div>
 }
 
-function TabContent({ tab, project, data, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearDocumentFilters, canEdit, notify, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
-  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} documentsTotal={data.documentsTotal} documentType={documentType} documentState={documentState} onDocumentTypeChange={onDocumentTypeChange} onDocumentStateChange={onDocumentStateChange} onClearFilters={onClearDocumentFilters} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onRetryUpload={onRetryUpload} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
+function TabContent({ tab, project, data, documentType, documentState, onDocumentTypeChange, onDocumentStateChange, onClearDocumentFilters, onDocumentPageChange, canEdit, notify, onUpload, onFileDrop, uploadQueue, onRetryUpload, onClearUploadQueue, onDeleteProject, deleting }) {
+  if (tab === 'documents') return <DocumentsView projectId={project.id} documents={data.documents} documentsTotal={data.documentsTotal} documentsPage={data.documentsPage} documentsTotalPages={data.documentsTotalPages} documentType={documentType} documentState={documentState} onDocumentTypeChange={onDocumentTypeChange} onDocumentStateChange={onDocumentStateChange} onClearFilters={onClearDocumentFilters} onPageChange={onDocumentPageChange} canEdit={canEdit} onUpload={onUpload} onFileDrop={onFileDrop} uploadQueue={uploadQueue} onRetryUpload={onRetryUpload} onClearUploadQueue={onClearUploadQueue} onRetry={data.retryDocument} retryingDocumentId={data.retryingDocumentId}/>
   if (tab === 'settings') return <MembersView project={project} members={data.members} invitations={data.invitations} onUpdateProject={data.updateProject} updatingProject={data.updatingProject} onInvite={data.invite} onCancelInvitation={data.cancelInvitation} onRole={data.changeRole} onRemove={data.excludeMember} onDeleteProject={onDeleteProject} deleting={deleting}/>
   if (tab === 'dashboard') return <DashboardView projectId={project.id} documents={data.documents} members={data.members}/>
   // 검색은 워크스페이스 데이터(문서 목록 · 멤버)를 쓰지 않는다. 자기 상태만
