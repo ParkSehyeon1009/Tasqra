@@ -153,11 +153,38 @@ def enqueue_build_chunks(project_id: int, document_id: int, *, reason: str, requ
         return False
 
 
+def _build_worker_analyzer_registry(
+    summary_client,
+    category_client,
+    decision_client,
+    schedule_client,
+    amount_client,
+):
+    """API와 별도로 뜨는 worker 프로세스의 analyzer registry를 조립한다."""
+    from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
+    from app.analyzers.amount_analyzer import AmountAnalyzer
+    from app.analyzers.category_analyzer import CategoryAnalyzer
+    from app.analyzers.extraction_analyzer import DecisionAnalyzer
+    from app.analyzers.features_analyzer import FeaturesAnalyzer
+    from app.analyzers.schedule_analyzer import ScheduleAnalyzer
+    from app.analyzers.summary_analyzer import SummaryAnalyzer
+
+    return {
+        "summary": SummaryAnalyzer(summary_client),
+        "category": CategoryAnalyzer(category_client),
+        "decision": DecisionAnalyzer(decision_client),
+        "schedule": ScheduleAnalyzer(schedule_client),
+        # 별도 학습 모델·adapter 없이 현재 기본 AI_MODEL client를 쓴다.
+        "amount": AmountAnalyzer(amount_client),
+        "action_task": ActionTaskAnalyzer(summary_client),
+        # 요약과 같은 클라이언트를 쓴다. 레지스트리에는 있지만 기본 분석에는 없다.
+        "features": FeaturesAnalyzer(summary_client),
+    }
+
+
 @celery_app.task(name="documents.analyze", time_limit=settings.AI_ANALYSIS_TIMEOUT_SECONDS + 30)
 def analyze_document_task(project_id: int, document_id: int, job_id: str, request_id: str = "-"):
     import asyncio
-    from app.analyzers.summary_analyzer import SummaryAnalyzer
-    from app.analyzers.category_analyzer import CategoryAnalyzer
     from app.repositories.analysis_job_repository import AnalysisJobRepository
     from app.repositories.analysis_repository import AnalysisRepository
     from app.repositories.document_repository import DocumentRepository
@@ -179,12 +206,10 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
         from app.ai.fake_client import FakeAIClient
         from app.ai.local_client import LocalAIClient
         from app.ai.openai_client import OpenAIClient
-        from app.analyzers.extraction_analyzer import DecisionAnalyzer
-        from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
-        from app.analyzers.features_analyzer import FeaturesAnalyzer
-        from app.analyzers.schedule_analyzer import ScheduleAnalyzer
+        from app.repositories.amount_repository import AmountRepository
         from app.repositories.decision_schedule_repository import DecisionScheduleRepository
         from app.repositories.task_suggestion_repository import TaskSuggestionRepository
+        from app.services.amount_writer import AmountWriter
         from app.services.decision_schedule_writer import DecisionScheduleWriter
         from app.services.task_suggestion_writer import TaskSuggestionWriter
 
@@ -208,6 +233,9 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
             schedule_client = make_client(settings.AI_MODEL_SCHEDULE)
             if hasattr(schedule_client, "aclose"):
                 stack.push_async_callback(schedule_client.aclose)
+            amount_client = make_client(None)
+            if hasattr(amount_client, "aclose"):
+                stack.push_async_callback(amount_client.aclose)
             with SessionLocal() as db:
                 documents = DocumentRepository(db)
                 analysis_repository = AnalysisRepository(db)
@@ -215,18 +243,24 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
                     analysis_repository, DecisionScheduleRepository(db))
                 task_writer = TaskSuggestionWriter(
                     analysis_repository, TaskSuggestionRepository(db))
-                analysis = AnalysisService(db, documents, analysis_repository, {
-                    "summary": SummaryAnalyzer(summary_client),
-                    "category": CategoryAnalyzer(category_client),
-                    "decision": DecisionAnalyzer(decision_client),
-                    "schedule": ScheduleAnalyzer(schedule_client),
-                    "action_task": ActionTaskAnalyzer(summary_client),
-                    # 요약과 같은 클라이언트를 쓴다 — 어댑터 하나가 두 태스크를
-                    # 배웠다(dependencies.py 의 같은 줄 주석 참고).
-                    # ⚠️ 레지스트리에는 있지만 기본 분석에는 없다
-                    #   (analysis_service.DEFAULT_ANALYZER_TYPES 주석 참고).
-                    "features": FeaturesAnalyzer(summary_client),
-                }, writer, task_writer)
+                amount_writer = AmountWriter(
+                    analysis_repository, AmountRepository(db))
+                registry = _build_worker_analyzer_registry(
+                    summary_client,
+                    category_client,
+                    decision_client,
+                    schedule_client,
+                    amount_client,
+                )
+                analysis = AnalysisService(
+                    db,
+                    documents,
+                    analysis_repository,
+                    registry,
+                    writer,
+                    task_writer,
+                    amount_writer,
+                )
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)
     asyncio.run(run())

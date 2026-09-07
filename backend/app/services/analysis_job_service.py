@@ -1,6 +1,6 @@
-# 이 파일의 책임: 비동기 AI 분석 작업의 접수·진행·완료·실패 상태와 원자적 저장을 관리한다.
-# 다른 파일과의 관계: worker가 호출하며, AnalysisService에 잠긴 Document와 검증된 결과를 전달한다.
-# Spring 비교: 큐 작업 수명주기와 트랜잭션 경계를 담당하는 @Service다.
+# ① 책임: 비동기 분석 작업의 등록·실행·완료·실패 상태와 트랜잭션 경계를 관리한다.
+# ② 관계: worker가 호출하며, AnalysisService에 잠긴 Document와 검증된 결과를 전달한다.
+# ③ Spring 비교: 큐 작업 수명주기와 트랜잭션 경계를 담당하는 @Service다.
 
 import asyncio
 import hashlib
@@ -16,6 +16,14 @@ from app.models.analysis_job import AnalysisJob
 from app.schemas.document import AnalysisJobResponse, AnalysisResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _error_code_from_value(code: str | None) -> ErrorCode:
+    """analyzer 경계에서 직렬화된 코드 문자열을 다시 ErrorCode로 복원한다."""
+    return next(
+        (error_code for error_code in ErrorCode if error_code.code == code),
+        ErrorCode.AI_ANALYZER_FAILED,
+    )
 
 
 class AnalysisJobService:
@@ -112,6 +120,7 @@ class AnalysisJobService:
             types = list(job.analyzer_types)
             seconds = (job.expires_at - datetime.now(timezone.utc)).total_seconds()
             job.status, job.stage = "RUNNING", "분석 준비"
+        analyzer_errors = []
         try:
             results, analyzer_errors = await asyncio.wait_for(
                 self.analysis.analyze_text_isolated(content, types, progress), max(0, seconds))
@@ -126,8 +135,11 @@ class AnalysisJobService:
                     return
                 if not results:
                     first = analyzer_errors[0] if analyzer_errors else None
-                    raise BusinessError(ErrorCode.AI_ANALYZER_FAILED,
-                        first["message"] if first else "모든 분석 단계가 실패했습니다.")
+                    code = _error_code_from_value(first["code"] if first else None)
+                    raise BusinessError(
+                        code,
+                        first["message"] if first else "모든 분석 단계가 실패했습니다.",
+                    )
                 rows = self.analysis.save_results(document, revision, results)
                 self.db.flush()
                 job.analysis_ids = [row.id for row in rows]
@@ -142,4 +154,5 @@ class AnalysisJobService:
             with transactional(self.db):
                 job = self.jobs.get(project_id, document_id, job_id, lock=True)
                 if job and job.status in ("PENDING", "RUNNING"):
+                    job.analyzer_errors = analyzer_errors
                     self._fail(job, code, exc.detail if isinstance(exc, BusinessError) else None)

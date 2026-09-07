@@ -51,7 +51,15 @@ class FakeAIClient(AIClientProtocol):
         # ⚠️ action-task 와 features 는 **아래 'selected_ids' 검사보다 먼저** 와야
         #   한다. ActionSelectionOutput 도 selected_ids 를 쓰기 때문에 순서가
         #   뒤바뀌면 엉뚱한 분기로 빠진다.
-        if prompt.prompt_version.startswith("action-task"):
+        if prompt.prompt_version.startswith("amount"):
+            payload = {
+                "document_type": "ETC",
+                "currency": "KRW",
+                "stated_total": None,
+                "items": [],
+                "notes": "테스트용 fake 응답입니다.",
+            }
+        elif prompt.prompt_version.startswith("action-task"):
             payload = {"selected_ids": [data["candidates"][0]["id"]] if data.get("candidates") else []}
         elif prompt.prompt_version.startswith("features"):
             # 빈 배열로 둔다 — decision·schedule 과 같다. 과업에서는 빈 배열이

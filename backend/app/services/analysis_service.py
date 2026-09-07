@@ -11,6 +11,7 @@ from app.core.exceptions import BusinessError
 from app.core.transaction import transactional
 from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
+from app.schemas.amount import AmountExtractionOut
 from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
 # 액션 태스크는 **「해야 할 일」만 다룬다.**
@@ -31,6 +32,13 @@ from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractio
 #
 #   되돌리려면 이 목록에 "features" 를 넣고 save_results 에 변환을 다시 붙이면
 #   된다(2026-09-07 커밋 참고).
+#
+#   ⚠️ 비용도 다르다. features 는 구간마다 호출해 문서당 중앙 8회·4초,
+#     긴 문서는 48회·114초다.
+#
+# ⚠️ **"amount"도 일부러 빠져 있다.** 레지스트리에는 등록해 명시 요청으로는
+#   실행할 수 있다. 하지만 현재 기본 모델은 금액 전용 학습을 하지 않았고, 실제
+#   정확도·비용을 확인하기 전이므로 types=["amount"]로만 실행한다.
 #
 # ⚠️ 순서가 의미를 갖는다 — **category 가 action_task 보다 앞**이어야 한다.
 #   action_task 는 분류 결과를 보고 돌지 말지 정한다(_skip_reason). 순서를 바꾸면
@@ -71,13 +79,14 @@ _CATEGORY_SCOPE = {"action_task": ACTION_TASK_CATEGORIES}
 
 class AnalysisService:
     def __init__(self, db, document_repository, analysis_repository, analyzer_registry,
-                 decision_schedule_writer, task_suggestion_writer):
+                 decision_schedule_writer, task_suggestion_writer, amount_writer=None):
         self._db = db
         self._document_repository = document_repository
         self._analysis_repository = analysis_repository
         self._analyzer_registry = analyzer_registry
         self._decision_schedule_writer = decision_schedule_writer
         self._task_suggestion_writer = task_suggestion_writer
+        self._amount_writer = amount_writer
 
     def validate_types(self, analyzer_types):
         types = list(dict.fromkeys(analyzer_types or DEFAULT_ANALYZER_TYPES))
@@ -181,6 +190,24 @@ class AnalysisService:
         self._apply_ai_document_type(document, results)
         rows = []
         for name, result in results:
+            if name == "amount":
+                try:
+                    extraction = AmountExtractionOut.model_validate_json(
+                        json.dumps(result.result))
+                except (TypeError, ValidationError) as exc:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE) from exc
+                if self._amount_writer is None:
+                    raise BusinessError(ErrorCode.AI_INVALID_RESPONSE)
+                analysis, _ = self._amount_writer.write(
+                    document_id=document.id,
+                    source_text_revision=revision,
+                    source_ocr_revision=document.ocr_revision,
+                    analyzer_type=name,
+                    result=result,
+                    extraction=extraction,
+                )
+                rows.append(analysis)
+                continue
             if "decisions" in result.result:
                 # 분석기가 model_dump(mode="json")로 날짜·Enum을 문자열로
                 # 넘긴다. strict DTO에 파이썬 dict를 바로 넣지 말고 JSON 경계에서
