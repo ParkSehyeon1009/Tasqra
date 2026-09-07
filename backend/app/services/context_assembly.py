@@ -47,6 +47,7 @@ from app.services.chunking import (
     CHARS_PER_TOKEN,
     SENTENCE_BREAK,
     CharRatioTokenCounter,
+    TokenCounter,
 )
 
 # 근거 하나에 붙이는 머리말의 모양. LLM 이 출처를 인용할 수 있어야 하고
@@ -78,16 +79,32 @@ class ContextChunk:
     filename: str
     seq: int
     text: str
+    project_id: int | None = None
+    project_name: str | None = None
+    page_number: int | None = None
+    content_start: int | None = None
+    content_end: int | None = None
 
     @classmethod
-    def from_row(cls, chunk, filename: str) -> "ContextChunk":
-        """리포지토리 행에서 만든다. 검색 결과 튜플의 앞 두 자리와 맞춘다."""
+    def from_row(
+        cls,
+        chunk,
+        filename: str,
+        project_id: int | None = None,
+        project_name: str | None = None,
+    ) -> "ContextChunk":
+        """리포지토리 행에서 전문과 출처 메타데이터를 옮긴다."""
         return cls(
             chunk_id=chunk.id,
             document_id=chunk.document_id,
             filename=filename,
             seq=chunk.seq,
             text=chunk.text,
+            project_id=project_id,
+            project_name=project_name,
+            page_number=chunk.page_number,
+            content_start=chunk.content_start,
+            content_end=chunk.content_end,
         )
 
 
@@ -104,6 +121,11 @@ class Evidence:
     # 이 청크에서 중복이라 버린 문장 수. 겹침이 실제로 얼마나 낭비되고 있었는지
     # 알 수 있다. OVERLAP_TOKENS 를 조정할 근거가 된다.
     dropped_sentences: int
+    project_id: int | None = None
+    project_name: str | None = None
+    page_number: int | None = None
+    content_start: int | None = None
+    content_end: int | None = None
 
 
 @dataclass(frozen=True)
@@ -155,28 +177,16 @@ def assemble_context(
     budget_tokens: int,
     chars_per_token: float = CHARS_PER_TOKEN,
     max_evidences: int | None = None,
+    counter: TokenCounter | None = None,
 ) -> AssembledContext:
-    """청크들을 토큰 예산 안에서 근거로 조립한다.
+    """검색 순서를 유지하며 청크 전문을 토큰 예산 안에서 조립한다.
 
-    **검색이 정한 순서를 그대로 지킨다** — 관련도 높은 것이 앞에 와야 LLM 이
-    그것을 더 크게 본다. 문서·조각 번호로 다시 정렬하지 않는다.
-
-    규칙 넷
-
-    1. **문장 단위 중복 제거.** 이미 담은 문장은 다시 담지 않는다. 겹침으로
-       들어온 것과 정형 문구가 함께 걸러진다.
-    2. **청크는 되도록 통째로 담는다.** 반만 담으면 근거가 잘려 LLM 이 인용한
-       문장을 사용자가 원문에서 찾지 못한다. 예산에 안 들어가면 **건너뛰고**
-       다음 것을 본다 — 뒤에 더 작은 청크가 들어갈 수 있다.
-    3. **첫 근거만 예외로 자른다.** 첫 청크가 예산보다 크면 아무것도 못 담게
-       되므로 그때는 잘라서라도 담는다. `truncated` 로 알린다.
-    4. **예산은 근거 머리말까지 포함해 센다.** 머리말을 빼고 세면 근거가 많을 때
-       실제 프롬프트가 예산을 넘는다.
-
-    예산이 0 이하면 빈 결과를 돌려준다 — 예외를 던지지 않는다. 호출한 쪽이
-    설정을 잘못 넣었다고 요청을 실패시킬 이유가 없다.
+    ``counter``가 있으면 실제 생성 모델에 맞는 구현을 주입할 수 있다. 현재 기본값은
+    실제 tokenizer가 아니라 문자 비율 근사치다. 매 후보마다 **구분자를 포함한 최종
+    문자열 전체**를 다시 세므로 ``counter.count(result.text) <= budget_tokens``가
+    항상 성립한다.
     """
-    counter = CharRatioTokenCounter(chars_per_token)
+    counter = counter or CharRatioTokenCounter(chars_per_token)
     if budget_tokens <= 0 or not chunks:
         return AssembledContext(text="", budget_tokens=max(budget_tokens, 0))
 
@@ -196,9 +206,6 @@ def assemble_context(
         sentences = split_sentences(item.text)
         kept: list[str] = []
         dropped = 0
-        # 이 청크 안에서 이미 고른 문장도 함께 본다. seen 은 청크가 확정된 뒤에
-        # 갱신되므로, 지역 집합을 두지 않으면 **한 청크 안의 반복이 그대로 담긴다**
-        # (표의 같은 행이 여러 번 나오는 문서에서 실제로 예산을 먹는다).
         local = set(seen)
         for sentence in sentences:
             key = _normalize(sentence)
@@ -208,7 +215,6 @@ def assemble_context(
             local.add(key)
             kept.append(sentence)
         if not kept:
-            # 전부 중복이었다. 예산을 쓰지 않았으므로 건너뛴 것으로 세지 않는다.
             dropped_total += dropped
             continue
 
@@ -219,31 +225,43 @@ def assemble_context(
         )
         body = " ".join(kept)
         block = f"{header}\n{body}"
-        need = counter.count(block)
+        candidate_text = "\n\n".join([*blocks, block])
 
-        if used + need > budget_tokens:
+        if counter.count(candidate_text) > budget_tokens:
             if evidences:
-                # 이미 담은 것이 있으면 이 청크는 건너뛴다. 뒤에 더 작은 것이
-                # 들어갈 수 있으므로 여기서 멈추지 않는다.
+                # 구분자까지 넣은 전체 문자열이 넘으면 이 청크를 건너뛰고 다음의
+                # 더 작은 청크를 시도한다.
                 skipped += 1
                 continue
-            # 첫 근거인데 예산을 넘는다 — 잘라서라도 담는다.
-            room = budget_tokens - counter.count(header + "\n")
-            if room <= 0:
-                skipped += 1
-                continue
-            body = body[: int(room * chars_per_token)].rstrip()
+
+            # 첫 근거만 문자 경계에서 줄인다. counter 구현이 바뀌어도 최종 후보를
+            # 매번 다시 세므로 근사 비율을 역산하지 않는다.
+            low, high = 0, len(body)
+            while low < high:
+                middle = (low + high + 1) // 2
+                trial_body = body[:middle].rstrip()
+                trial = f"{header}\n{trial_body}" if trial_body else header
+                if trial_body and counter.count(trial) <= budget_tokens:
+                    low = middle
+                else:
+                    high = middle - 1
+            body = body[:low].rstrip()
             if not body:
                 skipped += 1
                 continue
             block = f"{header}\n{body}"
-            need = counter.count(block)
+            candidate_text = block
+            if counter.count(candidate_text) > budget_tokens:
+                skipped += 1
+                continue
             truncated = True
 
-        for sentence in kept:
+        # 잘려 실제로 들어간 부분만 중복 집합에 기록한다. 잘려 나간 후반부까지
+        # 기록하면 뒤 청크에만 실제로 담길 수 있는 문장을 잘못 버리게 된다.
+        for sentence in split_sentences(body):
             seen.add(_normalize(sentence))
         blocks.append(block)
-        used += need
+        used = counter.count("\n\n".join(blocks))
         dropped_total += dropped
         evidences.append(
             Evidence(
@@ -252,13 +270,20 @@ def assemble_context(
                 filename=item.filename,
                 seq=item.seq,
                 text=body,
-                tokens=need,
+                tokens=counter.count(block),
                 dropped_sentences=dropped,
+                project_id=item.project_id,
+                project_name=item.project_name,
+                page_number=item.page_number,
+                content_start=item.content_start,
+                content_end=item.content_end,
             )
         )
 
+    text = "\n\n".join(blocks)
+    used = counter.count(text)
     return AssembledContext(
-        text="\n\n".join(blocks),
+        text=text,
         evidences=evidences,
         used_tokens=used,
         budget_tokens=budget_tokens,

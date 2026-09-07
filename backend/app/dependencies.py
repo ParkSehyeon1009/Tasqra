@@ -27,6 +27,7 @@ from app.ai.openai_client import OpenAIClient
 from app.analyzers.category_analyzer import CategoryAnalyzer
 from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
 from app.analyzers.extraction_analyzer import DecisionAnalyzer
+from app.analyzers.features_analyzer import FeaturesAnalyzer
 from app.analyzers.protocol import Analyzer
 from app.analyzers.schedule_analyzer import ScheduleAnalyzer
 from app.analyzers.summary_analyzer import SummaryAnalyzer
@@ -67,6 +68,7 @@ from app.services.amount_item_service import AmountItemService
 from app.services.amount_summary_service import AmountSummaryService
 from app.services.amount_task_service import AmountTaskService
 from app.services.auth_service import AuthService
+from app.services.chat_service import ChatService
 from app.services.project_service import ProjectService
 from app.services.analysis_service import AnalysisService
 from app.services.chunking_service import ChunkingService
@@ -76,6 +78,7 @@ from app.services.decision_schedule_review_service import DecisionScheduleReview
 from app.services.decision_schedule_writer import DecisionScheduleWriter
 from app.services.extraction_service import ExtractionService
 from app.services.search_service import SearchService
+from app.services.token_counting import Utf8ByteTokenCounter
 from app.services.document_service import DocumentService
 from app.services.task_service import TaskService
 from app.services.task_suggestion_service import TaskSuggestionService
@@ -199,6 +202,14 @@ def get_analyzer_registry() -> dict[str, Analyzer]:
         "schedule": ScheduleAnalyzer(get_ai_client(settings.AI_MODEL_SCHEDULE or None)),
         # 액션 태스크는 별도 학습 모델이 없어 요약 모델의 선택 능력을 재사용한다.
         "action_task": ActionTaskAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
+        # ⚠️ 과업(features)은 **요약과 같은 모델**을 쓴다. 어댑터 하나(sumfeat-v2)가
+        #   두 태스크를 배웠고 프롬프트로 구분된다. 따로 두면 VRAM 8GB 에 3.3GB
+        #   짜리가 셋이 되어 호출마다 모델을 바꿔 싣게 된다.
+        #
+        # ⚠️ 등록만 해 두고 **기본 분석에는 넣지 않는다** — action_task 와 목적이
+        #   겹치기 때문이다. 어느 쪽을 언제 쓰는지는 analysis_service 의
+        #   DEFAULT_ANALYZER_TYPES 주석에 있다.
+        "features": FeaturesAnalyzer(get_ai_client(settings.AI_MODEL_SUMMARY or None)),
     }
     return registry
 
@@ -267,6 +278,27 @@ def get_search_service(
 
 def get_amount_repository(db: Session = Depends(get_db)) -> AmountRepository:
     return AmountRepository(db)
+
+
+# get_amount_repository 는 get_chat_service 위에 있어야 한다.
+def get_chat_service(
+    search_service: SearchService = Depends(get_search_service),
+    chunk_repository: ChunkRepository = Depends(get_chunk_repository),
+    amount_repository: AmountRepository = Depends(get_amount_repository),
+) -> ChatService:
+    """검색·전문 조회·생성 모델을 CHAT-001 애플리케이션 서비스로 조립한다.
+
+    현재 provider는 생성 모델 tokenizer를 노출하지 않으므로 UTF-8 byte 기반의
+    보수적 근사 counter를 쓴다. 정확 counter가 준비되면 이 주입만 교체한다.
+    """
+    return ChatService(
+        search_service=search_service,
+        chunk_repository=chunk_repository,
+        amount_repository=amount_repository,
+        ai_client=get_ai_client(),
+        settings=settings,
+        token_counter=Utf8ByteTokenCounter(),
+    )
 
 
 def get_decision_schedule_repository(

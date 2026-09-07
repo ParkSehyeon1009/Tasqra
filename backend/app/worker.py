@@ -181,6 +181,7 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
         from app.ai.openai_client import OpenAIClient
         from app.analyzers.extraction_analyzer import DecisionAnalyzer
         from app.analyzers.action_task_analyzer import ActionTaskAnalyzer
+        from app.analyzers.features_analyzer import FeaturesAnalyzer
         from app.analyzers.schedule_analyzer import ScheduleAnalyzer
         from app.repositories.decision_schedule_repository import DecisionScheduleRepository
         from app.repositories.task_suggestion_repository import TaskSuggestionRepository
@@ -220,6 +221,11 @@ def analyze_document_task(project_id: int, document_id: int, job_id: str, reques
                     "decision": DecisionAnalyzer(decision_client),
                     "schedule": ScheduleAnalyzer(schedule_client),
                     "action_task": ActionTaskAnalyzer(summary_client),
+                    # 요약과 같은 클라이언트를 쓴다 — 어댑터 하나가 두 태스크를
+                    # 배웠다(dependencies.py 의 같은 줄 주석 참고).
+                    # ⚠️ 레지스트리에는 있지만 기본 분석에는 없다
+                    #   (analysis_service.DEFAULT_ANALYZER_TYPES 주석 참고).
+                    "features": FeaturesAnalyzer(summary_client),
                 }, writer, task_writer)
                 service = AnalysisJobService(db, documents, AnalysisJobRepository(db), analysis)
                 await service.run(project_id, document_id, job_id, progress)

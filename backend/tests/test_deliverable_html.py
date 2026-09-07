@@ -4,7 +4,7 @@
 #   검사하는 것
 #     ① **두 형식이 같은 절을 담는가** — 한쪽에만 절을 더하는 실수를 잡는다
 #     ② 값을 escape 하는가 (보안. 문서 이름에 <script> 가 올 수 있다)
-#     ③ 표가 없는 절(개요)과 행이 없는 표를 문장으로 내는가
+#     ③ 구조화된 주간 요약과 행이 없는 표를 올바르게 그리는가
 #     ④ 형식별 확장자·MIME 이 한 곳에서 나오는가
 #
 # 다른 파일과의 관계
@@ -74,8 +74,8 @@ def test_both_formats_have_the_same_sections():
     for title in titles:
         assert f"<h2>{title}</h2>" in html, title
         assert f"## {title}" in markdown, title
-    # 주간 보고서는 개요 + 다섯 절이다.
-    assert titles == ["개요", "문서", "완료한 태스크", "결정사항", "일정·기한", "금액"]
+    # 주간 보고서는 주간 요약 + 다섯 자료 절이다.
+    assert titles == ["주간 요약", "문서", "완료한 태스크", "결정사항", "일정·기한", "금액"]
 
 
 def test_meeting_agenda_has_only_decisions_in_both_formats():
@@ -130,14 +130,18 @@ def test_empty_table_becomes_sentence_not_empty_table():
     """머리글만 있는 표는 '자료를 못 가져온 것' 처럼 보인다."""
     html = render_html(**_args(DeliverableMaterials(documents=[_document()])))
     assert "이 기간에 완료한 태스크가 없습니다." in html
-    # 빈 표를 그리지 않는다 — 표는 자료가 있는 절에만 있다.
-    assert html.count("<table>") == 1
+    # 주간 요약과 문서만 표이고, 자료 없는 절은 안내 문장이다.
+    assert html.count("<table>") == 2
 
 
-def test_summary_section_is_a_paragraph():
+def test_weekly_summary_section_is_a_table():
     html = render_html(**_args())
-    assert "<h2>개요</h2>" in html
-    assert 'class="note"' in html
+    assert "<h2>주간 요약</h2>" in html
+    assert "<h2>개요</h2>" not in html
+    assert "<th>구분</th>" in html
+    assert "<th>내용</th>" in html
+    assert "<td>실적</td>" in html
+    assert "문서 1건 등록" in html
 
 
 def test_html_is_a_whole_document():

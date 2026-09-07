@@ -13,6 +13,25 @@ from app.models.document import Analysis
 from app.models.enums import DocumentTypeSource
 from app.schemas.extraction import DecisionExtractionList, ScheduleItemExtractionList, TaskSuggestionExtractionList
 
+# ⚠️ **"features" 는 일부러 빠져 있다.** 레지스트리에는 등록돼 있으므로
+#   types=["features"] 로 부르면 돌지만 기본으로는 돌지 않는다.
+#
+#   같은 목적(문서에서 할 일을 뽑아 태스크 제안으로)을 가진 분석기가 둘이다:
+#
+#     action_task  후보를 파이썬 규칙으로 찾고(action_candidate_finder) 모델은
+#                  **그중에서 고른다.** 없는 것을 만들 수 없다. 제안 저장·승인
+#                  흐름(task_suggestions)이 여기에 붙어 있다 -> **기본값**
+#     features     모델이 과업을 **생성한다.** 사업 범위를 분해하는 쪽에 가깝다
+#                  (「현황 및 수요분석」·「통계 대시보드 개발」) -> 필요할 때만
+#
+#   ⚠️ features 를 기본에서 뺀 이유는 둘이다. (1) 둘 다 켜면 문서마다 서로 다른
+#     태스크 목록이 두 개 나온다. (2) 생성 방식이라 **지어낼 수 있다** — 실측
+#     22건 중 2건에서 「공고서 작성·개찰·자격 등록」같은 발주기관의 입찰 절차를
+#     과업으로 뽑았다. 구간 단위 재학습으로도 못 고쳤다(2026-09-07 패치노트).
+#     action_task 의 후보 찾기는 그 부류를 규칙으로 제외한다(_EXCLUDE).
+#
+#   ⚠️ 비용도 다르다. features 는 구간마다 호출해 문서당 중앙 8회·4초,
+#     긴 문서는 48회·114초다.
 DEFAULT_ANALYZER_TYPES = ["summary", "category", "decision", "schedule", "action_task"]
 
 

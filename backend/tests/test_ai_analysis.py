@@ -539,8 +539,13 @@ def test_명확한_접수기간은_모델없이_하나로_묶는다(config):
     assert result.result["call_count"] == 0
 
 
+# 🔴 2026-09-07 병합: 첫 사례의 model_category 를 COST_SHEET -> ETC 로 바꿨다.
+#   이 테스트가 보려는 것은 **「제목이 명백히 모순되면 교정한다」** 이지 특정 코드가
+#   아니다. 그런데 COST_SHEET 은 이제 CategoryOutput 의 선택지에 없어서
+#   교정 단계에 닿기 전에 스키마 검증에서 걸린다(위 parametrize 주석 참고).
+#   교정 규칙은 「RFP 가 아니면 RFP 로」라 ETC 로도 같은 것을 잰다.
 @pytest.mark.parametrize(("text", "model_category", "reason", "expected"), [
-    ("조달물자 구매입찰 재공고 제안서 제출 안내", "COST_SHEET", "금액의 언급 없음", "RFP"),
+    ("조달물자 구매입찰 재공고 제안서 제출 안내", "ETC", "금액의 언급 없음", "RFP"),
     ("협력 방안 제안서 상품 판매 협력업체를 모집합니다.", "ETC", "기타 문서", "PROPOSAL"),
 ])
 def test_제목과_명백히_모순되는_분류는_교정한다(config, text, model_category, reason, expected):
@@ -569,13 +574,6 @@ def test_seven_category_codes_are_accepted(config, category):
     assert result.result["category"] == category
 
 
-def test_legacy_cost_sheet_model_output_is_normalized_to_etc(config):
-    client = ScriptedAI(lambda *_: {"category": "COST_SHEET", "reason": "산출 내역 중심"})
-    result = asyncio.run(CategoryAnalyzer(client, config).analyze("산출내역서 수량 단가 금액"))
-    assert result.result["category"] == "ETC"
-    assert "COST_DETAILS" in result.result["traits"]
-
-
 def test_new_document_classification_contract_has_seven_types():
     from app.analyzers.prompts import CATEGORY_CANDIDATES
     from app.models.enums import SelectableDocumentType
@@ -585,7 +583,24 @@ def test_new_document_classification_contract_has_seven_types():
     assert "COST_SHEET" not in CATEGORY_CANDIDATES
 
 
-@pytest.mark.parametrize("value", ["BILLING", "계약서", "기타", None, []])
+# ⚠️ COST_SHEET 은 **모델 선택지에서 빠졌지만 enums.DocumentType 에는 남아 있다.**
+#   사람이 직접 지정할 수 있어야 하기 때문이다(BILLING 과 같은 처리).
+#   그래서 모델이 이 값을 뱉으면 거부하는 것이 맞다 — 조용히 통과시키면
+#   「모델이 고를 수 있는 값」과 「저장 가능한 값」의 경계가 무너진다.
+#
+# 🔴 2026-09-07 병합: feat/schedule-extraction 에 있던
+#   test_legacy_cost_sheet_model_output_is_normalized_to_etc(모델이 COST_SHEET 를
+#   뱉으면 ETC 로 정규화한다)를 **버렸다.** 둘은 함께 성립할 수 없다.
+#
+#   스키마(CategoryOutput.CategoryCode)는 모델에게 **디코딩 제약으로 실려 간다**
+#   (runner.py 가 response_schema 를 얹는다). 정규화가 돌게 하려면 CategoryCode 에
+#   COST_SHEET 를 되살려야 하는데, 그러면 모델이 그 값을 **다시 고를 수 있게** 된다
+#   — PR #96 이 없앤 것이 정확히 그것이다.
+#
+#   그래서 category_analyzer._validate_category 의 COST_SHEET 분기는 지금
+#   **도달하지 않는다.** 스키마가 먼저 거른다. 지우지 않고 둔 것은 그 함수가
+#   순수 함수라 다른 경로에서 불릴 여지가 있어서다.
+@pytest.mark.parametrize("value", ["BILLING", "COST_SHEET", "계약서", "기타", None, []])
 def test_invalid_category_is_not_silently_converted_to_etc(config, value):
     client = ScriptedAI(lambda *_: {"category": value, "reason": "근거"})
     with pytest.raises(BusinessError) as exc:

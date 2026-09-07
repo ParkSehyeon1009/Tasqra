@@ -23,16 +23,15 @@
 #   다르므로 구조에는 원래 값을 담고 각 포매터가 자기 규칙으로 바꾼다.
 #   구조 단계에서 한쪽 규칙으로 바꿔 두면 다른 형식에서 값이 이상해진다.
 #
-# ⚠ 개요는 LLM 이 채운다 — 단, 이 파일은 채우지 않는다
-#   DLV-002-1·DLV-002-2 완료 판정의 "LLM 호출은 개요 1회" 를 위해 개요 문장은
-#   서비스(deliverable_service)가 LLM 을 1회 불러 만들고 `summary` 인자로 넘긴다.
-#   이 파일은 받은 문장을 개요 절에 넣기만 한다(구조 함수는 DB·LLM 을 모른다).
-#   `summary` 가 없으면(LLM 미연결·호출 실패) SUMMARY_PLACEHOLDER 로 되돌아간다 —
-#   **없는 문장을 지어내지 않는다.** 표는 예나 지금이나 전부 실제 자료다.
+# ⚠ 프로젝트 현황과 주간 보고서 요약은 DB 자료만으로 구성한다
+#   프로젝트 현황의 기본정보·업무 완료율·성과·일정 이슈·향후 계획과 주간
+#   보고서의 실적·결정·일정·금액은 서비스가 조회한 실제 값만 사용한다.
+#   저장되지 않은 진행률·위험을 추정하거나 LLM 문장을 덧붙이지 않는다.
 # =============================================================================
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -64,11 +63,8 @@ EMPTY = "—"
 #
 # ⚠ 이 파일의 절 머리글을 바꾸면 여기도 바꿔야 한다. 안 바꿔도 에러는 나지 않고
 #   **조용히 왼쪽 정렬·문자열로 남는다** — 그래서 한 곳에 모아 두었다.
-NUMERIC_HEADERS = frozenset({"수량", "단가", "금액", "건수"})
-
-SUMMARY_PLACEHOLDER = (
-    "개요 문장은 아직 넣지 않았습니다. 저장된 문서 요약을 한 번 재요약해 채울"
-    " 자리입니다(LLM 연결 예정). 아래 표는 모두 실제 자료입니다."
+NUMERIC_HEADERS = frozenset(
+    {"수량", "단가", "금액", "건수", "전체 작업", "완료 작업", "업무 완료율", "기한 초과"}
 )
 
 # AI 분류와 사용자 수정이 저장하는 코드의 화면용 한국어 이름. 산출물은 서버에서
@@ -98,6 +94,21 @@ class DeliverableMaterials:
     decisions: list[Any] = field(default_factory=list)
     schedule_items: list[Any] = field(default_factory=list)
     amount_items: list[Any] = field(default_factory=list)
+
+    # 프로젝트 현황(PROJECT_STATUS)의 구조화 개요 재료. 수치·날짜·대상 선별은
+    # LLM이 아니라 리포지토리와 서비스가 확정한다.
+    project: Any | None = None
+    task_total: int = 0
+    task_done: int = 0
+    recent_completed_tasks: list[Any] = field(default_factory=list)
+    overdue_tasks: list[Any] = field(default_factory=list)
+    overdue_total: int = 0
+    milestones: list[Any] = field(default_factory=list)
+    upcoming_tasks: list[Any] = field(default_factory=list)
+    upcoming_schedule_items: list[Any] = field(default_factory=list)
+    status_as_of: date | None = None
+    upcoming_from: date | None = None
+    upcoming_until: date | None = None
 
 
 @dataclass
@@ -196,88 +207,32 @@ def build_document(
     유형별 규칙은 deliverable_service._count 의 표와 같아야 한다 — 세어서 보여준
     것과 담기는 것이 다르면 미리보기가 거짓이 된다.
 
-    `summary` 는 LLM 이 만든 개요 문장이다 (DLV-002-1·DLV-002-2, "LLM 호출은 개요
-    1회"). WEEKLY_REPORT·PROJECT_STATUS 에만 개요 절이 있으므로 그 유형에서만
-    쓰인다. `None` 이면 — LLM 을 아직 붙이지 않았거나 호출이 실패한 경우 —
-    SUMMARY_PLACEHOLDER 로 되돌아간다. **없는 문장을 지어내지 않는다.**
-    개요를 만드는 곳은 서비스(deliverable_service)이고 여기는 받은 문장을 넣기만
-    한다 — 구조 함수는 DB·LLM 을 모른다.
+    `summary` 인자는 기존 렌더러 호출 계약을 위해 남아 있지만 더 이상 사용하지
+    않는다. 주간 보고서와 프로젝트 현황 모두 DB에서 조회한 실제 자료로 구조화한다.
     """
     period = (
         f"{period_from.isoformat()} ~ {period_to.isoformat()}"
         if period_from and period_to
         else "기간 전체"
     )
-    document = DeliverableDocument(
-        title=title,
-        meta=[f"대상 기간: {period}", f"만든 시각: {generated_at_text}"],
-    )
+    meta = [f"대상 기간: {period}", f"만든 시각: {generated_at_text}"]
+    if kind == "PROJECT_STATUS":
+        as_of = materials.status_as_of
+        meta = [
+            f"현황 기준일: {day(as_of)}",
+            f"향후 계획 기간: {day(materials.upcoming_from)} ~ {day(materials.upcoming_until)}",
+            f"만든 시각: {generated_at_text}",
+        ]
+    document = DeliverableDocument(title=title, meta=meta)
 
-    if kind in ("WEEKLY_REPORT", "PROJECT_STATUS"):
-        document.sections.append(
-            Section(title="개요", note=summary or SUMMARY_PLACEHOLDER)
+    if kind == "PROJECT_STATUS":
+        document.sections.extend(
+            _project_status_sections(materials, generated_at_text=generated_at_text)
         )
-        document.sections.append(
-            Section(
-                title="문서",
-                header=["파일명", "유형", "등록일"],
-                rows=[
-                    [clean(item.filename), document_type_label(item.document_type),
-                     day(_as_date(item.created_at))]
-                    for item in materials.documents
-                ],
-                note="이 기간에 등록된 문서가 없습니다.",
-            )
-        )
-        document.sections.append(
-            Section(
-                title="완료한 태스크",
-                header=["제목", "담당", "완료일"],
-                rows=[
-                    [
-                        clean(item.title),
-                        clean(getattr(getattr(item, "assignee", None), "name", None)),
-                        day(_as_date(item.completed_at)),
-                    ]
-                    for item in materials.completed_tasks
-                ],
-                note="이 기간에 완료한 태스크가 없습니다.",
-            )
-        )
-        document.sections.append(
-            _decision_section(materials.decisions, "이 기간의 결정사항이 없습니다.")
-        )
-        document.sections.append(
-            Section(
-                title="일정·기한",
-                header=["제목", "종류", "시작", "종료"],
-                rows=[
-                    [clean(item.title), clean(item.kind),
-                     schedule_moment(item.starts_on, getattr(item, "starts_time", None),
-                                     getattr(item, "relative_expression", None) if item.kind != "DEADLINE" else None),
-                     schedule_moment(item.ends_on, getattr(item, "ends_time", None),
-                                     getattr(item, "relative_expression", None) if item.kind == "DEADLINE" else None)]
-                    for item in materials.schedule_items
-                ],
-                note="이 기간에 걸리는 일정이 없습니다.",
-            )
-        )
-        document.sections.append(
-            Section(
-                title="금액",
-                header=["항목", "수량", "단가", "금액"],
-                rows=[
-                    [
-                        clean(item.item_name),
-                        clean(_trim_number(item.quantity)),
-                        money(item.unit_price),
-                        money(item.amount),
-                    ]
-                    for item in materials.amount_items
-                ],
-                note="이 기간의 금액 항목이 없습니다.",
-            )
-        )
+        _append_material_sections(document, materials, period_scoped=False)
+    elif kind == "WEEKLY_REPORT":
+        document.sections.append(_weekly_summary_section(materials))
+        _append_material_sections(document, materials, period_scoped=True)
     elif kind == "DECISION_LOG":
         document.sections.append(
             _decision_section(
@@ -290,6 +245,319 @@ def build_document(
         )
 
     return document
+
+
+def _weekly_summary_section(materials: DeliverableMaterials) -> Section:
+    """주간 변동을 실제 자료가 있는 항목만 모아 두 열로 요약한다.
+
+    전체 진행률이나 정상·지연 같은 상태는 계획 기준선 없이는 판정할 수 없다.
+    따라서 이 기간에 조회된 문서·완료 작업·승인 결정·승인 일정·승인 금액만
+    압축하고, 제목은 두 건까지만 보여 준다.
+    """
+    rows: list[list[str]] = []
+
+    achievement_parts: list[str] = []
+    if materials.documents:
+        achievement_parts.append(f"문서 {len(materials.documents)}건 등록")
+    if materials.completed_tasks:
+        achievement_parts.append(f"태스크 {len(materials.completed_tasks)}건 완료")
+    if achievement_parts:
+        rows.append(["실적", " · ".join(achievement_parts)])
+
+    if materials.decisions:
+        rows.append(
+            ["결정", _limited_summary(materials.decisions, lambda item: clean(item.title))]
+        )
+
+    if materials.schedule_items:
+        rows.append(
+            [
+                "일정",
+                _limited_summary(
+                    materials.schedule_items,
+                    lambda item: f"{_schedule_period(item)} {clean(item.title)}",
+                ),
+            ]
+        )
+
+    if materials.amount_items:
+        total = sum(int(item.amount or 0) for item in materials.amount_items)
+        rows.append(
+            [
+                "금액",
+                f"승인 금액 항목 {len(materials.amount_items)}건 · 단순 합계 {money(total)}원",
+            ]
+        )
+
+    return Section(
+        title="주간 요약",
+        header=["구분", "내용"],
+        rows=rows,
+        note="이 기간에 반영된 승인 자료가 없습니다.",
+    )
+
+
+def _limited_summary(
+    items: list[Any], formatter: Callable[[Any], str], *, limit: int = 2
+) -> str:
+    """대표 항목을 최대 두 건 표시하고 남은 건수는 숨기지 않는다."""
+    values = [formatter(item) for item in items[:limit]]
+    remaining = len(items) - limit
+    if remaining > 0:
+        values.append(f"외 {remaining}건")
+    return " · ".join(values)
+
+
+def _schedule_period(item: Any) -> str:
+    """승인 일정의 시작·종료일을 한 칸에서 읽을 수 있게 표시한다."""
+    starts_on = getattr(item, "starts_on", None)
+    ends_on = getattr(item, "ends_on", None)
+    if starts_on and ends_on and starts_on != ends_on:
+        return f"{day(starts_on)}~{day(ends_on)}"
+    return day(starts_on or ends_on)
+
+
+def _project_status_sections(
+    materials: DeliverableMaterials, *, generated_at_text: str
+) -> list[Section]:
+    """프로젝트 현황 상단의 다섯 절을 DB 값만으로 만든다.
+
+    LLM은 전체 진행률·위험·마일스톤 달성을 추정할 근거가 없다. 업무 완료율은
+    `DONE / 전체 태스크`, 일정 이슈는 `기한 경과 + 미완료`로만 계산하고, 저장되지
+    않은 리스크 대응이나 마일스톤 달성 여부는 그대로 미관리라고 표시한다.
+    """
+    project = materials.project
+    upcoming_from = materials.upcoming_from
+    upcoming_until = materials.upcoming_until
+    owner = getattr(getattr(project, "owner", None), "name", None)
+
+    project_period = _project_period(project)
+    basic = Section(
+        title="프로젝트 기본 정보",
+        header=["프로젝트명", "기간", "책임자", "작성일"],
+        rows=[
+            [
+                clean(getattr(project, "name", None)),
+                project_period,
+                clean(owner),
+                generated_at_text[:10],
+            ]
+        ],
+    )
+
+    completion_rate = "계산 불가"
+    if materials.task_total > 0:
+        raw_rate = materials.task_done * 100 / materials.task_total
+        completion_rate = f"{raw_rate:.1f}".rstrip("0").rstrip(".") + "%"
+    progress = Section(
+        title="진행 상태 요약",
+        header=["전체 작업", "완료 작업", "업무 완료율", "기한 초과"],
+        rows=[
+            [
+                str(materials.task_total),
+                str(materials.task_done),
+                completion_rate,
+                str(materials.overdue_total),
+            ]
+        ],
+        note="태스크가 없어 업무 완료율을 계산할 수 없습니다.",
+    )
+
+    achievement_rows = [
+        ["완료 작업", clean(item.title), day(_as_date(item.completed_at)), "완료"]
+        for item in materials.recent_completed_tasks[:5]
+    ]
+    if len(materials.recent_completed_tasks) > 5:
+        achievement_rows.append(
+            ["안내", "최근 완료 작업 5건만 표시", EMPTY, EMPTY]
+        )
+    for item in materials.milestones[:5]:
+        due = getattr(item, "due_on", None)
+        achievement_rows.append(
+            ["마일스톤", clean(item.title), day(due), "달성 여부 미관리"]
+        )
+    if len(materials.milestones) > 5:
+        achievement_rows.append(
+            ["안내", "최근 마일스톤 5건만 표시", EMPTY, EMPTY]
+        )
+    achievements = Section(
+        title="주요 성과",
+        header=["구분", "항목", "완료·예정일", "상태"],
+        rows=achievement_rows,
+        note="완료 작업과 승인된 마일스톤이 없습니다.",
+    )
+
+    issue_rows = [
+        [clean(item.title), day(item.due_on)]
+        for item in materials.overdue_tasks[:5]
+    ]
+    if materials.overdue_total > 5:
+        issue_rows.append(
+            [
+                f"기한 초과 {materials.overdue_total}건 중 5건만 표시",
+                EMPTY,
+            ]
+        )
+    issues = Section(
+        title="일정 이슈",
+        header=["내용", "기한"],
+        rows=issue_rows,
+        note="기한이 지난 미완료 작업이 없습니다.",
+    )
+
+    plan_rows = [
+        [
+            "미완료 작업",
+            clean(item.title),
+            day(item.due_on),
+            _task_status_label(item.status),
+        ]
+        for item in materials.upcoming_tasks[:5]
+    ]
+    if len(materials.upcoming_tasks) > 5:
+        plan_rows.append(["안내", "예정 작업 5건만 표시", EMPTY, EMPTY])
+    plan_rows.extend(
+        [
+            "승인 일정",
+            clean(item.title),
+            day(getattr(item, "due_on", None)),
+            _schedule_kind_label(item.kind),
+        ]
+        for item in materials.upcoming_schedule_items[:5]
+    )
+    if len(materials.upcoming_schedule_items) > 5:
+        plan_rows.append(["안내", "승인 일정 5건만 표시", EMPTY, EMPTY])
+    plan_period = (
+        f"{day(upcoming_from)} ~ {day(upcoming_until)}"
+        if upcoming_from and upcoming_until
+        else "향후 7일"
+    )
+    future_plan = Section(
+        title="향후 계획",
+        header=["구분", "항목", "예정일", "상태"],
+        rows=plan_rows,
+        note=f"{plan_period}에 예정된 미완료 작업이나 승인 일정이 없습니다.",
+    )
+    return [basic, progress, achievements, issues, future_plan]
+
+
+def _append_material_sections(
+    document: DeliverableDocument,
+    materials: DeliverableMaterials,
+    *,
+    period_scoped: bool,
+) -> None:
+    """다섯 종류의 실제 자료 표를 주간 보고서와 프로젝트 현황에 공통으로 붙인다."""
+    scope = "이 기간에" if period_scoped else "현재"
+    document.sections.append(
+        Section(
+            title="문서",
+            header=["파일명", "유형", "등록일"],
+            rows=[
+                [
+                    clean(item.filename),
+                    document_type_label(item.document_type),
+                    day(_as_date(item.created_at)),
+                ]
+                for item in materials.documents
+            ],
+            note=f"{scope} 등록된 문서가 없습니다.",
+        )
+    )
+    document.sections.append(
+        Section(
+            title="완료한 태스크",
+            header=["제목", "담당", "완료일"],
+            rows=[
+                [
+                    clean(item.title),
+                    clean(getattr(getattr(item, "assignee", None), "name", None)),
+                    day(_as_date(item.completed_at)),
+                ]
+                for item in materials.completed_tasks
+            ],
+            note=f"{scope} 완료한 태스크가 없습니다.",
+        )
+    )
+    document.sections.append(
+        _decision_section(materials.decisions, f"{scope} 결정사항이 없습니다.")
+    )
+    document.sections.append(
+        Section(
+            title="일정·기한",
+            header=["제목", "종류", "시작", "종료"],
+            # ⚠️ day() 가 아니라 schedule_moment() 다. 날짜만 찍으면 「9월 1일
+            #   10:00 마감」이 「9월 1일」이 되어 **몇 시까지인지 사라진다.**
+            #   상대 기한(「계약일로부터 30일 이내」)도 마찬가지다.
+            #
+            #   상대 표현은 종류에 따라 붙는 쪽이 다르다 — DEADLINE 은 끝에,
+            #   나머지는 시작에 건다. 「계약일로부터 30일 이내」는 마감이고,
+            #   「착수일로부터 6개월」은 시작 기준이기 때문이다.
+            rows=[
+                [
+                    clean(item.title),
+                    _schedule_kind_label(item.kind),
+                    schedule_moment(
+                        item.starts_on,
+                        getattr(item, "starts_time", None),
+                        getattr(item, "relative_expression", None)
+                        if item.kind != "DEADLINE" else None,
+                    ),
+                    schedule_moment(
+                        item.ends_on,
+                        getattr(item, "ends_time", None),
+                        getattr(item, "relative_expression", None)
+                        if item.kind == "DEADLINE" else None,
+                    ),
+                ]
+                for item in materials.schedule_items
+            ],
+            note=f"{scope} 일정이 없습니다.",
+        )
+    )
+    document.sections.append(
+        Section(
+            title="금액",
+            header=["항목", "수량", "단가", "금액"],
+            rows=[
+                [
+                    clean(item.item_name),
+                    clean(_trim_number(item.quantity)),
+                    money(item.unit_price),
+                    money(item.amount),
+                ]
+                for item in materials.amount_items
+            ],
+            note=f"{scope} 금액 항목이 없습니다.",
+        )
+    )
+
+
+def _project_period(project: Any | None) -> str:
+    if project is None:
+        return EMPTY
+    started = day(getattr(project, "started_on", None))
+    due = day(getattr(project, "due_on", None))
+    if started == EMPTY and due == EMPTY:
+        return EMPTY
+    return f"{started} ~ {due}"
+
+
+def _task_status_label(status: Any) -> str:
+    return {
+        "TODO": "할 일",
+        "IN_PROGRESS": "진행 중",
+        "DONE": "완료",
+    }.get(str(status), clean(status))
+
+
+def _schedule_kind_label(kind: Any) -> str:
+    return {
+        "MILESTONE": "마일스톤",
+        "DEADLINE": "기한",
+        "MEETING": "회의",
+        "PERIOD": "기간",
+    }.get(str(kind), clean(kind))
 
 
 def render_markdown(**kwargs: Any) -> str:

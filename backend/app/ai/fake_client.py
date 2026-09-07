@@ -33,9 +33,30 @@ class FakeAIClient(AIClientProtocol):
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
         # 실제 분석으로 오인하지 않도록 fake임을 문장에도 표시한다.
+        if prompt.prompt_version.startswith("chat"):
+            payload = {
+                "answer": "테스트용 가짜 답변입니다.",
+                "answerable": True,
+                "evidence_ids": [1],
+            }
+            return AIResult(
+                text=json.dumps(payload, ensure_ascii=False),
+                model_name=FAKE_MODEL_NAME,
+                tokens_in=len((prompt.system + prompt.user).split()),
+                tokens_out=10,
+                latency_ms=elapsed_ms,
+            )
+
         data = json.loads(prompt.user)
+        # ⚠️ action-task 와 features 는 **아래 'selected_ids' 검사보다 먼저** 와야
+        #   한다. ActionSelectionOutput 도 selected_ids 를 쓰기 때문에 순서가
+        #   뒤바뀌면 엉뚱한 분기로 빠진다.
         if prompt.prompt_version.startswith("action-task"):
             payload = {"selected_ids": [data["candidates"][0]["id"]] if data.get("candidates") else []}
+        elif prompt.prompt_version.startswith("features"):
+            # 빈 배열로 둔다 — decision·schedule 과 같다. 과업에서는 빈 배열이
+            # **정상 응답**이라 이것으로도 경로가 끝까지 돈다.
+            payload = {"features": []}
         elif 'selected_ids' in prompt.system:
             payload = {"selected_ids": [data["records"][0]["id"]]}
         elif 'facts' in prompt.system:

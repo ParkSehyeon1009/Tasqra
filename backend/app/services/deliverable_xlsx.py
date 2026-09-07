@@ -67,6 +67,7 @@ _INVALID_SHEET_CHARS = str.maketrans({character: " " for character in "\\/?*[]:"
 # 숫자로 되돌릴 칸은 머리글로 고른다. 그 목록은 deliverable_markdown 에 있다 —
 # HTML 도 같은 목록으로 숫자 칸을 오른쪽에 맞추므로 두 형식이 갈리지 않는다.
 _NUMERIC_TEXT = re.compile(r"^-?[\d,]+$")
+_PERCENT_TEXT = re.compile(r"^-?\d+(?:\.\d+)?%$")
 
 _TITLE_FONT = Font(bold=True, size=15)
 _META_FONT = Font(size=10, color="FF555555")
@@ -215,7 +216,9 @@ def _write_table_sheet(sheet: Worksheet, section: Any) -> None:
             cell = sheet.cell(row=2 + offset, column=column, value=value)
             cell.border = _BORDER
             cell.alignment = _TOP_LEFT
-            if isinstance(value, int):
+            if header[column - 1] == "업무 완료율" and isinstance(value, (int, float)):
+                cell.number_format = "0.0%"
+            elif isinstance(value, int):
                 cell.number_format = "#,##0"
             widths[column - 1] = max(widths[column - 1], _display_width(raw))
 
@@ -255,6 +258,11 @@ def _as_number(text: Any) -> Any:
     if not isinstance(text, str) or text == EMPTY:
         return text
     stripped = text.strip()
+    if _PERCENT_TEXT.match(stripped):
+        try:
+            return float(stripped[:-1]) / 100
+        except ValueError:
+            return text
     if not _NUMERIC_TEXT.match(stripped):
         return text
     try:
