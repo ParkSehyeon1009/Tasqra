@@ -40,7 +40,7 @@ export default function AuthPage({ mode, onAuthenticated, notify }) {
   return <main className="auth-shell">
     <section className="auth-brand" aria-label="Tasqra 소개">
       <Link to="/" className="auth-brand__logo"><Logo/></Link>
-      <div className="auth-brand__copy"><p className="eyebrow">DOCUMENT TO PROJECT</p><h1>문서의 맥락을 잃지 않고<br/>실행까지 연결하세요.</h1><p>OCR 검수, AI 분석, 프로젝트 업무와 산출물을 하나의 흐름으로 관리합니다.</p></div>
+      <div className="auth-brand__copy"><p className="eyebrow">DOCUMENT TO PROJECT</p><h1>문서의 맥락을 잃지 않고<br/>실행까지 연결하세요.</h1><p>공공 SI·용역 프로젝트의 문서 분석, 원문 근거 검색, 프로젝트 업무와 산출물을 하나의 흐름으로 관리합니다.</p></div>
       <div className="auth-brand__visual" aria-hidden="true"><span>T</span><i/><i/><b>DOC</b><b>AI</b><b>TASK</b></div>
       <ul><li>원문과 분석 근거 연결</li><li>프로젝트별 안전한 권한 관리</li><li>검토와 변경 이력 보존</li></ul>
     </section>
