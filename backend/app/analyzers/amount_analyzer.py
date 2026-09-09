@@ -3,6 +3,7 @@
 # ③ Spring 비교: AIClient를 주입받아 DTO를 반환하는 전용 @Service 어댑터에 해당한다.
 
 import json
+import logging
 import re
 
 from app.ai.client_protocol import AIRequest
@@ -11,8 +12,12 @@ from app.analyzers.prompt_input import PromptBudget, TextChunk, split_document
 from app.analyzers.protocol import AnalyzeResult
 from app.analyzers.runner import Runner
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.exceptions import BusinessError
 from app.schemas.amount import AmountExtractionOut
 from app.services.amount_normalizer import normalize_number
+
+logger = logging.getLogger(__name__)
 
 AMOUNT_PROMPT_VERSION = "amount-v6"
 _AMOUNT_STAGE = "금액 추출"
@@ -29,7 +34,16 @@ _COMMA_AMOUNT = re.compile(r"(?<!\d)\d{1,3}(?:,\d{3})+(?!\d)")
 _PLAIN_AMOUNT = re.compile(r"(?<![\d,])\d{4,}(?![\d,])")
 _WON_AMOUNT = re.compile(r"(?:[₩￦\\]\s*\d[\d,]*|\d[\d,]*\s*원|[일이삼사오육칠팔구십백천만억조]+\s*원)")
 _LINE_AMOUNT_NUMBER = re.compile(
-    r"(?:(?<![\w+\-−–—.,])[₩￦\\]\s*"
+    # 🔴 「금97,300,000원」을 읽는 갈래. 이것이 맨 앞에 와야 한다.
+    #   아래 세 갈래는 모두 (?<![\w...]) 로 시작하는데, 한글도 \w 라서
+    #   숫자 바로 앞에 「금」이 붙으면 전부 막혔다. 공공 문서의 기초금액·
+    #   추정금액은 대부분 이 붙여 쓴 표기라, 원문에 분명히 적힌 금액을
+    #   _ground_amount_quotes 가 "근거 줄 0개"로 보고 분석을 통째로
+    #   실패시켰다(2026-09-09, 문서 43 기초금액 97,300,000).
+    #   띄어 쓴 「금 50,000,000 원」은 원래도 읽혔다 — 붙여 쓴 것만 못 읽었다.
+    r"(?:(?<![\w+\-−–—.,])금\s*"
+    r"(?P<geum>\d{1,3}(?:,\d{3})+|\d+)\s*원(?![+\-−–—]|[.,]?\d)|"
+    r"(?<![\w+\-−–—.,])[₩￦\\]\s*"
     r"(?P<prefix>\d{1,3}(?:,\d{3})+|\d+)(?![\w+\-−–—]|[.,]\d)|"
     r"(?<![\w+\-−–—.,])(?P<suffix>\d{1,3}(?:,\d{3})+|\d+)\s*원"
     r"(?![+\-−–—]|[.,]?\d)|"
@@ -303,22 +317,58 @@ class AmountAnalyzer:
             )
 
         extractions = []
+        failed_chunks: list[int] = []
         for index, chunk in enumerate(chunks):
             stage = f"{_AMOUNT_STAGE} {index + 1}/{len(chunks)}"
             runner.progress(stage, index, len(chunks))
-            extraction = await runner.call(
-                _build_amount_prompt(chunk.text, chunk.start, chunk.end),
-                AmountExtractionOut,
-                parser=lambda result, source=chunk.text: _ground_amount_quotes(
-                    parse_amount_extraction(result), source
-                ),
-                # 모델의 자유 형식 인용문을 신뢰하지 않는다. 추출 금액이 숫자로
-                # 명시된 원문 줄이 하나일 때만 그 줄로 교체한 결과를 검증한다.
-                validate=lambda value, source=chunk.text: _require_grounded_quotes(value, source),
-                stage=stage,
-            )
+            try:
+                extraction = await runner.call(
+                    _build_amount_prompt(chunk.text, chunk.start, chunk.end),
+                    AmountExtractionOut,
+                    parser=lambda result, source=chunk.text: _ground_amount_quotes(
+                        parse_amount_extraction(result), source
+                    ),
+                    # 모델의 자유 형식 인용문을 신뢰하지 않는다. 추출 금액이 숫자로
+                    # 명시된 원문 줄이 하나일 때만 그 줄로 교체한 결과를 검증한다.
+                    validate=lambda value, source=chunk.text: _require_grounded_quotes(value, source),
+                    stage=stage,
+                )
+            except BusinessError as error:
+                # ⚠️ 넘길 수 있는 실패는 **모델이 형식·근거를 어긴 것**뿐이다.
+                #   타임아웃(AI_TIMEOUT)·공급자 오류(AI_PROVIDER_ERROR)는 인프라
+                #   장애라 그대로 올린다. 그것까지 삼키면 Ollama 가 죽어 있어도
+                #   "금액 없는 문서" 로 조용히 성공해 버린다.
+                if error.error_code is not ErrorCode.AI_INVALID_RESPONSE:
+                    raise
+                # 🔴 한 구간이 실패했다고 나머지를 버리지 않는다. 일정 추출이
+                #   이미 쓰는 방식이다(schedule_analyzer 의 failed_groups).
+                #
+                #   왜 필요한가 — 실측 근거
+                #     모델이 수량을 금액으로 착각해 지어내는 일이 있다
+                #     (「도로재포장 5,324㎡」→ 532,400원). 그 값은 원문 어느
+                #     줄에도 없어 _ground_amount_quotes 가 막는데, 예전에는
+                #     그 한 구간 때문에 42구간 전체가 0건이 됐다. 지어냄을
+                #     막는 것은 그대로 두고, 멀쩡한 구간만 살린다.
+                #
+                #   전부 실패하면 아래에서 그대로 실패시킨다 — 조용히 0건을
+                #   성공으로 보고하면 "금액이 없는 문서"와 구별되지 않는다.
+                failed_chunks.append(index + 1)
+                logger.warning("금액 구간 실패, 나머지 구간은 이어서 처리 stage=%s", stage)
+                runner.progress(stage, index + 1, len(chunks))
+                continue
             extractions.append(extraction)
             runner.progress(stage, index + 1, len(chunks))
+
+        if not extractions:
+            raise BusinessError(
+                ErrorCode.AI_INVALID_RESPONSE,
+                f"{_AMOUNT_STAGE} {len(chunks)}개 구간이 모두 실패했습니다.",
+            )
+        if failed_chunks:
+            logger.warning(
+                "금액 추출 부분 성공: %d/%d 구간 저장, 실패 구간 %s",
+                len(extractions), len(chunks), failed_chunks,
+            )
 
         merged = _merge_extractions(extractions)
         return AnalyzeResult(

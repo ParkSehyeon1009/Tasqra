@@ -431,10 +431,56 @@ def test_amount_analyzer_rejects_quote_from_another_candidate_window(config):
         "notes": None,
     }
 
-    with pytest.raises(BusinessError) as exc:
-        asyncio.run(AmountAnalyzer(FakeAmountAI(payload), config).analyze(source))
+    # 🔴 2026-09-09 계약이 좁아졌다. 예전에는 한 구간이 어긋나면 분석 **전체**가
+    #   실패했다. 지금은 어긋난 구간만 버리고 나머지는 살린다(부분 저장).
+    #   지켜야 할 성질은 그대로다 — 원문에 없는 인용으로는 저장되지 않는다.
+    #   여기서는 2구간에 그 줄이 실제로 있으므로 거기 근거로 저장된다.
+    #   모든 구간이 실패하는 경우는 아래 test_..._allowed_lines_are_empty 가 지킨다.
+    result = asyncio.run(AmountAnalyzer(FakeAmountAI(payload), config).analyze(source))
 
-    assert exc.value.error_code is ErrorCode.AI_INVALID_RESPONSE
+    items = result.result["items"]
+    assert len(items) == 1
+    # 인용은 원문에 실제로 있는 줄이어야 한다. 1구간의 잘못된 인용이 아니라
+    # 그 줄이 실제로 있는 구간에서 근거를 얻었는지 본다.
+    assert items[0]["source_quote"] == other_quote
+    assert other_quote in source
+
+
+def test_amount_analyzer_keeps_grounded_chunk_when_another_chunk_hallucinates(config):
+    """지어낸 구간만 버리고 멀쩡한 구간은 저장한다.
+
+    실측 배경(2026-09-09): 모델이 「도로재포장 5,324㎡」를 보고 532,400원을
+    지어냈다. 그 값은 원문 어느 줄에도 없어 막히는데, 예전에는 그 한 구간
+    때문에 42구간 전체가 0건이 됐다.
+    """
+    real_quote = "기초금액 1,000,000원"
+    source = "\n".join([
+        real_quote,
+        *(f"안내 문구 {index}" for index in range(20)),
+        "면적 5,324㎡",
+    ])
+
+    def answer(prompt):
+        # 뒤쪽 구간에서는 원문에 없는 금액을 지어낸다.
+        지어냄 = "5,324㎡" in prompt.user and real_quote not in prompt.user
+        amount = 532_400 if 지어냄 else 1_000_000
+        quote = "면적 5,324㎡" if 지어냄 else real_quote
+        return {
+            "document_type": "RFP", "currency": "KRW", "stated_total": None,
+            "items": [{
+                "item_name": "포장", "category": "OTHER", "quantity": None,
+                "unit": None, "unit_price": None, "amount": amount,
+                "period_from": None, "period_to": None, "source_quote": quote,
+                "confidence": 0.9, "reason": "테스트",
+            }],
+            "notes": None,
+        }
+
+    result = asyncio.run(AmountAnalyzer(FakeAmountAI(answer), config).analyze(source))
+
+    amounts = [item["amount"] for item in result.result["items"]]
+    assert 1_000_000 in amounts, "근거가 있는 금액은 저장되어야 한다"
+    assert 532_400 not in amounts, "원문에 없는 금액은 저장되면 안 된다"
 
 
 def test_amount_analyzer_rejects_quote_when_allowed_lines_are_empty(config):
